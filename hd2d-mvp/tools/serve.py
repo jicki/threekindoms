@@ -6,6 +6,7 @@ straight from desktop/node_modules (npm --prefix hd2d-mvp/desktop install, once)
 import io
 import posixpath
 import re
+import signal
 import sys
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -74,4 +75,10 @@ for probe in ('hd2d-mvp/assets/ai/portraits/0.webp', 'hd2d-mvp/assets/ai/sandtab
         print('Note: the art is missing from hd2d-mvp/assets/;'
               ' unzip the asset pack from the Releases page in the repository root (see README.md)', file=sys.stderr)
         break
-ThreadingHTTPServer(('', port), partial(NoCache, directory=str(root))).serve_forever()
+def terminate(_signum, _frame):
+    raise SystemExit(0)
+
+# 容器中的 Python 可能是 PID 1，需要显式处理停止信号。
+signal.signal(signal.SIGTERM, terminate)
+with ThreadingHTTPServer(('', port), partial(NoCache, directory=str(root))) as server:
+    server.serve_forever()

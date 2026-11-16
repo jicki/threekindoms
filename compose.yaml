@@ -1,0 +1,6 @@
+services:
+  game:
+    build: .
+    init: true
+    ports:
+      - "${GAME_BIND_ADDRESS:-127.0.0.1}:${GAME_PORT:-8677}:8677"

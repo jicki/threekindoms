@@ -57,6 +57,25 @@ python3 hd2d-mvp/tools/serve.py 8677      # 启动开发服务器
 
 游戏的背景音乐由代码实时合成，音效使用仓库里的文件。
 
+### 使用 Docker Compose
+
+需要 Docker 和 Docker Compose。构建前先按「获取代码与素材」下载并解压与代码版本对应的素材包；素材会打包进镜像，更新素材或代码后重新运行 `make up` 即可重新构建。构建时只检查两个关键素材，完整性请使用上面的 SHA-256 校验命令确认。
+
+```bash
+make up       # 构建镜像并在后台启动
+make ps       # 查看服务状态
+make logs     # 查看服务日志，按 Ctrl+C 退出
+make down     # 停止并移除容器
+```
+
+打开 http://localhost:8677/hd2d-mvp/ 。也可单独执行 `make build` 构建镜像。默认只监听本机的 8677 端口；可以通过环境变量修改监听地址和宿主机端口，例如：
+
+```bash
+GAME_BIND_ADDRESS=0.0.0.0 GAME_PORT=8080 make up
+```
+
+游戏记录保存在浏览器本地，容器不保存存档；更换浏览器或访问地址后不会自动共享记录。
+
 ## 测试
 
 浏览器测试用 Playwright 驱动本机 Chrome 的无头模式，需要先装 Playwright（`npm i -g playwright`）和 Google Chrome。
