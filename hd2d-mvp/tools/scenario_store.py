@@ -1,7 +1,9 @@
 """校验并原子保存发布后的游戏版本。已发布的编号不可覆盖。"""
 import json
+import logging
 import os
 import re
+import stat
 import tempfile
 from pathlib import Path
 
@@ -187,9 +189,16 @@ class VersionRepository:
         if not ID.fullmatch(version_id):
             raise FileNotFoundError(version_id)
         path = self.directory / f'{version_id}.json'
-        fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
-        with os.fdopen(fd, 'rb') as f:
-            raw = f.read(MAX_BYTES + 1)
+        fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise ScenarioError('版本文件须为普通文件')
+            with os.fdopen(fd, 'rb') as f:
+                fd = None
+                raw = f.read(MAX_BYTES + 1)
+        finally:
+            if fd is not None:
+                os.close(fd)
         if len(raw) > MAX_BYTES:
             raise ScenarioError('版本文件过大')
         value = json.loads(raw)
@@ -197,20 +206,29 @@ class VersionRepository:
             raise ScenarioError('版本文件损坏')
         return value
 
-    def list(self):
-        if not self.directory.exists():
+    def list(self, on_error=None):
+        try:
+            entries = os.scandir(self.directory)
+        except FileNotFoundError:
             return []
         result = []
-        for path in self.directory.glob('v-*.json'):
-            version_id = path.stem
-            if not ID.fullmatch(version_id) or path.is_symlink():
-                continue
-            try:
-                value = self.read(version_id)
-                text(value.get('name'), '版本名称', 40)
-                result.append({'id': version_id, 'name': value['name'], 'savedAt': int(path.stat().st_mtime * 1000)})
-            except (OSError, ValueError, UnicodeError) as error:
-                raise ScenarioError(f'已发布的版本 {version_id} 无法读取') from error
+        with entries:
+            for entry in entries:
+                if not entry.name.endswith('.json'):
+                    continue
+                version_id = entry.name[:-5]
+                if not ID.fullmatch(version_id):
+                    continue
+                try:
+                    if entry.is_symlink():
+                        raise ScenarioError('版本文件不能是符号链接')
+                    value = self.read(version_id)
+                    text(value.get('name'), '版本名称', 40)
+                    result.append({'id': version_id, 'name': value['name'], 'savedAt': int(entry.stat().st_mtime * 1000)})
+                except (OSError, ValueError, UnicodeError, RecursionError) as error:
+                    logging.getLogger(__name__).warning('跳过无法读取的游戏版本 %s（%s）', version_id, type(error).__name__)
+                    if on_error:
+                        on_error(version_id)
         return sorted(result, key=lambda r: r['savedAt'], reverse=True)
 
     def publish(self, value):

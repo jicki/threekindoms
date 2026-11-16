@@ -44,7 +44,7 @@ export function configureStrategies() {
     STRATS.push({ ...skill, ai: skill.cost, custom: true });
     const effects = [skill.soldiers ? `损兵 ${skill.soldiers}` : '', skill.hp ? `体力减少 ${skill.hp}` : '',
       skill.stop ? `限制移动 ${skill.stop} 日` : '', skill.rice ? `损失粮草 ${skill.rice}` : ''].filter(Boolean);
-    STRAT_INFO.push({ does: effects.join('，'), where: '6格内敌军' });
+    STRAT_INFO.push({ does: effects.join('，'), where: '5格内敌军' });
   }
 }
 const SPECIAL = [ // unlock by level for named strategists (6.3 §1)
@@ -193,7 +193,7 @@ export class Field {
     const dayTurns = side !== this.turn && side === 'att', kong = this.kongmingOn();
     for (const u of this.alive) {
       if (u.side !== side || (only && u !== only)) continue;
-      const stop = Math.max(0, (u.stop || 0) - (dayTurns ? 1 : 0)), qimen = Math.max(0, (u.qimen || 0) - (dayTurns && kong ? 1 : 0));
+      const stop = Math.max(0, (u.stop || 0) - (dayTurns && !u.stopSkipTick ? 1 : 0)), qimen = Math.max(0, (u.qimen || 0) - (dayTurns && kong ? 1 : 0));
       const from = stop || qimen ? [`${u.x},${u.y}`] : [...this.reach({ ...u, stop: 0, qimen: 0 }, budget).dist.keys()];
       for (const k of from) { const [x, y] = k.split(',').map(Number); for (const [dx, dy] of DIRS) if (this.inside(x + dx, y + dy)) out.add(`${x + dx},${y + dy}`); }
     }
@@ -353,7 +353,7 @@ export class Field {
     if (id === 9 && T !== MOUNT && T !== CASTLE) return '需自己位于山地或城中';
     if (id === 13 && T !== CASTLE) return '需自己位于城中';
     if (this.side(u.side === 'att' ? 'def' : 'att').some((e) => this.legal(u, id, e))) return null;
-    return `6格内没有符合条件的敌军（${STRAT_INFO[id].where.replace(/^自己在[^，]*，/, '')}）`;
+    return `${S.custom ? 5 : 6}格内没有符合条件的敌军（${STRAT_INFO[id].where.replace(/^自己在[^，]*，/, '')}）`;
   }
   hitChance(u, t) {
     const d = this.dist(u, t); if (d >= 6) return 0;
@@ -413,7 +413,12 @@ export class Field {
     if (S.custom) {
       if (S.soldiers) loss(t, S.soldiers);
       if (S.hp) hp(t, S.hp);
-      if (S.stop && !t.gone) { t.stop = S.stop; t.stopBy = S.name; lines.push(`${nm(t)} 无法移动 ${S.stop} 日`); }
+      if (S.stop && !t.gone) {
+        t.stop = S.stop; t.stopBy = S.name;
+        // 守方施放后立即换日，但目标尚未行动，首次换日不消耗限制天数。
+        if (u.side === 'def') t.stopSkipTick = true; else delete t.stopSkipTick;
+        lines.push(`${nm(t)} 无法移动 ${S.stop} 日`);
+      }
       if (S.rice) {
         const ch = this.chest(t.side), amount = Math.min(ch.rice, S.rice);
         ch.rice -= amount; hits.push({ u: t, rice: -amount }); lines.push(`烧毁敌军米 ${amount}`);
@@ -424,7 +429,7 @@ export class Field {
     switch (id) {
       case 0: case 6: fire(t); break;
       case 1: hp(t, Math.floor((L() + Math.floor(((a.war + a.int) & 255) / 10)) * (5 + U(3)) / 10)); break;
-      case 2: t.stop = u.side === 'def' ? 2 : 3; t.stopBy = '虚兵'; lines.push(`${nm(t)} 中了虚兵之计，无法移动`); break;
+      case 2: t.stop = u.side === 'def' ? 2 : 3; t.stopBy = '虚兵'; delete t.stopSkipTick; lines.push(`${nm(t)} 中了虚兵之计，无法移动`); break;
       case 3: loss(t, Math.floor((a.war * (14 + U(7))) / 10)); break;
       case 4: loss(t, Math.floor((a.int * (20 + U(7))) / 10) + L() + 7); break;
       case 5: { const ch = this.chest(t.side), d = Math.min(ch.rice, Math.floor((ch.rice * (10 + U(5))) / 100) + Math.floor(a.int / 5)); ch.rice -= d; hits.push({ u: t, rice: -d }); lines.push(`烧毁敌军米 ${d}`); break; }
@@ -435,7 +440,7 @@ export class Field {
         lines.push(`${nm(t)} 倒戈投向我军`); break;
       }
       case 9: hp(t, Math.floor((L() + Math.floor(((a.war + a.int) & 255) / 10)) * (5 + U(3)) / 10)); if (!t.gone) loss(t, Math.floor((a.war * (14 + U(7))) / 10)); break;
-      case 10: for (const v of this.component(t)) if (this.terr(v.x, v.y) === RIVER) { v.stop = 3 + U(2) + (u.side === 'att' ? 1 : 0); v.stopBy = '连环'; lines.push(`${nm(v)} 被连环锁住`); } break;
+      case 10: for (const v of this.component(t)) if (this.terr(v.x, v.y) === RIVER) { v.stop = 3 + U(2) + (u.side === 'att' ? 1 : 0); v.stopBy = '连环'; delete v.stopSkipTick; lines.push(`${nm(v)} 被连环锁住`); } break;
       case 12: for (const v of this.component(t)) if (this.terr(v.x, v.y) === RIVER) loss(v, Math.floor((a.int * (20 + U(7))) / 10) + L() + 7); break;
       case 13: loss(t, 150 + U(200) + Math.floor(((a.war + a.int) & 255) / 2)); break;
       case 14: for (const v of this.component(t)) loss(v, Math.floor((a.int * (30 + U(6))) / 10)); break;
@@ -472,7 +477,8 @@ export class Field {
     const kongming = this.kongmingOn(), qimen = [];
     let sum = 0;
     for (const u of this.alive) {
-      if (u.stop) u.stop--;
+      if (u.stop && !u.stopSkipTick) u.stop--;
+      delete u.stopSkipTick;
       if (u.qimen && kongming) {
         u.qimen--; let v; do v = this.r(256); while (v >= 71);
         const o = this.O(u.id), d = Math.min(o.soldiers, 80 + v); o.soldiers -= d;

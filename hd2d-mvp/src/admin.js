@@ -165,7 +165,7 @@ if (base) {
       ['stop', '限制移动天数', 0, 10], ['rice', '粮草损失', 0, 9999]];
     form.append(el('div', { class: 'form-grid' }, field('名称', string('name', s.name)),
       ...fields.map(([key, label, lo, hi]) => field(label, input(key, s[key], lo, hi)))),
-      el('p', { class: 'intro' }, '目标为 6 格内敌将；效果可以组合，命中率沿用现有战场规则。技能可在武将页面分配。'), formButtons());
+      el('p', { class: 'intro' }, '目标为 5 格内敌将；效果可以组合，命中率沿用现有战场规则。技能可在武将页面分配。'), formButtons());
     markForm(form);
     form.addEventListener('submit', (event) => {
       event.preventDefault(); const fd = new FormData(form), value = { id: s.id, name: String(fd.get('name')).trim(),
@@ -208,6 +208,9 @@ if (base) {
     const old = $('published').value;
     $('published').replaceChildren(el('option', { value: '' }, '从原版开始'), ...versions.map((v) => el('option', { value: v.id }, v.name)));
     if (versions.some((v) => v.id === old)) $('published').value = old;
+    const warning = $('version-warning');
+    warning.hidden = !versions.skipped;
+    warning.textContent = versions.skipped ? `有 ${versions.skipped} 个已发布版本无法读取，已跳过；请检查服务器日志和版本文件。` : '';
   }
   $('load-version').onclick = async () => {
     if (!abandonDraft()) return;

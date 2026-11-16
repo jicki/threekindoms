@@ -18,6 +18,7 @@ import tempfile
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Lock
 from urllib.parse import unquote, urlsplit
 from scenario_store import MAX_BYTES, ScenarioError, VersionRepository
 
@@ -31,14 +32,46 @@ versions = VersionRepository(version_dir,
                              root / 'hd2d-mvp/data/game-data.json')
 
 
+def trusted_owner(info):
+    get_uid = getattr(os, 'geteuid', None)
+    if get_uid is None or not hasattr(info, 'st_uid'):
+        raise ValueError('无法验证管理员令牌存储的所有者')
+    return info.st_uid in (0, get_uid())
+
+
+def check_admin_directory(directory):
+    if directory.resolve() != directory:
+        raise ValueError('管理员令牌目录已更改')
+    info = directory.stat()
+    if not stat.S_ISDIR(info.st_mode) or stat.S_IMODE(info.st_mode) & 0o022 or not trusted_owner(info):
+        raise ValueError('管理员令牌目录所有者或访问权限不安全')
+
+
+def read_admin_digest(path):
+    try:
+        check_admin_directory(path.parent)
+        fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
+    except FileNotFoundError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) & 0o077 or not trusted_owner(info):
+            raise ValueError('管理员令牌文件所有者或访问权限不安全')
+        with os.fdopen(fd, 'rb') as saved:
+            fd = None
+            digest = saved.read(65).decode('ascii')
+    finally:
+        if fd is not None:
+            os.close(fd)
+    if not re.fullmatch(r'[a-f0-9]{64}', digest):
+        raise ValueError('管理员令牌文件内容无效')
+    return digest
+
+
 def configure_admin():
     """保存令牌校验值；未配置持久路径时维持进程内认证。"""
     token = os.environ.get('GAME_ADMIN_TOKEN', '')
     filename = os.environ.get('GAME_ADMIN_TOKEN_FILE', '')
-    def check_directory(directory):
-        info = directory.stat()
-        if not stat.S_ISDIR(info.st_mode) or stat.S_IMODE(info.st_mode) & 0o022:
-            raise ValueError('管理员令牌目录不能被其他用户写入')
     try:
         path = None
         if filename:
@@ -55,7 +88,7 @@ def configure_admin():
             digest = hashlib.sha256(token.encode('ascii')).hexdigest()
             if path:
                 path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-                check_directory(path.parent)
+                check_admin_directory(path.parent)
                 fd, temporary = tempfile.mkstemp(prefix='.token-', dir=path.parent)
                 try:
                     with os.fdopen(fd, 'w', encoding='ascii') as output:
@@ -64,28 +97,36 @@ def configure_admin():
                     os.replace(temporary, path)
                 finally:
                     if os.path.exists(temporary): os.unlink(temporary)
-            return digest
+            return digest, path
         if not path:
-            return None
-        try:
-            check_directory(path.parent)
-            fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
-        except FileNotFoundError:
-            return None
-        with os.fdopen(fd, 'rb') as saved:
-            info = os.fstat(saved.fileno())
-            if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) & 0o077:
-                raise ValueError('管理员令牌文件须为仅所有者可访问的普通文件')
-            digest = saved.read(65).decode('ascii')
-        if not re.fullmatch(r'[a-f0-9]{64}', digest):
-            raise ValueError('管理员令牌文件内容无效')
-        return digest
+            return None, None
+        return read_admin_digest(path), path
     except (OSError, ValueError, UnicodeError, RuntimeError) as error:
         print(f'管理员令牌不可用：{error}；已禁用发布。', file=sys.stderr)
-        return None
+        # 显式配置失败时不能回退到旧文件，即使它后来变得可读。
+        return None, None
 
 
-admin_digest = configure_admin()
+admin_digest, admin_file = configure_admin()
+admin_file_lock = Lock()
+admin_file_error = None
+
+
+def current_admin_digest():
+    """使用共享持久文件的进程在每次认证时读取最新校验值。"""
+    global admin_file_error
+    if admin_file is None:
+        return admin_digest
+    try:
+        digest = read_admin_digest(admin_file)
+        error = '令牌文件不存在' if digest is None else None
+    except (OSError, ValueError, UnicodeError, RuntimeError) as exc:
+        digest, error = None, str(exc)
+    with admin_file_lock:
+        if error and error != admin_file_error:
+            print(f'管理员令牌不可用：{error}；已禁用发布。', file=sys.stderr)
+        admin_file_error = error
+    return digest
 
 def fonts_css():
     # @fontsource's per-weight sheets, woff2 only; their url(./files/…) resolve under vendor/fonts/files/.
@@ -109,19 +150,25 @@ class NoCache(SimpleHTTPRequestHandler):
         super().end_headers()
     def log_message(self, *a): pass
 
-    def json_response(self, status, value):
+    def json_response(self, status, value, headers=None):
         body = json.dumps(value, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
         self.send_response(status)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Content-Length', str(len(body)))
         self.send_header('X-Content-Type-Options', 'nosniff')
+        for name, content in (headers or {}).items():
+            self.send_header(name, content)
         self.end_headers()
         self.wfile.write(body)
 
     def do_GET(self):
         path = urlsplit(self.path).path
         if path == '/api/versions':
-            try: self.json_response(200, versions.list())
+            try:
+                skipped = []
+                result = versions.list(on_error=skipped.append)
+                headers = {'X-Game-Version-Skipped': str(len(skipped))} if skipped else None
+                self.json_response(200, result, headers)
             except (OSError, ScenarioError) as error:
                 print(f'读取游戏版本失败：{error}', file=sys.stderr)
                 self.json_response(500, {'error': '无法读取已发布的游戏版本'})
@@ -130,7 +177,7 @@ class NoCache(SimpleHTTPRequestHandler):
         if match:
             try: self.json_response(200, versions.read(match.group(1)))
             except FileNotFoundError: self.json_response(404, {'error': '游戏版本不存在'})
-            except (OSError, ValueError, UnicodeError) as error:
+            except (OSError, ValueError, UnicodeError, RecursionError) as error:
                 print(f'读取游戏版本失败：{error}', file=sys.stderr)
                 self.json_response(500, {'error': '游戏版本无法读取'})
             return
@@ -141,10 +188,11 @@ class NoCache(SimpleHTTPRequestHandler):
     def do_POST(self):
         if urlsplit(self.path).path != '/api/versions':
             self.json_response(404, {'error': '接口不存在'}); return
-        if not admin_digest:
+        digest = current_admin_digest()
+        if not digest:
             self.json_response(503, {'error': '服务器未配置有效的管理员令牌'}); return
         auth = self.headers.get('Authorization', '')
-        if not auth.startswith('Bearer ') or not hmac.compare_digest(hashlib.sha256(auth[7:].encode('utf-8')).hexdigest(), admin_digest):
+        if not auth.startswith('Bearer ') or not hmac.compare_digest(hashlib.sha256(auth[7:].encode('utf-8')).hexdigest(), digest):
             self.json_response(401, {'error': '管理员令牌无效'}); return
         origin = self.headers.get('Origin')
         if origin:

@@ -7,8 +7,9 @@ import { peekSuspend, suspend } from '../src/core/suspend.js';
 import { setOfficer } from '../src/core/saveedit.js';
 import { Tactical } from '../src/core/tactical.js';
 import { skirmish } from '../src/core/skirmish.js';
-import { Field } from '../src/core/field.js';
+import { Field, STRAT_INFO, PLAIN, FOREST, RIVER } from '../src/core/field.js';
 import { setupWar } from '../src/core/warcore.js';
+import { listScenarios } from '../src/core/scenario-store.js';
 
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
 const editable = (o) => Object.fromEntries(['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'appear', 'city', 'faction'].map((k) => [k, o[k]]));
@@ -144,4 +145,117 @@ test('an assigned new skill combines its configured effects and spends mobility'
     const aiAction = f.aiDecide(foe);
     assert.equal(aiAction?.type, 'strategy'); assert.equal(aiAction.id, 16, 'AI can use an assigned custom skill');
   } finally { G.setData(base); }
+});
+
+function skillField() {
+  const g = G.newGame(4, 1, 1), from = g.cities[g.factions[g.player].city];
+  const to = g.cities.find((c) => c.faction !== G.NONE && c.faction !== g.player && c.officers.length);
+  const id = from.officers[0], war = setupWar(g, { from: from.id, to: to.id, ids: [id], commander: id, gold: 100, rice: 9000 });
+  const f = new Field(g, war, null);
+  f.map = Array.from({ length: 19 }, () => Array(32).fill(PLAIN));
+  for (const [side, x] of [['att', 10], ['def', 12]]) {
+    const u = f.side(side)[0]; Object.assign(u, { x, y: 10 });
+    f.O(u.id).soldiers = 500; f.O(u.id).int = 90; f.pool[side] = 99;
+  }
+  f.r = () => 0;
+  return f;
+}
+
+test('custom movement restrictions last the configured number of target turns on either side', () => {
+  const s = draft();
+  for (const [id, stop] of [[16, 1], [17, 3]]) s.skills.push({ id, name: `禁行${stop}`, cost: 4, soldiers: 0, hp: 0, stop, rice: 0 });
+  try {
+    G.setData(applyScenario(base, s), s.id);
+    for (const side of ['att', 'def']) for (const duration of [1, 3]) {
+      let f = skillField(), caster = f.side(side)[0], target = f.side(side === 'att' ? 'def' : 'att')[0];
+      f.turn = side;
+      // AI 也走相同的技能效果路径，不受此测试所选武将的技能分配影响。
+      assert.equal(f.cast(caster, duration === 1 ? 16 : 17, target, true).hit, true);
+      assert.equal(target.stop, duration);
+      if (side === 'def') {
+        assert.equal(f.threat('att', target).size, 4, '预测须考虑首次换日不扣除');
+        const snap = JSON.parse(JSON.stringify(f.snapshot()));
+        f = Field.restore(f.g, f.war, snap); f.map = Array.from({ length: 19 }, () => Array(32).fill(PLAIN)); f.r = () => 0;
+        target = f.side('att')[0];
+        assert.equal(target.stopSkipTick, true, '中断战斗保留尚未消耗的首次换日');
+      }
+      f.endTurn();
+      for (let remaining = duration; remaining > 0; remaining--) {
+        assert.equal(f.turn, target.side); assert.equal(target.stop, remaining);
+        assert.equal(f.reach(target, 99).dist.size, 1, `${side}施放应限制目标行动`);
+        f.endTurn(); f.endTurn();
+      }
+      assert.equal(target.stop, 0); assert.ok(f.reach(target, 99).dist.size > 1);
+    }
+  } finally { G.setData(base); }
+});
+
+test('original holds retain their timing when they replace a custom restriction', () => {
+  const s = draft(); s.skills.push({ id: 16, name: '禁行', cost: 4, soldiers: 0, hp: 0, stop: 1, rice: 0 });
+  try {
+    G.setData(applyScenario(base, s), s.id);
+    for (const id of [2, 10]) {
+      const f = skillField(), caster = f.side('def')[0], target = f.side('att')[0]; f.turn = 'def';
+      assert.equal(f.cast(caster, 16, target, true).hit, true);
+      let neighbour;
+      if (id === 2) f.map[target.y][target.x] = FOREST;
+      else {
+        neighbour = { ...target, id: (target.id + 1) % f.g.officers.length, x: target.x + 1, commander: false };
+        f.units.push(neighbour); f.map[target.y][target.x] = f.map[neighbour.y][neighbour.x] = RIVER;
+      }
+      assert.equal(f.legal(caster, id, target), true);
+      assert.equal(f.cast(caster, id, target, true).hit, true);
+      assert.equal(target.stopSkipTick, undefined);
+      if (neighbour) assert.equal(neighbour.stopSkipTick, undefined);
+      const before = target.stop; f.endTurn(); assert.equal(target.stop, before - 1);
+    }
+    const old = skillField(); old.turn = 'def';
+    const target = old.side('att')[0]; target.stop = 1;
+    const resumed = Field.restore(old.g, old.war, old.snapshot());
+    assert.ok(resumed.threat('att', resumed.side('att')[0]).size > 4, '旧存档没有标记时沿用原有预测');
+    resumed.endTurn(); assert.equal(resumed.side('att')[0].stop, 0);
+  } finally { G.setData(base); }
+});
+
+test('a custom restriction and 奇门 count down independently', () => {
+  const s = draft(); s.skills.push({ id: 16, name: '禁行', cost: 4, soldiers: 0, hp: 0, stop: 1, rice: 0 });
+  try {
+    G.setData(applyScenario(base, s), s.id);
+    const f = skillField(), caster = f.side('def')[0], target = f.side('att')[0]; f.turn = 'def';
+    f.kongmingOn = () => true; target.qimen = 2;
+    assert.equal(f.cast(caster, 16, target, true).hit, true);
+    f.endTurn();
+    assert.equal(target.stop, 1); assert.equal(target.qimen, 1); assert.equal(f.O(target.id).soldiers, 420);
+    f.endTurn(); f.endTurn();
+    assert.equal(target.stop, 0); assert.equal(target.qimen, 0); assert.equal(f.O(target.id).soldiers, 340);
+  } finally { G.setData(base); }
+});
+
+test('custom skill range and explanations match the five-cell legal boundary', () => {
+  const s = draft(); s.skills.push({ id: 16, name: '禁行', cost: 4, soldiers: 0, hp: 0, stop: 1, rice: 0 });
+  try {
+    G.setData(applyScenario(base, s), s.id);
+    const f = skillField(), caster = f.side('att')[0], target = f.side('def')[0];
+    target.x = caster.x + 5; assert.equal(f.legal(caster, 16, target), true);
+    target.x = caster.x + 6; assert.equal(f.legal(caster, 16, target), false);
+    assert.equal(STRAT_INFO[16].where, '5格内敌军');
+    assert.match(f.whyNot(caster, 16), /^5格内没有/);
+    assert.match(f.whyNot(caster, 0), /^6格内没有/, '原版计略说明保持不变');
+  } finally { G.setData(base); }
+});
+
+test('version list remains an array and accepts only safe skipped counts', async () => {
+  const location = Object.getOwnPropertyDescriptor(globalThis, 'location'), fetch = globalThis.fetch;
+  Object.defineProperty(globalThis, 'location', { configurable: true, value: { href: 'http://localhost/hd2d-mvp/' } });
+  try {
+    for (const [header, expected] of [['2', 2], ['0', 0], ['-1', 0], ['1e2', 0], ['99999999999999999', 0]]) {
+      globalThis.fetch = async () => new Response(JSON.stringify([{ id: 'v-test', name: '版本' }]), { headers: { 'X-Game-Version-Skipped': header } });
+      const versions = await listScenarios();
+      assert.ok(Array.isArray(versions)); assert.equal(versions.skipped, expected);
+      assert.equal(JSON.stringify(versions), '[{"id":"v-test","name":"版本"}]');
+    }
+  } finally {
+    globalThis.fetch = fetch;
+    if (location) Object.defineProperty(globalThis, 'location', location); else delete globalThis.location;
+  }
 });

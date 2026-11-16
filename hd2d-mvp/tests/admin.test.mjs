@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startGame, newCampaign, skipIntro, closeMessages, castGo } from './game.mjs';
@@ -167,7 +167,12 @@ test('an administrator publishes a playable version for another browser context'
           return enemy.id;
         });
         await player.locator('.unitpanel:not(.compare) .acts button', { hasText: '计略' }).click();
+        assert.match(await player.locator('.actpanel [data-sid="16"]').getAttribute('title'), /条件：5格内敌军/);
         await player.locator('.actpanel [data-sid="16"]').click();
+        await player.locator(`.actpanel [data-target="${target}"]`).waitFor();
+        const choosing = await player.evaluate(() => ({ id: window.__game.war.st.sel?.id, stage: window.__game.war.st.stage }));
+        await player.keyboard.press(']');
+        assert.deepEqual(await player.evaluate(() => ({ id: window.__game.war.st.sel?.id, stage: window.__game.war.st.stage })), choosing);
         await player.locator(`.actpanel [data-target="${target}"]`).click(); await castGo(player);
         await player.waitForFunction((id) => window.__game.war.field.O(id).soldiers === 420, target, { timeout: 30000 });
         await player.waitForFunction(() => !window.__game.war.st.busy, null, { timeout: 30000 });
@@ -239,4 +244,38 @@ test('moving the only starting officer makes that city neutral in the published 
     } finally { await player.context().close(); }
     assert.deepEqual(admin.errors, []);
   } finally { await admin.context().close(); }
+});
+
+test('damaged versions are reported while healthy versions remain publishable and playable', async () => {
+  const damaged = join(directory, `v-${'f'.repeat(32)}.json`);
+  writeFileSync(damaged, '{broken');
+  const admin = await game.open();
+  try {
+    await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
+    const warning = admin.locator('#version-warning');
+    await warning.waitFor();
+    assert.match(await warning.textContent(), /有 1 个已发布版本无法读取/);
+    await admin.getByRole('tab', { name: '新技能' }).click();
+    await admin.getByRole('button', { name: /新建技能/ }).click();
+    await admin.getByText(/目标为 5 格内敌将/).waitFor();
+    await admin.getByLabel('版本名称').fill('损坏隔离验证');
+    await admin.getByLabel('管理员令牌').fill(token);
+    await admin.getByRole('button', { name: '发布新版本' }).click();
+    await admin.getByText(/已发布“损坏隔离验证”/).waitFor();
+    assert.equal(await warning.isVisible(), true, '发布成功提示不会覆盖损坏版本警告');
+    const id = await admin.evaluate(() => window.__admin.lastPublished), player = await game.open();
+    try {
+      await skipIntro(player); await player.click('.sysmenu-btn');
+      await player.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
+      await player.getByText('有 1 个已发布版本无法读取，请联系管理员。').waitFor();
+      await player.locator('.shade .slot', { hasText: '损坏隔离验证' }).click();
+      await player.waitForFunction((expected) => window.__game?.debug && window.__game.G.currentScenario() === expected, id, { timeout: 60000 });
+      assert.deepEqual(player.errors, []);
+    } finally { await player.context().close(); }
+    rmSync(damaged);
+    await admin.reload(); await admin.waitForFunction(() => window.__admin);
+    await admin.waitForFunction(() => document.querySelector('#published').options.length > 1);
+    assert.equal(await admin.locator('#version-warning').isHidden(), true);
+    assert.deepEqual(admin.errors, []);
+  } finally { rmSync(damaged, { force: true }); await admin.context().close(); }
 });

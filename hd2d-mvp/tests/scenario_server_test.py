@@ -62,47 +62,55 @@ class ServerTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.process = None
+        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         self.start_server()
 
-    def start_server(self, token=TOKEN, token_file=None):
+    def start_server(self, token=TOKEN, token_file=None, version_dir=None):
+        self.process, self.url = self.launch_server(token, token_file, version_dir)
+
+    def launch_server(self, token=TOKEN, token_file=None, version_dir=None):
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
-        env = dict(os.environ, GAME_VERSION_DIR=self.temp.name, GAME_ADMIN_TOKEN=token, PYTHONDONTWRITEBYTECODE='1')
+        env = dict(os.environ, GAME_VERSION_DIR=str(version_dir or self.temp.name), GAME_ADMIN_TOKEN=token, PYTHONDONTWRITEBYTECODE='1')
         if token_file is None:
             env.pop('GAME_ADMIN_TOKEN_FILE', None)
         else:
             env['GAME_ADMIN_TOKEN_FILE'] = str(token_file)
-        self.process = subprocess.Popen([sys.executable, 'hd2d-mvp/tools/serve.py', str(port)], cwd=ROOT, env=env,
-                                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        self.url = f'http://127.0.0.1:{port}'
-        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        process = subprocess.Popen([sys.executable, 'hd2d-mvp/tools/serve.py', str(port)], cwd=ROOT, env=env,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        url = f'http://127.0.0.1:{port}'
         for _ in range(100):
             try:
-                self.request('/api/versions'); return
+                self.request('/api/versions', url=url); return process, url
             except urllib.error.URLError:
-                if self.process.poll() is not None:
-                    raise RuntimeError(self.process.stderr.read().decode())
+                if process.poll() is not None:
+                    message = process.stderr.read().decode(); process.stderr.close()
+                    raise RuntimeError(message)
                 time.sleep(.05)
+        process.terminate(); process.wait(timeout=5); process.stderr.close()
         raise RuntimeError('server did not start')
 
-    def request(self, path, *, value=None, token=None, origin=None):
+    def request(self, path, *, value=None, token=None, origin=None, url=None, include_headers=False):
         headers = {}
         if token is not None: headers['Authorization'] = 'Bearer ' + token
         if origin is not None: headers['Origin'] = origin
         body = None
         if value is not None:
             body = json.dumps(value, ensure_ascii=False).encode('utf-8'); headers['Content-Type'] = 'application/json'
-        req = urllib.request.Request(self.url + path, data=body, headers=headers)
+        req = urllib.request.Request((url or self.url) + path, data=body, headers=headers)
         try:
             with self.opener.open(req, timeout=5) as response:
-                return response.status, json.load(response)
+                result = (response.status, json.load(response))
+                return (*result, response.headers) if include_headers else result
         except urllib.error.HTTPError as error:
             return error.code, json.load(error)
 
     def stop_server(self):
         if self.process:
             self.process.terminate(); self.process.wait(timeout=5)
-            self.process.stderr.close(); self.process = None
+            messages = self.process.stderr.read().decode(); self.process.stderr.close(); self.process = None
+            return messages
+        return ''
 
     def tearDown(self):
         self.stop_server(); self.temp.cleanup()
@@ -126,6 +134,46 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.request('/api/versions/' + s['id']), (200, s))
         self.assertEqual(self.request('/api/versions')[1][0]['id'], s['id'])
 
+    def test_corrupt_versions_are_isolated_and_reported(self):
+        good = version(); self.assertEqual(self.request('/api/versions', value=good, token=TOKEN)[0], 201)
+        directory = Path(self.temp.name)
+        (directory / f"{version('b')['id']}.json").write_text('{broken', encoding='ascii')
+        (directory / f"{version('c')['id']}.json").write_bytes(b'\xff')
+        (directory / f"{version('d')['id']}.json").symlink_to(directory / f"{good['id']}.json")
+        (directory / f"{version('e')['id']}.json").mkdir()
+        os.mkfifo(directory / f"{version('f')['id']}.json")
+        (directory / f"{version('1')['id']}.json").write_text('[' * 2000 + '0' + ']' * 2000, encoding='ascii')
+        expected = 6
+        if getattr(os, 'geteuid', lambda: 0)() != 0:
+            unreadable = directory / f"{version('2')['id']}.json"
+            unreadable.write_text(json.dumps(version('2')), encoding='utf-8'); unreadable.chmod(0)
+            expected += 1
+        (directory / 'v-invalid.json').write_text('ignored', encoding='ascii')
+        status, items, headers = self.request('/api/versions', include_headers=True)
+        self.assertEqual(status, 200); self.assertIsInstance(items, list)
+        self.assertEqual([item['id'] for item in items], [good['id']])
+        self.assertEqual(headers.get('X-Game-Version-Skipped'), str(expected))
+        self.assertEqual(self.request('/api/versions/' + good['id']), (200, good))
+        self.assertEqual(self.request('/api/versions/' + version('1')['id'])[0], 500)
+        self.assertEqual(self.request('/api/versions', value=version('0'), token=TOKEN)[0], 201)
+        self.assertEqual(len(self.request('/api/versions')[1]), 2)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            pending = [pool.submit(self.request, '/api/versions', value=version(letter), token=TOKEN) for letter in '3456']
+            for _ in range(3):
+                status, items, headers = self.request('/api/versions', include_headers=True)
+                self.assertEqual(status, 200); self.assertEqual(headers.get('X-Game-Version-Skipped'), str(expected))
+                self.assertIn(good['id'], [item['id'] for item in items])
+            self.assertEqual([job.result()[0] for job in pending], [201] * 4)
+        self.assertEqual(len(self.request('/api/versions')[1]), 6)
+        self.assertEqual((directory / f"{version('b')['id']}.json").read_text(), '{broken')
+        self.assertIn(version('b')['id'], self.stop_server())
+
+    def test_unavailable_version_directory_is_a_server_error(self):
+        bad_directory = Path(self.temp.name) / 'not-a-directory'
+        bad_directory.write_text('test', encoding='ascii')
+        self.stop_server(); self.start_server(version_dir=bad_directory)
+        self.assertEqual(self.request('/api/versions')[0], 500)
+
     def test_unconfigured_server_is_read_only(self):
         self.stop_server(); self.start_server(token='')
         self.assertEqual(self.request('/api/versions'), (200, []))
@@ -147,12 +195,75 @@ class ServerTest(unittest.TestCase):
         self.stop_server(); self.start_server(token='too-short', token_file=token_file)
         self.assertEqual(self.request('/api/versions', value=version(), token=TOKEN)[0], 503)
         self.assertEqual(token_file.read_text(encoding='ascii'), stored)
+        rotator, _ = self.launch_server(token=second, token_file=token_file)
+        try:
+            self.assertEqual(self.request('/api/versions', value=version(), token=second)[0], 503)
+        finally:
+            rotator.terminate(); rotator.wait(timeout=5); rotator.stderr.close()
 
         self.stop_server(); self.start_server(token=second, token_file=token_file)
         self.assertEqual(self.request('/api/versions', value=version(), token=TOKEN)[0], 401)
         self.assertEqual(self.request('/api/versions', value=version(), token=second)[0], 201)
         self.stop_server(); self.start_server(token='', token_file=token_file)
         self.assertEqual(self.request('/api/versions', value=version(), token=second)[0], 201)
+
+    def test_token_rotation_is_seen_by_all_running_instances(self):
+        token_file = Path(self.temp.name) / 'admin' / 'token'
+        rotated = 'rotated-token-' + 'y' * 40
+        self.stop_server(); self.start_server(token=TOKEN, token_file=token_file)
+        second, second_url = self.launch_server(token=rotated, token_file=token_file)
+        try:
+            for url in (self.url, second_url):
+                self.assertEqual(self.request('/api/versions', value=version(), token=TOKEN, url=url)[0], 401)
+                self.assertEqual(self.request('/api/versions', value=version(), token=rotated, url=url)[0], 201)
+        finally:
+            second.terminate(); second.wait(timeout=5); second.stderr.close()
+
+    def test_running_server_checks_token_file_on_each_request(self):
+        token_file = Path(self.temp.name) / 'admin' / 'token'
+        self.stop_server(); self.start_server(token=TOKEN, token_file=token_file)
+        stored = token_file.read_text(encoding='ascii')
+        token_file.chmod(0o644)
+        self.assertEqual(self.request('/api/versions', value=version(), token=TOKEN)[0], 503)
+        token_file.chmod(0o600)
+        self.assertEqual(self.request('/api/versions', value=version(), token=TOKEN)[0], 201)
+        token_file.write_text('invalid', encoding='ascii')
+        self.assertEqual(self.request('/api/versions', value=version(), token=TOKEN)[0], 503)
+        token_file.unlink()
+        self.assertEqual(self.request('/api/versions', value=version(), token=TOKEN)[0], 503)
+        token_file.write_text(stored, encoding='ascii'); token_file.chmod(0o600)
+        self.assertEqual(self.request('/api/versions', value=version(), token=TOKEN)[0], 201)
+        directory, renamed = token_file.parent, token_file.parent.with_name('admin-previous')
+        directory.rename(renamed); directory.symlink_to(renamed, target_is_directory=True)
+        self.assertEqual(self.request('/api/versions', value=version(), token=TOKEN)[0], 503)
+        directory.unlink(); renamed.rename(directory)
+        self.assertEqual(self.request('/api/versions', value=version(), token=TOKEN)[0], 201)
+
+    def test_a_later_first_configuration_is_seen_by_an_unconfigured_instance(self):
+        token_file = Path(self.temp.name) / 'admin' / 'token'
+        self.stop_server(); self.start_server(token='', token_file=token_file)
+        self.assertEqual(self.request('/api/versions', value=version(), token=TOKEN)[0], 503)
+        second, _ = self.launch_server(token=TOKEN, token_file=token_file)
+        try:
+            self.assertEqual(self.request('/api/versions', value=version(), token=TOKEN)[0], 201)
+        finally:
+            second.terminate(); second.wait(timeout=5); second.stderr.close()
+
+    @unittest.skipUnless(getattr(os, 'geteuid', lambda: -1)() == 0, '验证其他用户所有权需要 root')
+    def test_other_users_cannot_supply_token_directory_or_file(self):
+        directory = Path(self.temp.name) / 'admin'
+        token_file = directory / 'token'
+        self.stop_server(); self.start_server(token=TOKEN, token_file=token_file)
+        stored = token_file.read_text(encoding='ascii')
+        os.chown(token_file, 12345, -1)
+        self.assertEqual(self.request('/api/versions', value=version(), token=TOKEN)[0], 503)
+        self.stop_server(); self.start_server(token='', token_file=token_file)
+        self.assertEqual(self.request('/api/versions', value=version(), token=TOKEN)[0], 503)
+        os.chown(token_file, 0, -1); os.chown(directory, 12345, -1)
+        self.stop_server(); self.start_server(token='new-token-' + 'z' * 40, token_file=token_file)
+        self.assertEqual(self.request('/api/versions', value=version(), token=TOKEN)[0], 503)
+        self.assertEqual(token_file.read_text(encoding='ascii'), stored)
+        os.chown(directory, 0, -1)
 
     def test_unsafe_or_corrupt_token_file_disables_publication(self):
         token_file = Path(self.temp.name) / 'token'

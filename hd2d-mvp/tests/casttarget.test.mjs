@@ -98,6 +98,10 @@ for (const [view, query] of [['3D', ''], ['flat', '&flat']]) {
     await page.evaluate(() => window.__game.war.chooseStrategy(0));
     await page.locator('.actpanel [data-target]').first().waitFor();
     await page.waitForTimeout(view === '3D' ? 1500 : 300);
+    const choosing = await page.evaluate(() => ({ id: window.__game.war.st.sel?.id, stage: window.__game.war.st.stage }));
+    await page.keyboard.press(']');
+    assert.deepEqual(await page.evaluate(() => ({ id: window.__game.war.st.sel?.id, stage: window.__game.war.st.stage })), choosing,
+      '快捷键不会在选择计略目标时切换武将');
     const rows = await page.evaluate(() => {
       const w = window.__game.war, f = w.field, G = window.__game.G;
       return { rows: [...document.querySelectorAll('.actpanel [data-target]')].map((b) => ({ id: Number(b.dataset.target), text: b.textContent, shown: b.getClientRects().length > 0 })),

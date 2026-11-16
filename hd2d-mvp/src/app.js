@@ -1007,6 +1007,7 @@ async function chooseScenario() {
   const options = [{ id: ORIGINAL_SCENARIO, name: '原版' }, ...versions.filter((v) => /^v-[a-f0-9]{32}$/.test(v?.id) && typeof v.name === 'string')];
   const choice = await modal('选择游戏版本', (close) => [
     h('p', {}, '各版本的存档分开保存。切换版本后可在标题画面开始新游戏或读取该版本的记录。'),
+    versions.skipped ? h('p', {}, `有 ${versions.skipped} 个已发布版本无法读取，请联系管理员。`) : null,
     h('div', { class: 'slots' }, options.map((v) => h('button', { class: 'btn slot', onclick: () => close(v.id) },
       h('b', {}, v.name), h('span', {}, v.id === G.currentScenario() ? '当前版本' : '选择此版本')))),
     h('div', { class: 'foot' }, h('button', { class: 'btn', onclick: () => close(null) }, '取消'))]);
