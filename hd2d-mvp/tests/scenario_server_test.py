@@ -115,6 +115,16 @@ class ServerTest(unittest.TestCase):
     def tearDown(self):
         self.stop_server(); self.temp.cleanup()
 
+    def test_m4a_static_content_type(self):
+        with tempfile.TemporaryDirectory(prefix='music-test-', dir=ROOT / 'hd2d-mvp') as temp:
+            path = Path(temp) / 'track.m4a'
+            path.write_bytes(b'audio fixture')
+            url = self.url + '/' + path.relative_to(ROOT).as_posix()
+            for method in ('GET', 'HEAD'):
+                with self.opener.open(urllib.request.Request(url, method=method)) as response:
+                    self.assertEqual(response.headers.get_content_type(), 'audio/mp4')
+                    self.assertEqual(response.read(), b'audio fixture' if method == 'GET' else b'')
+
     def test_authentication_publication_and_restart(self):
         s = version(); self.assertEqual(self.request('/api/versions'), (200, []))
         self.assertEqual(self.request('/api/versions', value=s)[0], 401)

@@ -9,6 +9,7 @@ hd2d-mvp/vendor/
 # Original-game audio is never part of this repository.
 hd2d-mvp/assets/audio/original/
 hd2d-mvp/assets/audio/remix/
+hd2d-mvp/assets/audio/ps/
 *.nes
 *.nsf
 # The binary assets are published only as the Release asset pack (unzip it here; ASSETS.sha256 lists every file).

@@ -42,23 +42,33 @@
  },
  "audio": {
   "bgm-strategy": [
+   "assets/audio/ps/bgm-strategy.mp3",
    "assets/audio/remix/bgm-strategy.mp3",
+   "assets/audio/original/bgm-strategy.m4a",
    "assets/audio/original/bgm-strategy.mp3"
   ],
   "bgm-battle": [
+   "assets/audio/ps/bgm-battle.mp3",
    "assets/audio/remix/bgm-battle.mp3",
+   "assets/audio/original/bgm-battle.m4a",
    "assets/audio/original/bgm-battle.mp3"
   ],
   "bgm-skirmish": [
+   "assets/audio/ps/bgm-skirmish.mp3",
    "assets/audio/remix/bgm-skirmish.mp3",
+   "assets/audio/original/bgm-skirmish.m4a",
    "assets/audio/original/bgm-skirmish.mp3"
   ],
   "bgm-duel": [
+   "assets/audio/ps/bgm-duel.mp3",
    "assets/audio/remix/bgm-duel.mp3",
+   "assets/audio/original/bgm-duel.m4a",
    "assets/audio/original/bgm-duel.mp3"
   ],
   "bgm-result": [
+   "assets/audio/ps/bgm-result.mp3",
    "assets/audio/remix/bgm-result.mp3",
+   "assets/audio/original/bgm-result.m4a",
    "assets/audio/original/bgm-result.mp3"
   ],
   "sfx-select": [
@@ -107,20 +117,31 @@
    "assets/audio/original/sfx-victory.mp3"
   ],
   "bgm-title": [
+   "assets/audio/ps/bgm-title.mp3",
    "assets/audio/remix/bgm-title.mp3",
+   "assets/audio/original/bgm-title.m4a",
    "assets/audio/original/bgm-title.mp3"
   ],
   "bgm-select": [
+   "assets/audio/ps/bgm-select.mp3",
    "assets/audio/remix/bgm-select.mp3",
+   "assets/audio/original/bgm-select.m4a",
+   "assets/audio/original/bgm-select.mp3",
    "assets/audio/remix/bgm-title.mp3",
+   "assets/audio/original/bgm-title.m4a",
    "assets/audio/original/bgm-title.mp3"
   ],
   "bgm-ending": [
+   "assets/audio/ps/bgm-ending.m4a",
+   "assets/audio/ps/bgm-ending.mp3",
    "assets/audio/remix/bgm-ending.mp3",
+   "assets/audio/original/bgm-ending.m4a",
    "assets/audio/original/bgm-ending.mp3"
   ],
   "bgm-gameover": [
+   "assets/audio/ps/bgm-gameover.mp3",
    "assets/audio/remix/bgm-gameover.mp3",
+   "assets/audio/original/bgm-gameover.m4a",
    "assets/audio/original/bgm-gameover.mp3"
   ],
   "sfx-arrow": [

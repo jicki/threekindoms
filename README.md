@@ -55,7 +55,29 @@ python3 hd2d-mvp/tools/serve.py 8677      # 启动开发服务器
 
 然后用浏览器打开 http://localhost:8677/hd2d-mvp/ 。在网址后面加 `?mute` 可以静音。
 
-游戏的背景音乐由代码实时合成，音效使用仓库里的文件。
+### 背景音乐
+
+游戏会自动检查本地可选音频。在标题页或游戏中的「☰ 系统 → 曲目」可以切换已提供的音乐版本，选择保存在当前浏览器中；浏览器可能要求先点击页面才能播放。没有可用音频时，部分场景使用合成音乐。已有的 `remix/` 素材仍显示为 Remix，不会误认为 PS 复刻版。
+
+原版和 PS 复刻版音频放在 `hd2d-mvp/assets/audio/original/` 和 `hd2d-mvp/assets/audio/ps/`，文件名与 `assets/manifest.json` 中的对应场景一致。两目录被 Git 忽略，不随代码或 Releases 素材包分发；在其他机器上运行时，需要自行提供相应的音频文件。构建 Docker 镜像或桌面版时，本地存在的音频会被打包；加入或更换音频后需要重新构建。
+
+目前接入的场景及音源对应关系如下。FC 音频来自 [原版 NSF 曲目表](https://www.zophar.net/music/nintendo-nes-nsf/sangokushi-2-haou-no-tairiku)，PS 曲目编号来自 [Namco Anthology 1 音源](https://downloads.khinsider.com/game-soundtracks/album/namco-anthology-1-ps1-gamerip-1998)，结合[场景曲目资料](https://w.atwiki.jp/gamemusicbest100/pages/5645.html)及旋律特征比对；结局使用 [PSF 音源](https://ftpmirror2.infania.net/sites/modland/incoming/warehouse/PSF/HaounoTairiku_psf/HaounoTairiku_ezp104_PSF/)中标注为 Epilogue 的曲目。PS 版战后和失败暂未找到可可靠对应的文件，选择 PS 版时会回退到该场景的其他可用版本。
+
+PS 结局的对应关系依据音源标签，尚未与原 PS 游戏的结局画面交叉验证。
+
+| 游戏场景 | 原版曲目 | PS 复刻版曲目 |
+| --- | --- | --- |
+| 标题 | 1 Title | Haou T0 |
+| 选择君主 | 2 Player Select | Haou T1 |
+| 战略与内政 | 3 Strategy | Haou R00 |
+| 战争地图 | 4 War | Haou J2 |
+| 白兵 | 5 Tactics | Haou J5 |
+| 单挑 | 6 Single Combat | Haou J7 |
+| 战后结算 | 7 End of War | 暂缺 |
+| 游戏失败 | 8 Game Over | 暂缺 |
+| 天下统一 | 9 Ending | Epilogue（haou_e_seq00） |
+
+原作音乐的权利归其权利人所有，不属于本项目生成素材的许可范围；对外分发或部署这些音频前需自行确认使用权限。
 
 ### 使用 Docker Compose
 

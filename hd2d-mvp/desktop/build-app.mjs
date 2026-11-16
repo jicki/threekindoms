@@ -1,11 +1,10 @@
 // Snapshot the playable game into desktop/app/ for the Electron shell, fully offline.
 //   node hd2d-mvp/desktop/build-app.mjs
 //   node hd2d-mvp/desktop/build-app.mjs --generated-music     # no local audio: chiptune BGM stand-ins, committed SFX
-//   node hd2d-mvp/desktop/build-app.mjs --no-original-music   # leave the original-game BGM out (SFX stay original)
+//   node hd2d-mvp/desktop/build-app.mjs --no-original-music   # leave FC and PS original-game BGM out (SFX stay original)
 // Copies index.html, save-editor.html, admin.html, src/, data/ and the runtime assets (git-tracked plus untracked-but-not-ignored files,
 // so generator sources never ship), adds for every BGM slot each git-ignored local version the manifest
-// lists (the Suno remix in assets/audio/remix/ and the original track in assets/audio/original/), so the
-// package offers the same 曲目 choice (Remix / 原版) as local play, and the original-game SFX for
+// lists (PS, remix and original tracks), so the package offers the same 曲目 choice as local play, and the original-game SFX for
 // every SFX slot (the snapshot's manifest lists them first), re-encodes the 单挑 strips as lossless WebP, then
 // vendors three.js (with only the addons the game imports) and the two web fonts into vendor/, where index.html
 // already loads them from (tools/serve.py serves the same layout in development). Needs cwebp (brew install webp).
@@ -25,7 +24,7 @@ const out = join(here, 'app');
 const mods = join(here, 'node_modules');
 
 // Generator inputs and editor-only material that the game never loads, and the dropped generated score (新编, assets/audio/bgm-*).
-const SKIP = [/(^|\/)source(\/|$)/, /^assets\/ai\/title-source/, /^assets\/audio\/(original|remix)\//, /^assets\/audio\/generated\.json$/, /^assets\/audio\/bgm-[^/]+\.mp3$/, /(^|\/)\.DS_Store$/];
+const SKIP = [/(^|\/)source(\/|$)/, /^assets\/ai\/title-source/, /^assets\/audio\/(original|remix|ps)\//, /^assets\/audio\/generated\.json$/, /^assets\/audio\/bgm-[^/]+\.mp3$/, /(^|\/)\.DS_Store$/];
 const KEEP = [/^index\.html$/, /^save-editor\.html$/, /^admin\.html$/, /^src\//, /^data\//, /^assets\//];
 
 rmSync(out, { recursive: true, force: true });
@@ -59,13 +58,13 @@ if (existsSync(sumsFile)) {
   }
 }
 
-// BGM and the command / 计略 phrases (cue-*): per manifest slot, every remix and original candidate that exists locally, so the 曲目 switch finds
-// the same sets as in development; the manifest order (remix first) still decides the default. Both folders
-// are git-ignored, so git ls-files never lists them; copy them explicitly.
+// BGM and the command / 计略 phrases (cue-*): per manifest slot, every local candidate that exists, so the 曲目 switch finds
+// the same sets as in development; the manifest order still decides the default. These folders are git-ignored,
+// so git ls-files never lists them; copy them explicitly.
 // SFX: the original-game file for every slot, moved to the front of the snapshot's manifest so it beats
 // a committed generated one (sfx-clash); slots without an original keep the committed/synth fallbacks.
 const manifest = JSON.parse(readFileSync(join(game, 'assets/manifest.json'), 'utf8'));
-const local = process.argv.includes('--no-original-music') ? /^assets\/audio\/remix\// : /^assets\/audio\/(remix|original)\//;
+const local = process.argv.includes('--no-original-music') ? /^assets\/audio\/remix\// : /^assets\/audio\/(ps|remix|original)\//;
 const music = {};
 if (!process.argv.includes('--generated-music')) for (const [slot, list] of Object.entries(manifest.audio || {})) {
   let picks = [];

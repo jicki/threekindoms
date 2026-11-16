@@ -145,6 +145,9 @@ class GameHTTPServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 class NoCache(SimpleHTTPRequestHandler):
+    # 某些精简容器没有系统 MIME 数据库，显式声明游戏使用的音频格式。
+    extensions_map = {**SimpleHTTPRequestHandler.extensions_map, '.m4a': 'audio/mp4'}
+
     def end_headers(self):
         self.send_header('Cache-Control', 'no-store')
         super().end_headers()

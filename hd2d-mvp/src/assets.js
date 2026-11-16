@@ -20,7 +20,7 @@ export async function loadManifest() {
       for (const url of [urls].flat()) if (await exists(url)) { found[group][k] = url; return; }
     })());
   }
-  // Every BGM and phrase that exists, so the player can switch between the music sets (remix, original).
+  // Every BGM and phrase that exists, so the player can switch between the available music sets.
   for (const [k, urls] of Object.entries(m.audio || {})) if (k.startsWith('bgm-') || k.startsWith('cue-')) {
     jobs.push((async () => {
       const ok = await Promise.all([urls].flat().map(exists));

@@ -8,8 +8,8 @@ const THEMES = {
 };
 
 // Music sets the player can pick, told apart by folder. The generated score (新编) was dropped on 2026-11-03: the
-// manifest no longer lists it, and without either folder the chiptune stand-ins play.
-const SETS = [['remix', 'Remix', /\/audio\/remix\//], ['original', '原版', /\/audio\/original\//]];
+// manifest no longer lists it, and without any music folder the chiptune stand-ins play.
+const SETS = [['ps', 'PS 复刻', /\/audio\/ps\//], ['remix', 'Remix', /\/audio\/remix\//], ['original', '原版', /\/audio\/original\//]];
 const LOOPS_WAIT = 2000;  // ms a decoded track waits for loops.json before playing without it
 // A slider's 0–1 as gain: squared, so its travel is heard evenly (loudness goes about with the log of the gain;
 // a linear slider changes little over most of its range and drops away at the bottom).
@@ -22,7 +22,7 @@ const store = (k, v) => { try { if (v === undefined) return localStorage.getItem
 export class Audio {
   constructor(files, music = {}) {
     this.files = files; this.music = music; this.ctx = null; this.bgm = null; this.bgmKey = null; this.muted = false; this.cache = {}; this.bufs = new Map();
-    this.sets = SETS.filter(([, , re]) => (music['bgm-strategy'] || []).some((u) => re.test(u))).map(([id, label]) => ({ id, label }));
+    this.sets = SETS.filter(([, , re]) => Object.entries(music).some(([key, urls]) => key.startsWith('bgm-') && urls.some((u) => re.test(u)))).map(([id, label]) => ({ id, label }));
     this.set = this.sets.find((t) => t.id === store('hd2d-music'))?.id ?? this.sets[0]?.id;
     this.volume = Math.min(1, Math.max(0, Number(store('hd2d-music-volume') ?? 1)));
     this.sfxVolume = Math.min(1, Math.max(0, Number(store('hd2d-sfx-volume') ?? 1)));
