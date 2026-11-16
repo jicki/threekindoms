@@ -18,7 +18,10 @@ const freePort = () => new Promise((resolve, reject) => {
 // that boot too (stored settings, network routes, listeners).
 export async function startGame({ width = 1280, height = 800 } = {}) {
   const port = await freePort(), url = `http://localhost:${port}/hd2d-mvp/?mute`;
-  const server = spawn('python3', ['hd2d-mvp/tools/serve.py', String(port)], { cwd: ROOT, stdio: 'ignore' });
+  // 浏览器测试使用临时服务，不应读取或覆盖调用者的持久管理员配置。
+  const server = spawn('python3', ['hd2d-mvp/tools/serve.py', String(port)], {
+    cwd: ROOT, stdio: 'ignore', env: { ...process.env, GAME_ADMIN_TOKEN_FILE: '' },
+  });
   for (let i = 0; ; i++) {
     try { if ((await fetch(url)).ok) break; } catch {}
     if (i > 100) { server.kill(); throw new Error(`dev server did not start on ${port}`); }

@@ -1,7 +1,7 @@
 // Strategic AI (6.5). Budget = command books × 10 points; the main dispatch draws 0–15 against the
 // faction/difficulty/situation weights (`10:A19C` uses D4AD, so sums above 16 never reach the last
 // branches), then attack/vacant expansion, inner moves + BD7A reinforcement, diplomacy, or domestic work.
-import { data, rng, NONE, SERVING, UNAPPEARED, RONIN, roads, citiesOf, troopsOf, recruitLoyalty, books, isRuler, officerCity, searchQueue, maxHp } from './game.js';
+import { data, rng, NONE, SERVING, UNAPPEARED, RONIN, roads, citiesOf, troopsOf, recruitLoyalty, books, isRuler, officerCity, searchQueue, maxHp, weaponGroup } from './game.js';
 import { setupWar, occupyEmpty, autoBattle } from './warcore.js';
 import { phantomWar } from './ahuinan.js';
 
@@ -436,16 +436,17 @@ export function equip(g, c, r, spend) {
   for (let bought = false; ;) {
     let best = null, item = null;
     for (const id of c.officers) {
-      const o = g.officers[id], grp = Math.floor(o.weapon / 8);
-      let it = stock.find((e) => e < 24 && Math.floor(e / 8) === grp && e > o.weapon);
-      if (it == null) it = stock.find((e) => e >= 24 && e - 24 > o.armor);
+      const o = g.officers[id], grp = weaponGroup(o.weapon), currentAtk = D.equipment[o.weapon]?.atk ?? 0;
+      let it = stock.find((e) => e < 24 && Math.floor(e / 8) === grp && (o.weapon < 24 ? e > o.weapon : D.equipment[e].atk > currentAtk));
+      if (it == null) it = stock.find((e) => e >= 32 && D.equipment[e]?.kind === 'weapon' && weaponGroup(e) === grp && D.equipment[e].atk > currentAtk);
+      if (it == null) it = stock.find((e) => e >= 24 && e < 32 && e - 24 > o.armor);
       if (it != null && (best == null || o.war >= g.officers[best].war)) { best = id; item = it; }
     }
     if (best == null) return bought;
-    const price = item < 24 ? D.equipment[item].price : 240;
+    const price = D.equipment[item].kind === 'weapon' ? D.equipment[item].price : 240;
     if (c.gold < price) return bought;
     c.gold -= price;
-    if (item < 24) g.officers[best].weapon = item; else g.officers[best].armor = item - 24;
+    if (D.equipment[item].kind === 'weapon') g.officers[best].weapon = item; else g.officers[best].armor = item - 24;
     bought = true;
     if (!spend(5)) return true;
   }

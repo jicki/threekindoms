@@ -2,5 +2,13 @@ services:
   game:
     build: .
     init: true
+    environment:
+      GAME_ADMIN_TOKEN: "${GAME_ADMIN_TOKEN:-}"
+    volumes:
+      - game_versions:/var/lib/threekindoms/versions
+      - game_admin_token:/var/lib/threekindoms/admin
     ports:
       - "${GAME_BIND_ADDRESS:-127.0.0.1}:${GAME_PORT:-8677}:8677"
+volumes:
+  game_versions:
+  game_admin_token:

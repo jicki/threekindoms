@@ -37,6 +37,16 @@ export const STRAT_INFO = [
   { does: '火烧相连的敌军（城中的除外），各自大量损兵', where: '目标不在城中，身边有不在城中的友军' },
   { does: '困敌于石阵：数日不能移动，诸葛亮在场时每日折兵', where: '目标不在河上和城中' },
 ];
+// 新版本的技能只使用受校验的固定效果，原版计略及其编号保持不变。
+export function configureStrategies() {
+  STRATS.length = 16; STRAT_INFO.length = 16;
+  for (const skill of data()?.customSkills ?? []) {
+    STRATS.push({ ...skill, ai: skill.cost, custom: true });
+    const effects = [skill.soldiers ? `损兵 ${skill.soldiers}` : '', skill.hp ? `体力减少 ${skill.hp}` : '',
+      skill.stop ? `限制移动 ${skill.stop} 日` : '', skill.rice ? `损失粮草 ${skill.rice}` : ''].filter(Boolean);
+    STRAT_INFO.push({ does: effects.join('，'), where: '6格内敌军' });
+  }
+}
 const SPECIAL = [ // unlock by level for named strategists (6.3 §1)
   [[161, 99, 167, 22, 196, 219, 234, 107, 206, 235, 183], [[4, 12]]],
   [[24, 55, 112, 213, 110, 103], [[4, 12], [5, 14]]],
@@ -61,6 +71,7 @@ const SUBLIST = { def: [1, 4, 6, 10], att: [1, 6, 11, 14] };
 export class Field {
   constructor(g, war, humanSide) {
     const D = data();
+    configureStrategies();
     this.g = g; this.war = war; this.human = humanSide; // 'att' | 'def' | null
     takeLevelUps(g); // level-ups from fights the player did not see (AI wars, a test 白兵) are not told in this one
     this.map = D.maps[war.city];
@@ -96,6 +107,7 @@ export class Field {
   // drawn and no role is reassigned, so the battle goes on exactly where it stood. `resumed` tells the war view to skip 布阵.
   static restore(g, war, snap) {
     const D = data(), f = Object.create(Field.prototype), s = structuredClone(snap);
+    configureStrategies();
     f.g = g; f.war = war; f.human = s.human;
     f.map = D.maps[war.city]; f.r = rng(g);
     f.dep = D.deploy[war.city][war.from] || Object.values(D.deploy[war.city])[0];
@@ -305,12 +317,17 @@ export class Field {
   dist(a, b) { return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)); }
   adjacent(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1; }
   enemyNeighbours(t, pred = () => true) { return DIRS.map(([dx, dy]) => this.unitAt(t.x + dx, t.y + dy)).filter((e) => e && e.side === t.side && pred(e)); }
-  strategies(u) { return STRATS.slice(0, stratCount(u.id, this.O(u.id))); }
+  strategies(u) {
+    const normal = STRATS.slice(0, stratCount(u.id, this.O(u.id)));
+    const custom = (data().officers[u.id]?.skills ?? []).map((id) => STRATS[id]).filter((s) => s?.custom);
+    return [...normal, ...custom];
+  }
   // Terrain/adjacency gate `$AD80` plus distance <6; target null for 十面埋伏.
   legal(u, id, t) {
     const T = (v) => this.terr(v.x, v.y);
     if (id === 11) return T(u) === FOREST && this.O(u.id).soldiers >= 100 && !this.ambush?.[u.side];
     if (!t || t.gone || t.side === u.side || this.dist(u, t) >= 6) return false;
+    if (STRATS[id]?.custom) return true;
     switch (id) {
       case 0: return T(t) === FOREST || T(t) === PLAIN;
       case 1: case 2: case 3: return T(t) === FOREST || T(t) === MOUNT;
@@ -393,6 +410,17 @@ export class Field {
     }
     const p = id === 8 ? this.lureChance(u, t) : this.hitChance(u, t);
     if (roll100(r) >= p) return { ok: true, hit: false, name: S.name, lines: [`${S.name}失败`], hits };
+    if (S.custom) {
+      if (S.soldiers) loss(t, S.soldiers);
+      if (S.hp) hp(t, S.hp);
+      if (S.stop && !t.gone) { t.stop = S.stop; t.stopBy = S.name; lines.push(`${nm(t)} 无法移动 ${S.stop} 日`); }
+      if (S.rice) {
+        const ch = this.chest(t.side), amount = Math.min(ch.rice, S.rice);
+        ch.rice -= amount; hits.push({ u: t, rice: -amount }); lines.push(`烧毁敌军米 ${amount}`);
+      }
+      this.checkCommanders();
+      return { ok: true, hit: true, name: S.name, lines, hits };
+    }
     switch (id) {
       case 0: case 6: fire(t); break;
       case 1: hp(t, Math.floor((L() + Math.floor(((a.war + a.int) & 255) / 10)) * (5 + U(3)) / 10)); break;
@@ -561,6 +589,12 @@ export class Field {
     if (u.role === 7) return null;
     const adj = this.adjacentEnemies(u);
     const commanderFoe = this.side(foe).find((e) => e.commander);
+    for (const skill of this.strategies(u).filter((item) => item.custom)) {
+      if (this.pool[s] < skill.cost) continue;
+      const target = this.side(foe).filter((e) => this.legal(u, skill.id, e))
+        .find((e) => (skill.soldiers && this.O(e.id).soldiers) || (skill.hp && this.O(e.id).hp) || (skill.stop && !e.stop) || (skill.rice && this.chest(e.side).rice));
+      if (target) return this.doCast(u, skill.id, target);
+    }
     const special = this.aiStrategy(u, true);
     if (special) return special;
     if (u.role === 0) {

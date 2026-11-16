@@ -5,14 +5,27 @@
 
 import { roll100 } from './origrng.js';
 import { withRecordLock } from './record-lock.js';
+import { applyScenario, ORIGINAL_SCENARIO } from './scenario.js';
+import { loadScenario, selectedScenario } from './scenario-store.js';
 export const NONE = 7; // city owner value for "no faction"
 export const DEAD = 3, SERVING = 2, UNAPPEARED = 1, RONIN = 0;
 export const FACTION_COLORS = ['#5a5a66', '#c8402f', '#7a4ad0', '#e0a020', '#3f8f4f', '#c060a0', '#2f9fb0'];
 
 let D = null; // static data (data/game-data.json)
+let scenarioId = ORIGINAL_SCENARIO;
 export const data = () => D;
-export async function loadData(url = 'data/game-data.json') { D = await (await fetch(url)).json(); return D; }
-export const setData = (d) => (D = d);
+export const currentScenario = () => scenarioId;
+export const scenarioKey = (key) => scenarioId === ORIGINAL_SCENARIO ? key : `${key}:scenario:${scenarioId}`;
+export async function loadData(url = 'data/game-data.json') {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('无法读取游戏基础数据');
+  const base = await response.json(), id = selectedScenario();
+  if (id === ORIGINAL_SCENARIO) { D = base; scenarioId = id; return D; }
+  const scenario = await loadScenario(id, base), next = applyScenario(base, scenario);
+  next.scenarioName = scenario.name; D = next; scenarioId = id;
+  return D;
+}
+export function setData(d, id = ORIGINAL_SCENARIO) { D = d; scenarioId = id; return D; }
 // 体力上限: the ROM template's hp, unless the save editor set one on the record (o.maxHp). id for copies of a record.
 export const maxHp = (o, id = o.id) => o.maxHp ?? D.officers[id].hp;
 
@@ -29,6 +42,7 @@ export function rng(g) {
 // ---------- New game ----------
 export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random() * 1e9)) >>> 0) {
   const g = { version: 1, level, player: playerFaction, year: 189, month: 0, seed, turnIdx: -1, monthDone: false, current: null, books: 0, over: null };
+  if (scenarioId !== ORIGINAL_SCENARIO) g.scenarioId = scenarioId;
   const r = rng(g);
   g.order = r(5); // 新游戏随机0–4 (5.2)
   g.cities = D.cities.map((c) => ({
@@ -64,6 +78,8 @@ export const isRuler = (g, id) => g.factions.some((f) => f.ruler === id);
 export const roads = (cid) => D.cities[cid].roads;
 export const name = (id) => D.officers[id].name;
 export const cityName = (cid) => D.cities[cid].name;
+// 原版武器按每八件分组；新武器使用其显式类别，不依赖编号。
+export const weaponGroup = (id) => id < 24 ? Math.floor(id / 8) : ({ 剑: 0, 刀: 1, 枪: 2 }[D.equipment[id]?.cat] ?? -1);
 // A house goes by its ruler of the day; a fallen one by the ruler it fell under (the scenario's name for an older
 // record that has no note of him).
 export const factionName = (g, f) => {
@@ -641,8 +657,8 @@ function join(g, cid, id) {
 // written by a newer release is refused rather than misread.
 export const SLOTS = 8, SAVE_VERSION = 1;
 const MIGRATIONS = {};
-const KEY = 'haou-hd2d-save', slotKey = (n) => `${KEY}:${n}`, bakKey = (n) => `${KEY}:${n}:bak`;
-const QUICK_KEY = `${KEY}:quick`, QUICK_BAK = `${QUICK_KEY}:bak`;
+const KEY = 'haou-hd2d-save', key = () => scenarioKey(KEY), slotKey = (n) => `${key()}:${n}`, bakKey = (n) => `${key()}:${n}:bak`;
+const quickKey = () => `${key()}:quick`, quickBak = () => `${quickKey()}:bak`;
 const parse = (s) => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
 const read = (k) => { try { return parse(localStorage.getItem(k)); } catch { return null; } };
 const futureVersion = (g) => Number.isInteger(g?.version) && g.version > SAVE_VERSION;
@@ -656,6 +672,7 @@ export function currentSlot(g, slot, token = slotToken(slot)) {
 export const loadedSlotToken = (g) => slotStates.get(g)?.token;
 export function upgrade(g) {
   if (!g || typeof g !== 'object') return null;
+  if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return null;
   try { g.version ??= 1; while (g.version < SAVE_VERSION) MIGRATIONS[g.version++](g); } catch { return null; }
   const ok = g.version === SAVE_VERSION && Number.isInteger(g.year) && Number.isInteger(g.month) && Number.isInteger(g.player)
     && Array.isArray(g.officers) && Array.isArray(g.factions) && Array.isArray(g.cities) && g.cities.length === 30 && g.cities.every((c) => Array.isArray(c?.officers));
@@ -664,6 +681,7 @@ export function upgrade(g) {
 const fromBak = new WeakSet();
 export const restored = (g) => fromBak.has(g);
 function migrate() {
+  if (scenarioId !== ORIGINAL_SCENARIO) return;
   try {
     const old = localStorage.getItem(KEY); if (!old) return;
     for (let n = 1; n <= SLOTS; n++) if (!localStorage.getItem(slotKey(n))) { localStorage.setItem(slotKey(n), old); localStorage.removeItem(KEY); return; }
@@ -688,6 +706,7 @@ function commitSave(g, slot, expected, previous, prepared) {
 }
 export function save(g, slot = g.slot ?? 1) {
   try {
+    if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return false;
     const current = slotToken(slot);
     if (current === undefined || futureVersion(parse(current))) return false;
     return commitSave(g, slot, current, current, prepareSave(g, slot)) === 'saved';
@@ -695,6 +714,7 @@ export function save(g, slot = g.slot ?? 1) {
 }
 // 确认期间或等待锁期间若记录被其他页面更改，保留现有内容并要求重新选择。
 export async function saveChecked(g, slot, expected, { snapshot = g, isCurrent = () => true, onSaved = () => {}, acceptedConflict, onConflict = () => {}, acceptedPending, onPending = () => {} } = {}) {
+  if ((snapshot.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return 'wrong-scenario';
   return withRecordLock(slotKey(slot), (state) => {
     const token = slotToken(slot);
     if (token === undefined) return 'failed';
@@ -719,10 +739,10 @@ export async function saveChecked(g, slot, expected, { snapshot = g, isCurrent =
 // The phone's 自动续玩 (src/app.js): the campaign as it stood when the page went out of sight, kept apart from the eight records
 // and the quick one. It is written when the page is hidden and dropped when the page comes back, so it only outlives a page the
 // system threw away; continuing from it takes it. It is no record: nothing is spent, and it cannot be loaded a second time.
-const AUTO_KEY = `${KEY}:auto`;
-export function saveAuto(g) { try { localStorage.setItem(AUTO_KEY, JSON.stringify({ ...g, savedAt: Date.now(), version: SAVE_VERSION })); return true; } catch { return false; } }
-export function loadAuto() { const g = upgrade(read(AUTO_KEY)); if (g) { registerClones(g); g.auto = true; } return g; }
-export function dropAuto() { try { localStorage.removeItem(AUTO_KEY); } catch {} }
+const autoKey = () => `${key()}:auto`;
+export function saveAuto(g) { try { if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return false; localStorage.setItem(autoKey(), JSON.stringify({ ...g, savedAt: Date.now(), version: SAVE_VERSION })); return true; } catch { return false; } }
+export function loadAuto() { const g = upgrade(read(autoKey())); if (g) { registerClones(g); g.auto = true; } return g; }
+export function dropAuto() { try { localStorage.removeItem(autoKey()); } catch {} }
 export function load(slot) {
   migrate();
   const raw = slotToken(slot), parsed = parse(raw);
@@ -761,7 +781,7 @@ function quickUpgrade(g) {
   return g;
 }
 // The raw value is also a change token while an overwrite confirmation is open in another tab.
-export function quickToken() { try { return localStorage.getItem(QUICK_KEY); } catch { return undefined; } }
+export function quickToken() { try { return localStorage.getItem(quickKey()); } catch { return undefined; } }
 export function hasQuick() { return !!quickToken(); }
 function prepareQuick(g) {
   const id = g.quickId || newQuickId();
@@ -773,8 +793,8 @@ function commitQuick(g, expected, previous, prepared) {
     const current = quickToken();
     if (current === undefined) return 'failed';
     if (current !== expected) return 'changed';
-    if (previous && quickUpgrade(parse(previous))) localStorage.setItem(QUICK_BAK, previous);
-    localStorage.setItem(QUICK_KEY, prepared.text);
+    if (previous && quickUpgrade(parse(previous))) localStorage.setItem(quickBak(), previous);
+    localStorage.setItem(quickKey(), prepared.text);
     g.quickId = prepared.id; // never change the running game or its current numbered slot on a failed write
     return 'saved';
   } catch { return 'failed'; }
@@ -788,7 +808,8 @@ export function saveQuick(g) {
 // Every game/editor writer checks and writes inside the same origin-wide lock. A token check outside
 // the lock alone cannot protect two tabs that both see the empty slot at the same instant.
 export async function saveQuickChecked(g, expected, { isCurrent = () => true, onSaved = () => {}, acceptedConflict, onConflict = () => {}, acceptedPending, onPending = () => {} } = {}) {
-  return withRecordLock(QUICK_KEY, (state) => {
+  if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return 'wrong-scenario';
+  return withRecordLock(quickKey(), (state) => {
     const token = quickToken();
     if (token === undefined) return 'failed';
     if (token !== expected) return 'changed';
@@ -806,13 +827,13 @@ export async function saveQuickChecked(g, expected, { isCurrent = () => true, on
   }, { readCurrent: quickToken, acceptedPending, onPending });
 }
 export function loadQuick() {
-  let raw = null; try { raw = localStorage.getItem(QUICK_KEY); } catch {}
+  let raw = null; try { raw = localStorage.getItem(quickKey()); } catch {}
   if (!raw) return null;
   const parsed = parse(raw);
   // An unknown future layout is not a damaged record: do not silently offer an older backup in its place.
   if (futureVersion(parsed)) return null;
   let g = quickUpgrade(parsed), backup = false;
-  if (!g && (g = quickUpgrade(read(QUICK_BAK)))) backup = true;
+  if (!g && (g = quickUpgrade(read(quickBak())))) backup = true;
   // The numbered slot saved in the snapshot may since have been replaced by another campaign. A manual
   // save after loading must ask before overwriting it, just as for any other occupied slot.
   return g && loadSnapshot(g, { quick: true, backup });

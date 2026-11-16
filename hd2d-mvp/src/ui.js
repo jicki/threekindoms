@@ -43,7 +43,7 @@ export const setPortraits = (p) => (portraitFiles = p);
 // Painted art is indexed by officer id; an 阿会喃 copy (原版漏洞, core/ahuinan.js) wears 阿会喃's.
 // Every officer has a painted portrait, half-body and four expressions (tests/artcoverage.test.mjs);
 // 阿会喃's portrait is only a last resort, never the original pixel art.
-const art = (id) => (data().officers[id]?.clone ? 0 : id);
+const art = (id) => (data().officers[id]?.clone ? 0 : data().officers[id]?.portraitId ?? id);
 const FALLBACK = 'assets/ai/portraits/0.webp';
 export const portrait = (id) => portraitFiles[art(id)] || portraitFiles[0] || FALLBACK;
 // Expressions. The original's selector $00A4 takes 0–4, but 0 and 1 share pixels for every face, so there

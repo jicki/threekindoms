@@ -1,6 +1,7 @@
 // Optional generated assets (GPT portraits, PixelLab/GPT sprites, ElevenLabs BGM and SFX).
 // assets/manifest.json lists the expected paths; anything missing falls back to placeholders.
 import * as THREE from 'three';
+import { data } from './core/game.js';
 
 // One HEAD per URL: the music sets below ask again for the BGM and phrases the audio list already looked for.
 const seen = new Map();
@@ -31,7 +32,7 @@ export async function loadManifest() {
 }
 
 // The painted icon of a piece of equipment (tools/gen_equip_icons_codex.sh): 0-23 weapons, 24-31 armour, as D.equipment.
-export const equipIcon = (id) => `assets/ai/icon/equip/${id}.webp`;
+export const equipIcon = (id) => `assets/ai/icon/equip/${data()?.equipment?.[id]?.icon ?? id}.webp`;
 
 export function loadPixelTexture(url) {
   return new Promise((res, rej) => new THREE.TextureLoader().load(url, (t) => {

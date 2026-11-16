@@ -240,11 +240,17 @@
 <div id="ui-top"></div>
 <script type="module">
 import * as G from './src/core/game.js';
+import { selectScenario } from './src/core/scenario-store.js';
+import { ORIGINAL_SCENARIO } from './src/core/scenario.js';
 import { h, modal, toast, avatar, figure, setPortraits, setFaces, setHalfbody } from './src/ui.js';
 import { OFFICER_FIELDS, CITY_FIELDS, ALLIANCE_MAX, hpText, setOfficer, setCity, setAlliance, checkRecord, setBug, setPhantomOwner } from './src/core/saveedit.js';
 import { PHANTOM_ROADS } from './src/core/ahuinan.js';
 
-const D = await G.loadData();
+const D = await G.loadData().catch((error) => {
+  const reset = h('button', { class: 'btn primary', onclick: () => { selectScenario(ORIGINAL_SCENARIO); location.reload(); } }, '切换到原版');
+  document.body.replaceChildren(h('main', { style: { padding: '3rem', color: 'white' } }, h('h1', {}, '游戏版本无法读取'), h('p', {}, error.message), reset));
+  return new Promise(() => {});
+});
 const json = async (url) => { try { return await (await fetch(url, { cache: 'no-store' })).json(); } catch { return []; } };
 // The same art the game loads (app.js): generated portraits, expression busts and waist-up figures, where they exist.
 const [pIdx, fIdx, hIdx] = await Promise.all(['portraits', 'faces', 'halfbody'].map((k) => json(`assets/ai/${k}/index.json`)));
@@ -258,7 +264,7 @@ const slotName = (n) => n === 'quick' ? '快捷存档' : `记录${SLOT_NAMES[n -
 const STATUS = { [G.SERVING]: '仕官', [G.RONIN]: '在野', [G.UNAPPEARED]: '未登场', [G.DEAD]: '已故' };
 const STATUS_ORDER = [G.SERVING, G.RONIN, G.UNAPPEARED, G.DEAD];
 const WEAPONS = D.equipment.filter((e) => e.kind === 'weapon'), ARMORS = D.equipment.filter((e) => e.kind === 'armor');
-const icon = (id) => `assets/ai/icon/equip/${id}.webp`;
+const icon = (id) => `assets/ai/icon/equip/${D.equipment[id]?.icon ?? id}.webp`;
 const STATS = OFFICER_FIELDS.filter(([k]) => k !== 'weapon' && k !== 'armor');
 const color = (f) => (f == null || f === G.NONE ? '#5a5a66' : G.FACTION_COLORS[f]);
 const dot = (f) => h('i', { class: 'dot', style: { background: color(f) } });
@@ -359,7 +365,7 @@ function gearPicker(o) {
     return { k, btns, el: h('div', { class: 'se-gear-row' }, h('span', { class: 'k' }, label), btns) };
   };
   // Weapons in the original's three groups of eight (wgrp = id / 8: 剑, 刀, 长兵), then armour.
-  const lines = [line('weapon', '剑', WEAPONS.slice(0, 8), 0), line('weapon', '刀', WEAPONS.slice(8, 16), 0), line('weapon', '长兵', WEAPONS.slice(16), 0), line('armor', '防具', ARMORS, 24)];
+  const lines = [line('weapon', '剑', WEAPONS.filter((e) => e.cat === '剑'), 0), line('weapon', '刀', WEAPONS.filter((e) => e.cat === '刀'), 0), line('weapon', '长兵', WEAPONS.filter((e) => e.cat === '枪'), 0), line('armor', '防具', ARMORS, 24)];
   const paint = () => {
     for (const { k, btns } of lines) for (const b of btns) { b.classList.toggle('on', Number(b.dataset.v) === o[k]); b.classList.toggle('was', Number(b.dataset.v) === base.officers[o.id][k] && o[k] !== base.officers[o.id][k]); }
     const w = D.equipment[o.weapon], a = D.equipment[24 + o.armor];
@@ -598,6 +604,7 @@ $('write').onclick = async () => {
     if (result === 'cancelled') { toast('<em>编辑内容已变化</em>，请重新写回', 3500); return; }
     if (result === 'busy') { toast('<em>快捷存档正在使用</em>，请稍后再试', 3500); return; }
     if (result === 'pending') { toast('<em>快捷存档有未完成的写入</em>，请稍后再试', 3500); return; }
+    if (result === 'wrong-scenario') { toast('<em>记录不属于当前游戏版本</em>', 3500); return; }
     if (result === 'unavailable') { toast('<em>当前环境暂不能写回快捷存档</em>', 3500); return; }
     if (result !== 'saved') { toast('<em>写回失败</em>：浏览器存储不可用或已满', 3000); return; }
     // If edits arrive just after the write, use the written snapshot as the baseline and keep those edits.
@@ -621,6 +628,7 @@ $('write').onclick = async () => {
   if (result === 'busy') { toast('<em>记录正在使用</em>，请稍后再试', 3500); return; }
   if (result === 'pending') { toast('<em>记录有未完成的写入</em>，请稍后再试', 3500); return; }
   if (result === 'newer') { toast('<em>记录来自更新版本</em>，不能覆盖', 3500); return; }
+  if (result === 'wrong-scenario') { toast('<em>记录不属于当前游戏版本</em>', 3500); return; }
   if (result === 'unavailable') { toast('<em>当前环境暂不能安全写回记录</em>', 3500); return; }
   if (result !== 'saved') { toast('<em>写回失败</em>：浏览器存储不可用或已满', 3000); return; }
   if (slot === target && g === editing) {
@@ -665,6 +673,7 @@ $('file').onchange = async () => {
   if (result === 'busy') { toast('<em>记录正在使用</em>，请稍后再试', 3500); return; }
   if (result === 'pending') { toast('<em>记录有未完成的写入</em>，请稍后再试', 3500); return; }
   if (result === 'newer') { toast('<em>记录来自更新版本</em>，不能覆盖', 3500); return; }
+  if (result === 'wrong-scenario') { toast('<em>导入的记录不属于当前游戏版本</em>', 3500); return; }
   if (result === 'unavailable') { toast('<em>当前环境暂不能安全导入记录</em>', 3500); return; }
   if (result !== 'saved') { toast('<em>导入失败</em>：浏览器存储不可用或已满', 3000); return; }
   if (!written || G.slotToken(n) !== written) { toast('<em>记录已再次改变</em>，请重新打开', 3500); return; }

@@ -5,7 +5,7 @@
 //
 // The record: { version, savedAt, g, war, side, start, after, yaw, field } (yaw: which way the war map faced). `after` says what follows the settled war: the
 // player's own turn ({ kind: 'att' }), or the rest of the attacking AI's turn ({ kind: 'def', faction, pts }: ai.js aiDomestic).
-import { upgrade, registerClones, SAVE_VERSION } from './game.js';
+import { upgrade, registerClones, SAVE_VERSION, scenarioKey } from './game.js';
 
 export const SUSPEND_KEY = 'haou-hd2d-suspend';
 export const SUSPEND_VERSION = 1;
@@ -14,10 +14,11 @@ export const SUSPEND_VERSION = 1;
 // Locks can coordinate with one another using an IndexedDB read-write transaction. Callbacks must be
 // synchronous, so the transaction cannot end between the check and the localStorage update.
 export async function withSuspendLock(fn, { legacyFallback = false } = {}) {
+  const lockKey = scenarioKey(SUSPEND_KEY);
   const locks = globalThis.navigator?.locks;
   if (locks?.request) {
     const abort = new AbortController(), timer = setTimeout(() => abort.abort(), 5000);
-    try { return await locks.request(SUSPEND_KEY, { signal: abort.signal }, fn); }
+    try { return await locks.request(lockKey, { signal: abort.signal }, fn); }
     catch { return 'failed'; }
     finally { clearTimeout(timer); }
   }
@@ -42,7 +43,7 @@ export async function withSuspendLock(fn, { legacyFallback = false } = {}) {
           tx = db.transaction('lock', 'readwrite');
           tx.oncomplete = () => finish(value);
           tx.onabort = tx.onerror = () => finish(ran ? value : 'failed');
-          const read = tx.objectStore('lock').get(SUSPEND_KEY);
+          const read = tx.objectStore('lock').get(lockKey);
           read.onsuccess = () => {
             if (done) return;
             try {
@@ -70,12 +71,12 @@ export function suspend(g, war, field, { side, start, after, yaw = null }) {
     const rec = { version: SUSPEND_VERSION, savedAt: Date.now(), g: { ...g, version: SAVE_VERSION }, war, side, start, after, yaw, field: field.snapshot() };
     const text = JSON.stringify(rec);
     if (!valid(parse(text))) return false;
-    localStorage.setItem(SUSPEND_KEY, text);
+    localStorage.setItem(scenarioKey(SUSPEND_KEY), text);
     return true;
   } catch { return false; }
 }
 // The stored suspension, left in place (the title's 继续战斗 line); null when there is none or it no longer reads.
-export function peekSuspend() { try { return valid(parse(localStorage.getItem(SUSPEND_KEY))); } catch { return null; } }
+export function peekSuspend() { try { return valid(parse(localStorage.getItem(scenarioKey(SUSPEND_KEY)))); } catch { return null; } }
 // Take it out to resume: read, removed, its 阿会喃 copies registered. A record that no longer reads is removed too.
 export function takeSuspend() {
   const rec = peekSuspend();
@@ -83,4 +84,4 @@ export function takeSuspend() {
   if (rec) registerClones(rec.g);
   return rec;
 }
-export function dropSuspend() { try { localStorage.removeItem(SUSPEND_KEY); } catch {} }
+export function dropSuspend() { try { localStorage.removeItem(scenarioKey(SUSPEND_KEY)); } catch {} }

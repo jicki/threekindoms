@@ -207,14 +207,15 @@ export function makePlay(wv) {
   }
   async function playStrategy(u, t, id, res) {
     const name0 = STRATS[id].name;
+    const visualId = id < STRAT_SCENE.length ? id : 0;
     ui.log(`${name(u.id)} 施展<strong>${name0}</strong>${t ? `→${name(t.id)}` : ''}`);
-    const cue = () => { if (!audio.cue(STRAT_CUE[id])) audio.sfx('sfx-horn'); }; // its phrase, then the war theme from the top (T13)
+    const cue = () => { if (!audio.cue(STRAT_CUE[visualId])) audio.sfx('sfx-horn'); }; // its phrase, then the war theme from the top (T13)
     // The player has just picked the target on the view he has and keeps it; an enemy's 计略 is shown to him (devblog #96, 2026-11-03).
     if (u.side !== human) focusOn(t || u);
     // The original's beats (src/pace.js): the cast animation names the 计略 and plays its phrase, then a window
     // tells what it did while the effect lands on the board, then the board has the rest of the 3.48 s. Without
     // the picture (演出 off) a banner stands in for the cast.
-    const shown = await playVignette({ scene: STRAT_SCENE[id], caption: `${name(u.id)}的${name0}……`, audio, duration: paced(ORIGINAL.strategyShow), onShow: cue, part: res.hit ? undefined : 'attempt' }); // a 计略 that fails stops short of the outcome
+    const shown = await playVignette({ scene: STRAT_SCENE[visualId], caption: `${name(u.id)}的${name0}……`, audio, duration: paced(ORIGINAL.strategyShow), onShow: cue, part: res.hit ? undefined : 'attempt' }); // a 计略 that fails stops short of the outcome
     if (!shown) { cue(); await ui.stratBanner?.(name0); }
     const t0 = performance.now(); // the window and the board keep the original's time after the show, however long it ran
     // The face the original's window wears (bank 12 $AACD / $AAE5, bank 13 $C0B6 / $C0C0): the player's caster, 喜 when
@@ -224,7 +225,7 @@ export function makePlay(wv) {
     const v = t && views.get(t);
     if (v && res.hit) {
       const at = v.g.position.clone(); at.y += 0.8;
-      STRATEGY_FX[STRAT_FX[id]](scene, at);
+      STRATEGY_FX[STRAT_FX[visualId]](scene, at);
       audio.sfx('sfx-clash');
     }
     if (res.hit) for (const h of res.hits) recoil(h.u, u);

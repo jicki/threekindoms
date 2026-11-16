@@ -2,7 +2,7 @@
 //   node hd2d-mvp/desktop/build-app.mjs
 //   node hd2d-mvp/desktop/build-app.mjs --generated-music     # no local audio: chiptune BGM stand-ins, committed SFX
 //   node hd2d-mvp/desktop/build-app.mjs --no-original-music   # leave the original-game BGM out (SFX stay original)
-// Copies index.html, save-editor.html (系统 → 记录编辑 on the title), src/, data/ and the runtime assets (git-tracked plus untracked-but-not-ignored files,
+// Copies index.html, save-editor.html, admin.html, src/, data/ and the runtime assets (git-tracked plus untracked-but-not-ignored files,
 // so generator sources never ship), adds for every BGM slot each git-ignored local version the manifest
 // lists (the Suno remix in assets/audio/remix/ and the original track in assets/audio/original/), so the
 // package offers the same 曲目 choice (Remix / 原版) as local play, and the original-game SFX for
@@ -26,7 +26,7 @@ const mods = join(here, 'node_modules');
 
 // Generator inputs and editor-only material that the game never loads, and the dropped generated score (新编, assets/audio/bgm-*).
 const SKIP = [/(^|\/)source(\/|$)/, /^assets\/ai\/title-source/, /^assets\/audio\/(original|remix)\//, /^assets\/audio\/generated\.json$/, /^assets\/audio\/bgm-[^/]+\.mp3$/, /(^|\/)\.DS_Store$/];
-const KEEP = [/^index\.html$/, /^save-editor\.html$/, /^src\//, /^data\//, /^assets\//];
+const KEEP = [/^index\.html$/, /^save-editor\.html$/, /^admin\.html$/, /^src\//, /^data\//, /^assets\//];
 
 rmSync(out, { recursive: true, force: true });
 const listed = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: game, encoding: 'utf8' }).split('\0');
@@ -157,6 +157,6 @@ writeFileSync(join(out, 'index.html'), html);
 
 const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: game, encoding: 'utf8' }).trim();
 // Dirty means a change in what the package is made of (the KEEP paths above), not notes or captures under docs/.
-const dirty = execFileSync('git', ['status', '--porcelain', '--', 'index.html', 'save-editor.html', 'src', 'data', 'assets'], { cwd: game, encoding: 'utf8' }).trim() ? '+dirty' : '';
+const dirty = execFileSync('git', ['status', '--porcelain', '--', 'index.html', 'save-editor.html', 'admin.html', 'src', 'data', 'assets'], { cwd: game, encoding: 'utf8' }).trim() ? '+dirty' : '';
 writeFileSync(join(out, 'build.json'), JSON.stringify({ commit: commit + dirty, built: new Date().toISOString(), music }, null, 1));
 console.log(`${relative(process.cwd(), out) || out}: ${files} game files, ${(bytes / 2 ** 20).toFixed(1)} MB (${(webpSaved / 2 ** 20).toFixed(1)} MB less as WebP) + vendor (three ${threeVersion} with ${addons.size} addon files, fonts) @ ${commit}${dirty}; local audio: ${Object.entries(music).map(([k, fs]) => `${k}=${fs.map((f) => f.split('/').at(-2)).join('+')}`).join(' ') || 'none'}`);

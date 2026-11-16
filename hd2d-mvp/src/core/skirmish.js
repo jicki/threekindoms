@@ -5,7 +5,7 @@
 // difficulty from round 4, and the duel hit matrix / damage / 舍身 / initiative formulas.
 // Abstracted: there is no 16×10 grid — targets are drawn instead of path-found, and both sides
 // fight on "前进" automatically for up to 6 rounds. Generals meeting starts a duel.
-import { data, addExp, isRuler, maxHp } from './game.js';
+import { data, addExp, isRuler, maxHp, weaponGroup } from './game.js';
 import { tableDraws, realChance } from './origrng.js';
 
 const CASTLE = 5;
@@ -28,7 +28,7 @@ function squads(o, castleDef) {
 
 export function skirmish(g, aId, dId, terrain, r, human = null) {
   const D = data(), A = g.officers[aId], Dd = g.officers[dId];
-  const eq = (o) => ({ atk: D.equipment[o.weapon]?.atk || 0, def: D.equipment[24 + o.armor]?.dfn || 0, wgrp: Math.floor(o.weapon / 8), weight: (D.equipment[o.weapon]?.weight || 0) + (D.equipment[24 + o.armor]?.weight || 0) });
+  const eq = (o) => ({ atk: D.equipment[o.weapon]?.atk || 0, def: D.equipment[24 + o.armor]?.dfn || 0, wgrp: weaponGroup(o.weapon), weight: (D.equipment[o.weapon]?.weight || 0) + (D.equipment[24 + o.armor]?.weight || 0) });
   const mk = (o, id, castleDef) => ({ id, o, F: Math.floor((C(o.war) * o.war) / 100) + 9 - r(9), eq: eq(o), sq: squads(o, castleDef), hp: o.hp, start: o.soldiers });
   const side = { a: mk(A, aId, false), d: mk(Dd, dId, terrain === CASTLE) };
   const tl = []; let duel = null, fate = { a: null, d: null };

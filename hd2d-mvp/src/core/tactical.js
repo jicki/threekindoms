@@ -6,7 +6,7 @@
 // axis-greedy stepping with one alternate axis, four commands (前进/后退/待机/包围), six tactics with
 // their costs and effects, AI command schedule and tactic priorities, capture and AI withdrawal.
 // The engine is stepped by the UI (one event per call) or run to the end for AI-only battles.
-import { data, addExp, isRuler, spared, SPARED_HP } from './game.js';
+import { data, addExp, isRuler, spared, SPARED_HP, weaponGroup } from './game.js';
 import { Duel } from './skirmish.js';
 
 export const GW = 16, GH = 10, KINDS = ['inf', 'arc', 'cav', 'gen'];
@@ -43,7 +43,7 @@ export class Tactical {
     this.map = D.skirmish_maps[terrain] || D.skirmish_maps[2];
     this.units = []; this.queue = []; this.log = []; this.over = null; this.duel = null;
     const mk = (id, key) => {
-      const o = g.officers[id], eq = { atk: D.equipment[o.weapon]?.atk || 0, def: D.equipment[24 + o.armor]?.dfn || 0, wgrp: Math.floor(o.weapon / 8), weight: (D.equipment[o.weapon]?.weight || 0) + (D.equipment[24 + o.armor]?.weight || 0) };
+      const o = g.officers[id], eq = { atk: D.equipment[o.weapon]?.atk || 0, def: D.equipment[24 + o.armor]?.dfn || 0, wgrp: weaponGroup(o.weapon), weight: (D.equipment[o.weapon]?.weight || 0) + (D.equipment[24 + o.armor]?.weight || 0) };
       return { key, id, o, F: Math.floor((C(o.war) * o.war) / 100) + 9 - r(9), eq, hp: o.hp, start: o.soldiers, tp: Math.floor((o.int * 13) / 100), fx: {}, cmd: { gen: 'advance', cav: 'advance', arc: 'advance', inf: 'advance' }, formation: 0 };
     };
     this.side = { a: mk(aId, 'a'), d: mk(dId, 'd') };

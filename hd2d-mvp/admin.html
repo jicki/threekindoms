@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>游戏版本管理</title>
+  <link rel="stylesheet" href="vendor/fonts/fonts.css">
+  <link rel="stylesheet" href="src/admin.css">
+</head>
+<body>
+<main class="admin">
+  <header class="heading">
+    <div><p class="eyebrow">三国 HD-2D · 版本管理</p><h1>创建新的游戏版本</h1>
+      <p>调整人物、登场、关系、武器与技能。发布后玩家可在标题画面选择，已有版本和存档保持独立。</p></div>
+    <button type="button" id="back" class="quiet">返回游戏</button>
+  </header>
+  <section class="panel version-bar" aria-label="版本管理">
+    <div class="toolbar">
+      <label>版本名称<input id="version-name" maxlength="40" value="新游戏版本"></label>
+      <label>已发布版本<select id="published"><option value="">从原版开始</option></select></label>
+      <button type="button" id="load-version" class="quiet">载入为新草稿</button>
+    </div>
+    <div class="toolbar secondary">
+      <button type="button" id="import" class="quiet">导入版本</button>
+      <input type="file" id="file" accept="application/json,.json" hidden>
+      <button type="button" id="export" class="quiet">导出草稿</button>
+      <label>管理员令牌<input id="token" type="password" autocomplete="off" placeholder="发布时输入"></label>
+      <button type="button" id="publish" class="primary">发布新版本</button>
+    </div>
+    <p class="notice">每次修改后发布会生成新编号。令牌仅用于本次发布，不会保存到浏览器。</p>
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+  </section>
+  <nav id="tabs" class="tabs" role="tablist" aria-label="编辑类别"></nav>
+  <section id="content" role="tabpanel" aria-live="polite"></section>
+</main>
+<script type="module" src="src/admin.js"></script>
+</body>
+</html>

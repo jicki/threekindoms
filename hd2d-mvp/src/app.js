@@ -26,6 +26,8 @@ import { FLAT_INSET } from './warmap2d.js';
 import { PHONE, hint } from './phone.js';
 import { unitCard } from './warcard.js';
 import * as G from './core/game.js';
+import { listScenarios, selectScenario } from './core/scenario-store.js';
+import { ORIGINAL_SCENARIO } from './core/scenario.js';
 import { aiTurn, aiDomestic } from './core/ai.js';
 import { suspend, peekSuspend, takeSuspend, dropSuspend, withSuspendLock } from './core/suspend.js';
 import { warFate } from './warreport.js';
@@ -41,12 +43,19 @@ import { fresh as freshInput, padPressed, GUARD } from './commitguard.js';
 
 const { name, cityName, NONE } = G;
 const factionName = (f) => G.factionName(g, f);
+const serverVersions = location.protocol === 'http:' || location.protocol === 'https:';
 // Everything the title waits for is asked for at once; each optional list fails on its own (an empty list), as when they were
 // fetched one after another, and is applied in the same order (the portrait list over the manifest's).
 const json = (url) => fetch(url, { cache: 'no-store' }).then((r) => r.json());
 const optional = (p) => p.catch(() => null);
+const gameData = G.loadData().catch((error) => {
+  const reset = h('button', { class: 'btn primary', onclick: () => { selectScenario(ORIGINAL_SCENARIO); location.reload(); } }, '切换到原版');
+  document.body.replaceChildren(h('main', { style: { padding: '3rem', color: 'white' } },
+    h('h1', {}, '游戏版本无法读取'), h('p', {}, error.message), reset));
+  return new Promise(() => {});
+});
 const [D, files, portraitList, faceList, halfbodyList, titleArt, officerList, duelList, marchList, troopList] = await Promise.all([
-  G.loadData(), loadManifest(),
+  gameData, loadManifest(),
   optional(json('assets/ai/portraits/index.json')), optional(json('assets/ai/faces/index.json')), optional(json('assets/ai/halfbody/index.json')),
   fetch('assets/ai/title.webp', { method: 'HEAD' }).then((r) => r.ok, () => false),
   optional(json('assets/ai/sprites/officers/index.json')), optional(json('assets/ai/sprites/duel/index.json')),
@@ -977,6 +986,8 @@ function sysButtons() {
     g ? item(() => '回到标题', () => { close(); backToTitle(); }, '结束本局回到标题画面（记录编辑在那里打开）。未记录的进度会丢失，可先记录') : '',
     ), group('其他',
     g ? item(() => '欣赏模式', () => { close(); if (!canScenic()) return toast('<em>欣赏模式在己方回合的战略地图上可用</em>', 2500); setScenic(true); }, `隐藏界面欣赏地图与音乐，地图仍可${strategy.flat ? '' : '旋转、'}缩放、平移；按 V 或 Esc 恢复（V）`) : '',
+    !g && serverVersions ? item(() => `游戏版本 ${D.scenarioName ?? '原版'}`, () => { close(); chooseScenario(); }, '选择服务器已发布的游戏版本；各版本的记录分开保存') : '',
+    !g && serverVersions ? item(() => '版本管理', () => { close(); location.replace(`admin.html${location.search}`); }, '创建并发布新的游戏版本') : '',
     // The save editor (save-editor.html, same origin, so the same record slots) is opened from the title only, where no
     // unsaved game is lost; the title's opening is skipped on the way back.
     !g ? item(() => '记录编辑', () => { close(); try { sessionStorage.setItem('hd2d-title-seen', '1'); } catch {} location.replace(`save-editor.html${location.search}`); },
@@ -987,6 +998,21 @@ function sysButtons() {
     h('button', { class: 'btn sysmenu-btn', 'aria-haspopup': 'menu', title: '系统（镜头复位、画面、声音、音乐、演出、说明）', onclick: () => { if (list.hidden) { fill(); list.hidden = false; addEventListener('pointerdown', outside, true); } else close(); } }, '☰ 系统', h('kbd', { class: 'pad-only', 'data-glyph': 'start' })),
     list);
   return wrap;
+}
+async function chooseScenario() {
+  let versions;
+  try { versions = await listScenarios(); }
+  catch { return toast('<em>无法读取已发布的游戏版本</em>', 3500); }
+  if (!Array.isArray(versions)) return toast('<em>游戏版本列表无效</em>', 3500);
+  const options = [{ id: ORIGINAL_SCENARIO, name: '原版' }, ...versions.filter((v) => /^v-[a-f0-9]{32}$/.test(v?.id) && typeof v.name === 'string')];
+  const choice = await modal('选择游戏版本', (close) => [
+    h('p', {}, '各版本的存档分开保存。切换版本后可在标题画面开始新游戏或读取该版本的记录。'),
+    h('div', { class: 'slots' }, options.map((v) => h('button', { class: 'btn slot', onclick: () => close(v.id) },
+      h('b', {}, v.name), h('span', {}, v.id === G.currentScenario() ? '当前版本' : '选择此版本')))),
+    h('div', { class: 'foot' }, h('button', { class: 'btn', onclick: () => close(null) }, '取消'))]);
+  if (!choice || choice === G.currentScenario()) return;
+  try { selectScenario(choice); sessionStorage.setItem('hd2d-title-seen', '1'); location.reload(); }
+  catch { toast('<em>无法切换游戏版本</em>', 3500); }
 }
 // ---------- Records (save slots) ----------
 // 系统 → 记录进度 runs the city menu's 记录 (one 命令书, as the original) from wherever the player is on the 战略地图, and says
@@ -1027,7 +1053,8 @@ const writeRecord = async ({ n, token }) => {
   return { result, free };
 };
 const recordWriteError = (result) => ({ changed: '记录已改变，请重新选择', cancelled: '本局状态已改变，请重新记录', busy: '记录正在使用，请稍后再试',
-  unavailable: '当前环境暂不能安全写入记录', pending: '记录有未完成的写入，请稍后再试', newer: '记录来自更新版本，不能覆盖' }[result] ?? '记录失败：浏览器存储不可用或已满');
+  unavailable: '当前环境暂不能安全写入记录', pending: '记录有未完成的写入，请稍后再试', newer: '记录来自更新版本，不能覆盖',
+  'wrong-scenario': '记录不属于当前游戏版本' }[result] ?? '记录失败：浏览器存储不可用或已满');
 const SLOT_NAMES = '一二三四五六七八九十';
 const stamp = (t) => { if (!t) return '旧版记录'; const d = new Date(t), p = (n) => String(n).padStart(2, '0'); return `${d.getMonth() + 1}月${d.getDate()}日 ${p(d.getHours())}:${p(d.getMinutes())}`; };
 const recordLine = (s) => `${s.year}年${s.month + 1}月 · ${name(s.factions[s.player].ruler)} · ${G.citiesOf(s, s.player).length}城`;
@@ -1055,7 +1082,7 @@ function pickSlot(mode, list, current = null) {
 
 // Loading during a campaign starts the page over and opens the record on boot: the running month (AI turns,
 // a war, its 白兵 and their timers) ends with the page, so nothing from the old game can write into the new one.
-const LOAD_KEY = 'haou-hd2d-load';
+const LOAD_KEY = G.scenarioKey('haou-hd2d-load');
 let quickLoading = false, quickCostExplained = false;
 async function restartWithRecord(n, rec, { alwaysConfirm = false } = {}) {
   const held = peekSuspend();
@@ -1623,7 +1650,9 @@ function officerSheet(id, { live = null, foot = null } = {}) {
         h('div', {}, h('span', {}, '兵数'), h('b', {}, soldiers)), h('div', {}, h('span', {}, '经验'), h('b', {}, expText(o))),
         h('div', {}, h('span', {}, '武器'), h('b', {}, w ? h('img', { class: 'eqi', src: equipIcon(o.weapon), alt: '' }) : null, `${w?.name ?? '—'}`, w ? h('small', {}, ` 攻${w.atk}`) : null)),
         h('div', {}, h('span', {}, '防具'), h('b', {}, a ? h('img', { class: 'eqi', src: equipIcon(24 + o.armor), alt: '' }) : null, `${a?.name ?? '—'}`, a ? h('small', {}, ` 防${a.dfn}`) : null))),
-      live ? null : h('p', { class: 'hint' }, `${d.year}年登场`, debutShown(id) ? `　·　${debutText(id)}` : '', o.status === G.UNAPPEARED && talentMode === 'all' ? `　·　${waitText(id)[0]}` : ''),
+      live ? null : h('p', { class: 'hint' }, d.birthYear != null ? `${d.birthYear}年出生　·　` : '', d.birthCity != null ? `出生于${cityName(d.birthCity)}　·　` : '', `${d.year}年登场`, debutShown(id) ? `　·　${debutText(id)}` : '', o.status === G.UNAPPEARED && talentMode === 'all' ? `　·　${waitText(id)[0]}` : ''),
+      live || !D.relationships?.some((r) => r.from === id || r.to === id) ? null : h('p', { class: 'hint' }, '人物关系：',
+        D.relationships.filter((r) => r.from === id || r.to === id).map((r) => `${r.kind} ${name(r.from === id ? r.to : r.from)}`).join('　·　')),
       foot));
 }
 async function officerCard(id) {
