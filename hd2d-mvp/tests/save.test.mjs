@@ -1,16 +1,19 @@
 // Records (core/game.js save/load): a slot that no longer reads loads the record it held before, an empty slot
 // stays empty, and a record from a newer release is refused. Rules only, in Node, over an in-memory localStorage.
-import { test, beforeEach } from 'node:test';
+import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as G from '../src/core/game.js';
 G.setData(JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url))));
 
 const store = new Map();
+let failKey = null;
+const globals = Object.fromEntries(['navigator', 'indexedDB'].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
 Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
-  getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => { store.set(k, String(v)); }, removeItem: (k) => { store.delete(k); },
+  getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => { if (k === failKey) throw new Error('storage full'); store.set(k, String(v)); }, removeItem: (k) => { store.delete(k); },
 } });
-beforeEach(() => store.clear());
+beforeEach(() => { store.clear(); failKey = null; });
+afterEach(() => { for (const [key, descriptor] of Object.entries(globals)) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; } });
 const KEY = 'haou-hd2d-save';
 
 test('a record saves and loads, stamped with the current layout version', () => {
@@ -56,6 +59,54 @@ test('a record from a newer release is refused, not misread', () => {
   const g = G.newGame(4, 1, 1);
   store.set(`${KEY}:1`, JSON.stringify({ ...g, version: G.SAVE_VERSION + 1 }));
   assert.equal(G.load(1), null);
+});
+
+test('a newer record is not replaced by its older backup or by an old-version write', () => {
+  const g = G.newGame(4, 1, 1); g.year = 190; G.save(g, 1); G.save(g, 1);
+  const future = JSON.stringify({ ...g, version: G.SAVE_VERSION + 1, year: 200 });
+  store.set(`${KEY}:1`, future);
+  assert.equal(G.load(1), null);
+  assert.equal(G.futureSlot(1), true);
+  assert.equal(G.save(g, 1), false);
+  assert.equal(store.get(`${KEY}:1`), future);
+});
+
+test('a failed numbered save leaves the running game and current slot unchanged', () => {
+  const g = G.newGame(4, 1, 1); assert.ok(G.save(g, 1));
+  const before = { slot: g.slot, savedAt: g.savedAt, version: g.version };
+  failKey = `${KEY}:2`;
+  assert.equal(G.save(g, 2), false);
+  assert.deepEqual({ slot: g.slot, savedAt: g.savedAt, version: g.version }, before);
+  assert.equal(store.has(`${KEY}:2`), false);
+});
+
+test('checked saves refuse a slot changed since selection and track the saved contents', async () => {
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { locks: { request: (_key, _options, fn) => Promise.resolve(fn()) } } });
+  const records = new Map();
+  Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: { open() {
+    const request = {};
+    queueMicrotask(() => {
+      request.result = { close() {}, transaction() {
+        const tx = { abort() { queueMicrotask(() => tx.onabort?.()); }, objectStore() { return {
+          get(key) { const read = {}; queueMicrotask(() => { read.result = records.get(key); read.onsuccess(); queueMicrotask(() => tx.oncomplete?.()); }); return read; },
+          put(value, key) { records.set(key, value); },
+        }; } };
+        return tx;
+      } };
+      request.onsuccess();
+    });
+    return request;
+  } } });
+  const g = G.newGame(4, 1, 1), other = G.newGame(2, 1, 2);
+  const empty = G.slotToken(2);
+  assert.equal(G.save(other, 2), true);
+  const otherRecord = G.slotToken(2);
+  assert.equal(await G.saveChecked(g, 2, empty), 'changed');
+  assert.equal(G.slotToken(2), otherRecord);
+  assert.equal(await G.saveChecked(g, 2, otherRecord), 'saved');
+  assert.equal(G.currentSlot(g, 2), true);
+  assert.equal(G.save(other, 2), true);
+  assert.equal(G.currentSlot(g, 2), false);
 });
 
 test('a record from before version stamps loads as version 1', () => {

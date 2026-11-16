@@ -4,6 +4,7 @@
 // of them, so outcomes follow the same ranges and rejection rules but not the original sequence.
 
 import { roll100 } from './origrng.js';
+import { withRecordLock } from './record-lock.js';
 export const NONE = 7; // city owner value for "no faction"
 export const DEAD = 3, SERVING = 2, UNAPPEARED = 1, RONIN = 0;
 export const FACTION_COLORS = ['#5a5a66', '#c8402f', '#7a4ad0', '#e0a020', '#3f8f4f', '#c060a0', '#2f9fb0'];
@@ -644,6 +645,15 @@ const KEY = 'haou-hd2d-save', slotKey = (n) => `${KEY}:${n}`, bakKey = (n) => `$
 const QUICK_KEY = `${KEY}:quick`, QUICK_BAK = `${QUICK_KEY}:bak`;
 const parse = (s) => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
 const read = (k) => { try { return parse(localStorage.getItem(k)); } catch { return null; } };
+const futureVersion = (g) => Number.isInteger(g?.version) && g.version > SAVE_VERSION;
+const slotStates = new WeakMap();
+export function slotToken(slot) { try { return localStorage.getItem(slotKey(slot)); } catch { return undefined; } }
+export const futureSlot = (slot) => futureVersion(parse(slotToken(slot)));
+export function currentSlot(g, slot, token = slotToken(slot)) {
+  const saved = slotStates.get(g);
+  return token !== undefined && g?.slot === slot && saved?.slot === slot && saved.token === token;
+}
+export const loadedSlotToken = (g) => slotStates.get(g)?.token;
 export function upgrade(g) {
   if (!g || typeof g !== 'object') return null;
   try { g.version ??= 1; while (g.version < SAVE_VERSION) MIGRATIONS[g.version++](g); } catch { return null; }
@@ -659,13 +669,52 @@ function migrate() {
     for (let n = 1; n <= SLOTS; n++) if (!localStorage.getItem(slotKey(n))) { localStorage.setItem(slotKey(n), old); localStorage.removeItem(KEY); return; }
   } catch {}
 }
+function prepareSave(g, slot) {
+  const savedAt = Date.now();
+  return { savedAt, text: JSON.stringify({ ...g, slot, savedAt, version: SAVE_VERSION }) };
+}
+function commitSave(g, slot, expected, previous, prepared) {
+  try {
+    const current = slotToken(slot);
+    if (current === undefined) return 'failed';
+    if (current !== expected) return 'changed';
+    if (futureVersion(parse(current)) || futureVersion(parse(previous))) return 'newer';
+    if (previous && upgrade(parse(previous))) localStorage.setItem(bakKey(slot), previous);
+    localStorage.setItem(slotKey(slot), prepared.text);
+    g.slot = slot; g.savedAt = prepared.savedAt; g.version = SAVE_VERSION;
+    slotStates.set(g, { slot, token: prepared.text });
+    return 'saved';
+  } catch { return 'failed'; }
+}
 export function save(g, slot = g.slot ?? 1) {
   try {
-    const k = slotKey(slot), prev = localStorage.getItem(k);
-    if (prev && upgrade(parse(prev))) localStorage.setItem(bakKey(slot), prev);
-    g.slot = slot; g.savedAt = Date.now(); g.version = SAVE_VERSION; localStorage.setItem(k, JSON.stringify(g));
-    return true;
+    const current = slotToken(slot);
+    if (current === undefined || futureVersion(parse(current))) return false;
+    return commitSave(g, slot, current, current, prepareSave(g, slot)) === 'saved';
   } catch { return false; }
+}
+// 确认期间或等待锁期间若记录被其他页面更改，保留现有内容并要求重新选择。
+export async function saveChecked(g, slot, expected, { snapshot = g, isCurrent = () => true, onSaved = () => {}, acceptedConflict, onConflict = () => {}, acceptedPending, onPending = () => {} } = {}) {
+  return withRecordLock(slotKey(slot), (state) => {
+    const token = slotToken(slot);
+    if (token === undefined) return 'failed';
+    if (token !== expected) return 'changed';
+    if (futureVersion(parse(token)) || (state && futureVersion(parse(state.token)))) return 'newer';
+    if (!isCurrent()) return 'cancelled';
+    if (state && state.token !== expected && state.token !== acceptedConflict) { onConflict(state.token); return 'changed'; }
+    const prepared = prepareSave(snapshot, slot);
+    return { before: token, token: prepared.text, commit: (previous) => {
+      if (!isCurrent()) return 'cancelled';
+      const result = commitSave(snapshot, slot, expected, previous, prepared);
+      if (result !== 'saved') return result;
+      if (snapshot !== g) {
+        g.slot = snapshot.slot; g.savedAt = snapshot.savedAt; g.version = snapshot.version;
+        slotStates.set(g, slotStates.get(snapshot));
+      }
+      try { onSaved(prepared.text); } catch { /* 记录已经写入 */ }
+      return 'saved';
+    } };
+  }, { readCurrent: () => slotToken(slot), acceptedPending, onPending });
 }
 // The phone's 自动续玩 (src/app.js): the campaign as it stood when the page went out of sight, kept apart from the eight records
 // and the quick one. It is written when the page is hidden and dropped when the page comes back, so it only outlives a page the
@@ -676,10 +725,11 @@ export function loadAuto() { const g = upgrade(read(AUTO_KEY)); if (g) { registe
 export function dropAuto() { try { localStorage.removeItem(AUTO_KEY); } catch {} }
 export function load(slot) {
   migrate();
-  let raw = null; try { raw = localStorage.getItem(slotKey(slot)); } catch {}
-  let g = upgrade(parse(raw));
+  const raw = slotToken(slot), parsed = parse(raw);
+  if (futureVersion(parsed)) return null;
+  let g = upgrade(parsed);
   if (!g && raw && (g = upgrade(read(bakKey(slot))))) fromBak.add(g); // an empty slot stays empty
-  if (g) { g.slot = slot; registerClones(g); }
+  if (g) { g.slot = slot; registerClones(g); slotStates.set(g, { slot, token: raw }); }
   return g;
 }
 // The quick record is separate from the eight numbered records. Its owner identifies a campaign, not a
@@ -713,43 +763,54 @@ function quickUpgrade(g) {
 // The raw value is also a change token while an overwrite confirmation is open in another tab.
 export function quickToken() { try { return localStorage.getItem(QUICK_KEY); } catch { return undefined; } }
 export function hasQuick() { return !!quickToken(); }
+function prepareQuick(g) {
+  const id = g.quickId || newQuickId();
+  const text = JSON.stringify({ ...g, quickId: id, savedAt: Date.now(), version: SAVE_VERSION });
+  return quickUpgrade(parse(text)) ? { id, text } : null;
+}
+function commitQuick(g, expected, previous, prepared) {
+  try {
+    const current = quickToken();
+    if (current === undefined) return 'failed';
+    if (current !== expected) return 'changed';
+    if (previous && quickUpgrade(parse(previous))) localStorage.setItem(QUICK_BAK, previous);
+    localStorage.setItem(QUICK_KEY, prepared.text);
+    g.quickId = prepared.id; // never change the running game or its current numbered slot on a failed write
+    return 'saved';
+  } catch { return 'failed'; }
+}
 export function saveQuick(g) {
   try {
-    const id = g.quickId || newQuickId();
-    const text = JSON.stringify({ ...g, quickId: id, savedAt: Date.now(), version: SAVE_VERSION });
-    if (!quickUpgrade(parse(text))) return false;
-    const prev = localStorage.getItem(QUICK_KEY);
-    if (prev && quickUpgrade(parse(prev))) localStorage.setItem(QUICK_BAK, prev);
-    localStorage.setItem(QUICK_KEY, text);
-    g.quickId = id; // never change the running game or its current numbered slot on a failed write
-    return true;
+    const current = quickToken(), prepared = prepareQuick(g);
+    return current !== undefined && !!prepared && commitQuick(g, current, current, prepared) === 'saved';
   } catch { return false; }
 }
 // Every game/editor writer checks and writes inside the same origin-wide lock. A token check outside
 // the lock alone cannot protect two tabs that both see the empty slot at the same instant.
-export async function saveQuickChecked(g, expected, { isCurrent = () => true, onSaved = () => {} } = {}) {
-  const locks = globalThis.navigator?.locks;
-  if (!locks?.request) return 'unavailable';
-  const abort = new AbortController(), timer = setTimeout(() => abort.abort(), 5000);
-  try {
-    return await locks.request(QUICK_KEY, { signal: abort.signal }, () => {
-      const token = quickToken();
-      if (token === undefined) return 'failed';
-      if (token !== expected) return 'changed';
+export async function saveQuickChecked(g, expected, { isCurrent = () => true, onSaved = () => {}, acceptedConflict, onConflict = () => {}, acceptedPending, onPending = () => {} } = {}) {
+  return withRecordLock(QUICK_KEY, (state) => {
+    const token = quickToken();
+    if (token === undefined) return 'failed';
+    if (token !== expected) return 'changed';
+    if (!isCurrent()) return 'cancelled';
+    if (state && state.token !== expected && state.token !== acceptedConflict) { onConflict(state.token); return 'changed'; }
+    const prepared = prepareQuick(g);
+    if (!prepared) return 'failed';
+    return { before: token, token: prepared.text, commit: (previous) => {
       if (!isCurrent()) return 'cancelled';
-      if (!saveQuick(g)) return 'failed';
-      try { onSaved(quickToken()); } catch { /* the record was already written */ }
+      const result = commitQuick(g, expected, previous, prepared);
+      if (result !== 'saved') return result;
+      try { onSaved(prepared.text); } catch { /* the record was already written */ }
       return 'saved';
-    });
-  } catch (err) { return err?.name === 'AbortError' ? 'busy' : 'failed'; }
-  finally { clearTimeout(timer); }
+    } };
+  }, { readCurrent: quickToken, acceptedPending, onPending });
 }
 export function loadQuick() {
   let raw = null; try { raw = localStorage.getItem(QUICK_KEY); } catch {}
   if (!raw) return null;
   const parsed = parse(raw);
   // An unknown future layout is not a damaged record: do not silently offer an older backup in its place.
-  if (Number.isInteger(parsed?.version) && parsed.version > SAVE_VERSION) return null;
+  if (futureVersion(parsed)) return null;
   let g = quickUpgrade(parsed), backup = false;
   if (!g && (g = quickUpgrade(read(QUICK_BAK)))) backup = true;
   // The numbered slot saved in the snapshot may since have been replaced by another campaign. A manual

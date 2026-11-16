@@ -1003,7 +1003,31 @@ function saveBlocked() {
 }
 // A record holds the game with this command's 命令书 already spent, as the original; 免费记录 (g.freeSave, an option off
 // by default and absent from older records) spends none.
-const writeRecord = (n) => { if (g.freeSave) return G.save(g, n); g.books--; const ok = G.save(g, n); g.books++; return ok; };
+async function saveWithConflict(write) {
+  let acceptedConflict, acceptedPending;
+  for (let i = 0; i < 3; i++) {
+    let conflict, pending;
+    const result = await write({ acceptedConflict, acceptedPending, onConflict: (token) => { conflict = token; }, onPending: (value) => { pending = value; } });
+    if (result === 'pending' && pending) {
+      if (!(await confirmBox('记录写入未完成', '此前的写入尚未确认。继续可能覆盖其中一份记录，确定继续吗？'))) return 'declined';
+      acceptedPending = pending.id; acceptedConflict = pending.token; continue;
+    }
+    if (result !== 'changed' || (conflict !== null && typeof conflict !== 'string')) return result;
+    if (!(await confirmBox('记录冲突', '检测到不同版本的记录。继续可能覆盖其中一份，确定继续吗？'))) return 'declined';
+    acceptedConflict = conflict;
+  }
+  return 'changed';
+}
+const writeRecord = async ({ n, token }) => {
+  const game = g, free = !!g.freeSave;
+  let original, snapshot;
+  try { original = JSON.stringify(game); snapshot = JSON.parse(original); } catch { return { result: 'failed', free }; }
+  if (!free) snapshot.books--;
+  const result = await saveWithConflict((options) => G.saveChecked(game, n, token, { ...options, snapshot, isCurrent: () => g === game && JSON.stringify(g) === original }));
+  return { result, free };
+};
+const recordWriteError = (result) => ({ changed: '记录已改变，请重新选择', cancelled: '本局状态已改变，请重新记录', busy: '记录正在使用，请稍后再试',
+  unavailable: '当前环境暂不能安全写入记录', pending: '记录有未完成的写入，请稍后再试', newer: '记录来自更新版本，不能覆盖' }[result] ?? '记录失败：浏览器存储不可用或已满');
 const SLOT_NAMES = '一二三四五六七八九十';
 const stamp = (t) => { if (!t) return '旧版记录'; const d = new Date(t), p = (n) => String(n).padStart(2, '0'); return `${d.getMonth() + 1}月${d.getDate()}日 ${p(d.getHours())}:${p(d.getMinutes())}`; };
 const recordLine = (s) => `${s.year}年${s.month + 1}月 · ${name(s.factions[s.player].ruler)} · ${G.citiesOf(s, s.player).length}城`;
@@ -1011,16 +1035,21 @@ const recordName = (n) => n === 'quick' || n == null ? '快捷存档' : `记录$
 const recordAt = (n) => n === 'quick' ? G.loadQuick() : G.load(n);
 // 'load' picks a filled slot to resume; 'save' picks any slot to write, and asks before overwriting another record.
 function pickSlot(mode, list, current = null) {
-  const rows = list.map((s, i) => ({ s, n: i + 1 }));
+  const rows = list.map((s, i) => ({ s, n: i + 1, token: mode === 'save' ? (s ? G.loadedSlotToken(s) : G.slotToken(i + 1)) : null, newer: G.futureSlot(i + 1) }));
   if (mode === 'load') rows.unshift({ s: G.loadQuick(), n: 'quick' });
   return modal(mode === 'save' ? '记录' : '读取记录', (close) => [
     mode === 'save' ? h('p', {}, g.freeSave ? '选择记录位置（免费记录：不消耗命令书）' : '选择记录位置（消耗一张命令书，与原版相同）') : null,
-    h('div', { class: 'slots' }, rows.map(({ s, n }) => h('button', { class: `btn slot ${s ? '' : 'empty'} ${n === current ? 'on' : ''}`, disabled: mode === 'load' && !s,
+    h('div', { class: 'slots' }, rows.map(({ s, n, token, newer }) => h('button', { class: `btn slot ${s ? '' : 'empty'} ${n === current ? 'on' : ''}`, disabled: (mode === 'load' && !s) || (mode === 'save' && newer),
       onclick: async () => {
-        if (mode === 'save' && s && n !== current && !(await confirmBox('覆盖记录', `${recordName(n)}（${recordLine(s)}）将被覆盖，确定吗？`))) return;
-        close(mode === 'load' ? { n, record: s } : n);
+        if (mode === 'save') {
+          if (token === undefined) return toast('<em>无法读取记录，请检查浏览器存储</em>', 3500);
+          if (G.slotToken(n) !== token) return toast('<em>记录已改变，请重新选择</em>', 3500);
+          if (token !== null && !G.currentSlot(g, n, token) && !(await confirmBox('覆盖记录', `${recordName(n)}（${s ? recordLine(s) : '无法读取的记录'}）将被覆盖，确定吗？`))) return;
+          if (G.slotToken(n) !== token) return toast('<em>记录已改变，请重新选择</em>', 3500);
+        }
+        close(mode === 'load' ? { n, record: s } : { n, token });
       } },
-      h('b', {}, recordName(n)), s ? [h('span', {}, recordLine(s)), h('small', {}, `${s.ageless ? '武将不老 · ' : ''}${s.noWarDeath ? '不战死 · ' : ''}${s.sangu ? '三顾 · ' : ''}${s.warlike ? '电脑好战 · ' : ''}${s.noStudy ? '不能读书 · ' : ''}${s.freeSave ? '免费记录 · ' : ''}${stamp(s.savedAt)}`)] : h('span', {}, n === 'quick' && G.hasQuick() ? '无法读取' : '空')))),
+      h('b', {}, recordName(n)), s ? [h('span', {}, recordLine(s)), h('small', {}, `${s.ageless ? '武将不老 · ' : ''}${s.noWarDeath ? '不战死 · ' : ''}${s.sangu ? '三顾 · ' : ''}${s.warlike ? '电脑好战 · ' : ''}${s.noStudy ? '不能读书 · ' : ''}${s.freeSave ? '免费记录 · ' : ''}${stamp(s.savedAt)}`)] : h('span', {}, newer ? '来自更新版本' : (n === 'quick' && G.hasQuick()) || (mode === 'save' && token != null) ? '无法读取' : '空')))),
     h('div', { class: 'foot' }, h('button', { class: 'btn', onclick: () => close(null) }, '取消'))]);
 }
 
@@ -1046,7 +1075,8 @@ async function restartWithRecord(n, rec, { alwaysConfirm = false } = {}) {
 }
 async function loadRecord() {
   const list = G.saves();
-  if (!list.some(Boolean) && !G.loadQuick()) return toast('<em>还没有记录</em>');
+  if (!list.some(Boolean) && !G.loadQuick()) return toast(Array.from({ length: G.SLOTS }, (_, i) => G.futureSlot(i + 1)).some(Boolean)
+    ? '<em>记录来自更新版本，当前版本无法读取</em>' : '<em>还没有记录</em>');
   const pick = await pickSlot('load', list, g?.slot);
   if (!pick) return;
   await restartWithRecord(pick.n, pick.record);
@@ -1082,8 +1112,10 @@ async function backToTitle() {
       why ? null : h('button', { class: 'btn primary', onclick: () => close('save') }, '先记录'))]);
   if (!act) return;
   if (act === 'save') {
-    const n = await pickSlot('save', G.saves(), g.slot); if (!n) return;
-    if (!writeRecord(n)) return toast('<em>记录失败：浏览器存储不可用或已满，仍在本局</em>', 3500);
+    const choice = await pickSlot('save', G.saves(), g.slot); if (!choice) return;
+    const { result } = await writeRecord(choice);
+    if (result === 'declined') return;
+    if (result !== 'saved') return toast(`<em>${recordWriteError(result)}，仍在本局</em>`, 3500);
   }
   try { sessionStorage.setItem('hd2d-title-seen', '1'); } catch {}
   await fade(true); location.reload();
@@ -1994,9 +2026,10 @@ async function command(cid, act) {
       return;
     }
     case '记录': {
-      const n = await pickSlot('save', G.saves(), g.slot); if (!n) return;
-      const ok = writeRecord(n);
-      return spend({ ok, noBook: !!g.freeSave, msg: ok ? `已记录于记录${SLOT_NAMES[n - 1]}` : '记录失败：浏览器存储不可用或已满' }, cid);
+      const choice = await pickSlot('save', G.saves(), g.slot); if (!choice) return;
+      const { result, free } = await writeRecord(choice), ok = result === 'saved';
+      if (result === 'declined') return;
+      return spend({ ok, noBook: free, msg: ok ? `已记录于记录${SLOT_NAMES[choice.n - 1]}` : recordWriteError(result) }, cid);
     }
     case '快捷记录': {
       const token = G.quickToken();
@@ -2010,11 +2043,20 @@ async function command(cid, act) {
         const cost = free ? '本次免费记录。' : `本次消耗一张命令书。${lastBook ? '这是最后一张，保存后本月行动结束。' : ''}`;
         if (!(await confirmBox('快捷存档', `${other ? old : ''}${cost}确定保存吗？`))) return;
       }
-      const snapshot = { ...g, freeSave: free, books: g.books - (free ? 0 : 1) };
-      const result = await G.saveQuickChecked(snapshot, token);
+      const game = g;
+      let original, snapshot;
+      try { original = JSON.stringify({ ...game, freeSave: free }); snapshot = JSON.parse(original); }
+      catch { return toast('<em>记录失败：无法准备记录</em>', 3500); }
+      snapshot.freeSave = free; snapshot.books -= free ? 0 : 1;
+      const result = await saveWithConflict((options) => G.saveQuickChecked(snapshot, token, { ...options,
+        isCurrent: () => g === game && JSON.stringify({ ...g, freeSave: free }) === original,
+      }));
+      if (result === 'declined') return;
       if (result === 'changed') return toast('<em>快捷存档已改变，请重新保存</em>', 3500);
+      if (result === 'cancelled') return toast('<em>本局状态已改变，请重新记录</em>', 3500);
       if (result === 'busy') return toast('<em>快捷存档正在使用，请稍后再试</em>', 3500);
-      if (result === 'unavailable') return toast('<em>当前环境暂不能快捷存档，请使用普通记录</em>', 3500);
+      if (result === 'pending') return toast('<em>快捷存档有未完成的写入，请稍后再试</em>', 3500);
+      if (result === 'unavailable') return toast('<em>当前环境暂不能快捷存档或安全写入普通记录</em>', 3500);
       const ok = result === 'saved';
       if (ok) { g.quickId = snapshot.quickId; quickCostExplained = true; }
       return spend({ ok, noBook: free, plain: true, msg: ok ? `快捷存档成功${free ? '（免费记录）' : '（消耗一张命令书）'}` : '记录失败：浏览器存储不可用或已满' }, cid);

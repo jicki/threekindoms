@@ -264,7 +264,7 @@ const color = (f) => (f == null || f === G.NONE ? '#5a5a66' : G.FACTION_COLORS[f
 const dot = (f) => h('i', { class: 'dot', style: { background: color(f) } });
 const clone = (x) => JSON.parse(JSON.stringify(x));
 
-let slot = null, base = null, g = null, quickOpened = null, tab = 'officers', pick = { officers: null, cities: null };
+let slot = null, base = null, g = null, quickOpened = null, slotOpened = null, tab = 'officers', pick = { officers: null, cities: null };
 const filt = { q: '', faction: 'all', status: G.SERVING, cityFaction: 'all' };
 
 // ---------- Changes against the record as loaded ----------
@@ -301,7 +301,7 @@ function renderSlots() {
   const rows = [{ s: G.loadQuick(), n: 'quick' }, ...G.saves().map((s, i) => ({ s, n: i + 1 }))];
   $('slots').replaceChildren(...rows.map(({ s, n }) => {
     const cls = `slotc${n === 'quick' ? ' quick' : ''}`;
-    if (!s) return h('button', { class: cls, disabled: true }, h('span', { class: 'blank' }), h('span', { class: 'no' }, slotName(n)), h('span', { class: 'when' }, n === 'quick' && G.hasQuick() ? '无法读取' : '空'));
+    if (!s) return h('button', { class: cls, disabled: true }, h('span', { class: 'blank' }), h('span', { class: 'no' }, slotName(n)), h('span', { class: 'when' }, n !== 'quick' && G.futureSlot(n) ? '来自更新版本' : n === 'quick' && G.hasQuick() ? '无法读取' : '空'));
     const ruler = s.factions[s.player].ruler;
     return h('button', { class: `${cls} ${n === slot ? 'on' : ''}`, onclick: () => switchTo(n), title: `${G.factionName(s, s.player)} · ${s.year}年${s.month + 1}月` },
       avatar(ruler), h('span', { class: 'no' }, slotName(n), s.edited ? h('i', {}, '已编辑') : null),
@@ -316,7 +316,8 @@ async function switchTo(n) {
 }
 function open(n) {
   slot = n; quickOpened = n === 'quick' ? G.quickToken() : null;
-  base = n === 'quick' ? G.loadQuick() : n ? G.load(n) : null; g = base ? clone(base) : null; pick = { officers: null, cities: null };
+  base = n === 'quick' ? G.loadQuick() : n ? G.load(n) : null; slotOpened = n !== 'quick' && base ? G.loadedSlotToken(base) : null;
+  g = base ? clone(base) : null; pick = { officers: null, cities: null };
   if (g) pick.officers = g.factions[g.player].ruler;
   if (g) pick.cities = g.factions[g.player].city;
   renderSlots(); render();
@@ -462,7 +463,7 @@ function cityDetail(cid) {
       h('div', { class: 'se-acts' },
         h('button', { class: 'btn', title: '金、米 9999', onclick: () => { setCity(g, cid, 'gold', 9999); setCity(g, cid, 'rice', 9999); repaint(); } }, '金米充足'),
         h('button', { class: 'btn', title: '全部项目拉到上限', onclick: () => { for (const [k, , , hi] of CITY_FIELDS) setCity(g, cid, k, hi); repaint(); } }, '全部拉满'),
-        h('button', { class: 'btn', onclick: () => { for (const [k] of CITY_FIELDS) setCity(g, cid, k, base.cities[cid][k]); repaint(); } }, '还原此城'))),
+        h('button', { class: 'btn', onclick: () => { for (const [k] of CITY_FIELDS) g.cities[cid][k] = base.cities[cid][k]; g.edited = true; repaint(); } }, '还原此城'))),
     h('div', { class: 'sec' }, h('h4', {}, '资源'), h('div', { class: 'stats-ed' }, rows.slice(0, 4))),
     h('div', { class: 'sec' }, h('h4', {}, '内政'), h('div', { class: 'stats-ed' }, rows.slice(4))));
 }
@@ -562,6 +563,21 @@ function render() {
 
 // ---------- Dialogs and actions ----------
 const ask = (title, body, ok) => modal(title, (close) => [...[body].flat(), h('div', { class: 'foot' }, h('button', { class: 'btn', onclick: () => close(false) }, '取消'), h('button', { class: 'btn primary', onclick: () => close(true) }, ok))]);
+async function saveWithConflict(write) {
+  let acceptedConflict, acceptedPending;
+  for (let i = 0; i < 3; i++) {
+    let conflict, pending;
+    const result = await write({ acceptedConflict, acceptedPending, onConflict: (token) => { conflict = token; }, onPending: (value) => { pending = value; } });
+    if (result === 'pending' && pending) {
+      if (!(await ask('记录写入未完成', h('p', {}, '此前的写入尚未确认。继续可能覆盖其中一份记录，确定继续吗？'), '继续覆盖'))) return 'declined';
+      acceptedPending = pending.id; acceptedConflict = pending.token; continue;
+    }
+    if (result !== 'changed' || (conflict !== null && typeof conflict !== 'string')) return result;
+    if (!(await ask('记录冲突', h('p', {}, '检测到不同版本的记录。继续可能覆盖其中一份，确定继续吗？'), '继续覆盖'))) return 'declined';
+    acceptedConflict = conflict;
+  }
+  return 'changed';
+}
 function diffList(list) {
   const shown = list.slice(0, 60);
   return h('ul', { class: 'diff' }, shown.map((c) => h('li', {}, h('span', {}, c.text), h('span', {}, `${c.a} → `, h('b', {}, c.b)))),
@@ -569,17 +585,19 @@ function diffList(list) {
 }
 $('write').onclick = async () => {
   const list = changes(); if (!list.length) return;
-  const target = slot, editing = g, snapshot = target === 'quick' ? clone(g) : null, token = quickOpened, approved = snapshot && JSON.stringify(snapshot);
+  const target = slot, editing = g, snapshot = clone(g), token = target === 'quick' ? quickOpened : slotOpened, approved = JSON.stringify(snapshot);
   if (!(await ask(`写回${slotName(slot)}`, [h('p', {}, `以下 ${list.length} 项改动将覆盖原记录。需要留底的话，先「导出」一份。`), diffList(list)], '写回'))) return;
   if (target === 'quick') {
     let written = null;
-    const result = await G.saveQuickChecked(snapshot, token, {
+    const result = await saveWithConflict((options) => G.saveQuickChecked(snapshot, token, { ...options,
       isCurrent: () => slot === target && g === editing && JSON.stringify(g) === approved,
       onSaved: (raw) => { written = raw; },
-    });
+    }));
+    if (result === 'declined') return;
     if (result === 'changed') { toast('<em>快捷存档已改变</em>，请重新打开后再编辑', 3500); return; }
     if (result === 'cancelled') { toast('<em>编辑内容已变化</em>，请重新写回', 3500); return; }
     if (result === 'busy') { toast('<em>快捷存档正在使用</em>，请稍后再试', 3500); return; }
+    if (result === 'pending') { toast('<em>快捷存档有未完成的写入</em>，请稍后再试', 3500); return; }
     if (result === 'unavailable') { toast('<em>当前环境暂不能写回快捷存档</em>', 3500); return; }
     if (result !== 'saved') { toast('<em>写回失败</em>：浏览器存储不可用或已满', 3000); return; }
     // If edits arrive just after the write, use the written snapshot as the baseline and keep those edits.
@@ -592,8 +610,25 @@ $('write').onclick = async () => {
     toast(`<strong>已写回${slotName(target)}</strong>　回到游戏读取即可`, 3200);
     return;
   }
-  if (!G.save(g, slot)) { toast('<em>写回失败</em>：浏览器存储不可用或已满', 3000); return; }
-  open(slot); toast(`<strong>已写回${slotName(slot)}</strong>　回到游戏读取即可`, 3200);
+  let written = null;
+  const result = await saveWithConflict((options) => G.saveChecked(editing, target, token, { ...options,
+    snapshot, isCurrent: () => slot === target && g === editing && JSON.stringify(g) === approved,
+    onSaved: (raw) => { written = raw; },
+  }));
+  if (result === 'declined') return;
+  if (result === 'changed') { toast('<em>记录已改变</em>，请重新打开后再编辑', 3500); return; }
+  if (result === 'cancelled') { toast('<em>编辑内容已变化</em>，请重新写回', 3500); return; }
+  if (result === 'busy') { toast('<em>记录正在使用</em>，请稍后再试', 3500); return; }
+  if (result === 'pending') { toast('<em>记录有未完成的写入</em>，请稍后再试', 3500); return; }
+  if (result === 'newer') { toast('<em>记录来自更新版本</em>，不能覆盖', 3500); return; }
+  if (result === 'unavailable') { toast('<em>当前环境暂不能安全写回记录</em>', 3500); return; }
+  if (result !== 'saved') { toast('<em>写回失败</em>：浏览器存储不可用或已满', 3000); return; }
+  if (slot === target && g === editing) {
+    if (!written || G.slotToken(target) !== written) { toast('<em>记录已再次改变</em>，请重新打开', 3500); return; }
+    base = clone(G.loadSnapshot(JSON.parse(written))); slotOpened = written;
+    renderSlots(); render();
+  }
+  toast(`<strong>已写回${slotName(target)}</strong>　回到游戏读取即可`, 3200);
 };
 $('revert').onclick = async () => {
   const n = changes().length; if (!n) return;
@@ -610,14 +645,29 @@ $('file').onchange = async () => {
   const file = $('file').files[0]; $('file').value = ''; if (!file) return;
   let rec; try { rec = JSON.parse(await file.text()); } catch { toast('<em>无法导入</em>：文件不是有效的 JSON', 3000); return; }
   const err = checkRecord(rec); if (err) { toast(`<em>无法导入</em>：${err}`, 3000); return; }
-  const list = G.saves();
+  const list = G.saves(), tokens = list.map((s, i) => s ? G.loadedSlotToken(s) : G.slotToken(i + 1));
   const n = await modal('导入到哪个记录槽', (close) => [h('p', {}, `${file.name} · ${rec.year}年${rec.month + 1}月 · ${G.factionName(rec, rec.player)}。已有记录的槽会被覆盖。`),
-    h('div', { class: 'slots-rail', style: { gridTemplateColumns: 'repeat(4, minmax(0,1fr))', padding: 0 } }, list.map((s, i) => h('button', { class: 'slotc', onclick: () => close(i + 1) },
-      s ? avatar(s.factions[s.player].ruler) : h('span', { class: 'blank' }), h('span', { class: 'no' }, `记录${SLOT_NAMES[i]}`), h('span', { class: 'when' }, s ? `${s.year}年${s.month + 1}月` : '空')))),
+    h('div', { class: 'slots-rail', style: { gridTemplateColumns: 'repeat(4, minmax(0,1fr))', padding: 0 } }, list.map((s, i) => h('button', { class: 'slotc', disabled: G.futureSlot(i + 1), onclick: () => close(i + 1) },
+      s ? avatar(s.factions[s.player].ruler) : h('span', { class: 'blank' }), h('span', { class: 'no' }, `记录${SLOT_NAMES[i]}`), h('span', { class: 'when' }, s ? `${s.year}年${s.month + 1}月` : G.futureSlot(i + 1) ? '来自更新版本' : tokens[i] != null ? '无法读取' : '空')))),
     h('div', { class: 'foot' }, h('button', { class: 'btn', onclick: () => close(null) }, '取消'))], { wide: true });
   if (!n) return;
   if (n === slot && changes().length && !(await ask('覆盖当前记录', h('p', {}, '这个槽正在编辑，未写回的改动会丢失。'), '覆盖'))) return;
-  if (!G.save(rec, n)) { toast('<em>导入失败</em>：浏览器存储不可用或已满', 3000); return; }
+  if (tokens[n - 1] === undefined) { toast('<em>导入失败</em>：无法读取记录', 3000); return; }
+  const editing = g, target = slot, approved = JSON.stringify(g);
+  let written = null;
+  const result = await saveWithConflict((options) => G.saveChecked(rec, n, tokens[n - 1], { ...options,
+    isCurrent: () => slot === target && g === editing && JSON.stringify(g) === approved,
+    onSaved: (raw) => { written = raw; },
+  }));
+  if (result === 'declined') return;
+  if (result === 'changed') { toast('<em>记录已改变</em>，请重新选择', 3500); return; }
+  if (result === 'cancelled') { toast('<em>编辑内容已变化</em>，请重新导入', 3500); return; }
+  if (result === 'busy') { toast('<em>记录正在使用</em>，请稍后再试', 3500); return; }
+  if (result === 'pending') { toast('<em>记录有未完成的写入</em>，请稍后再试', 3500); return; }
+  if (result === 'newer') { toast('<em>记录来自更新版本</em>，不能覆盖', 3500); return; }
+  if (result === 'unavailable') { toast('<em>当前环境暂不能安全导入记录</em>', 3500); return; }
+  if (result !== 'saved') { toast('<em>导入失败</em>：浏览器存储不可用或已满', 3000); return; }
+  if (!written || G.slotToken(n) !== written) { toast('<em>记录已再次改变</em>，请重新打开', 3500); return; }
   open(n); toast(`<strong>已导入到记录${SLOT_NAMES[n - 1]}</strong>`, 2400);
 };
 // 返回游戏 asks in the page about unwritten changes: the desktop shell blocks a beforeunload without a dialog.

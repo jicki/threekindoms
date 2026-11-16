@@ -19,6 +19,7 @@ test('officer and city values are clamped to the game ranges', () => {
   assert.equal(setOfficer(g, 0, 'war', 'abc'), null);
   assert.equal(setCity(g, 2, 'gold', 123456), 9999);
   assert.equal(setCity(g, 2, 'industry', 5000), 999);
+  assert.equal(setCity(g, 2, 'gov', 100), 100);
   assert.equal(g.officers[0].war, 99); assert.equal(g.cities[2].gold, 9999); assert.equal(g.edited, true);
 });
 

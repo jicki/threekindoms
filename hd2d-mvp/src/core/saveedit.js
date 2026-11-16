@@ -17,7 +17,7 @@ export const OFFICER_FIELDS = [
 ];
 export const CITY_FIELDS = [
   ['gold', '金', 0, 9999], ['rice', '米', 0, 9999], ['pop', '人口', 0, 9999], ['reserve', '后备兵', 0, 9999],
-  ['land', '土地', 0, 999], ['industry', '产业', 0, 999], ['disaster', '防灾', 0, 99], ['gov', '统治', 0, 99], ['treasure', '宝', 0, 99],
+  ['land', '土地', 0, 999], ['industry', '产业', 0, 999], ['disaster', '防灾', 0, 99], ['gov', '统治', 0, 100], ['treasure', '宝', 0, 99],
 ];
 export const ALLIANCE_MAX = 12; // months, as 同盟 sets it
 

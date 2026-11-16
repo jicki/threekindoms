@@ -24,6 +24,17 @@ def fonts_css():
     return ''.join(re.sub(r",\s*url\([^)]*\.woff\) format\('woff'\)", '', (mods / '@fontsource' / pkg / f'{w}.css').read_text()) + '\n'
                    for pkg, weights in FACES for w in weights)
 
+class GameHTTPServer(ThreadingHTTPServer):
+    # 浏览器启动时并发请求大量模块，默认队列可能导致连接重置。
+    request_queue_size = 128
+
+    def handle_error(self, request, client_address):
+        error = sys.exc_info()[1]
+        if isinstance(error, (BrokenPipeError, ConnectionResetError)):
+            print(f'客户端在请求处理期间断开连接（{type(error).__name__}）。', file=sys.stderr)
+            return
+        super().handle_error(request, client_address)
+
 class NoCache(SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header('Cache-Control', 'no-store')
@@ -80,5 +91,5 @@ def terminate(_signum, _frame):
 
 # 容器中的 Python 可能是 PID 1，需要显式处理停止信号。
 signal.signal(signal.SIGTERM, terminate)
-with ThreadingHTTPServer(('', port), partial(NoCache, directory=str(root))) as server:
+with GameHTTPServer(('', port), partial(NoCache, directory=str(root))) as server:
     server.serve_forever()

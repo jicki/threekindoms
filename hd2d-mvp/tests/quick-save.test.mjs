@@ -178,6 +178,10 @@ test('title and record editor can open the quick record without a numbered recor
   await war.fill('1'); await war.blur();
   await page.click('#write');
   await page.locator('.modal button', { hasText: '写回' }).click();
+  // 前面的旧式直接写入没有更新协调记录，编辑器必须先提示冲突。
+  const conflict = page.locator('.modal', { hasText: '记录冲突' });
+  await conflict.waitFor();
+  await conflict.getByRole('button', { name: '继续覆盖' }).click();
   await page.waitForFunction(({ k, ruler }) => JSON.parse(localStorage.getItem(k)).officers[ruler].war === 1, { k: KEY, ruler });
   assert.equal(await page.evaluate(() => Object.keys(localStorage).filter((k) => /^haou-hd2d-save:\d$/.test(k)).length), 0);
   const [download] = await Promise.all([page.waitForEvent('download'), page.click('#export')]);
