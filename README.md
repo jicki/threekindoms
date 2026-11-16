@@ -77,19 +77,29 @@ PS 结局的对应关系依据音源标签，尚未与原 PS 游戏的结局画�
 | 游戏失败 | 8 Game Over | 暂缺 |
 | 天下统一 | 9 Ending | Epilogue（haou_e_seq00） |
 
-内政和战争计略短曲根据 [FC 曲目参考](https://candypot.nobody.jp/midiroom.htm)、[PS 场景曲目资料](https://www.bilibili.com/video/BV1JJ411m7p4/)与 [PSF 音源](https://ftpmirror2.infania.net/sites/modland/incoming/warehouse/PSF/HaounoTairiku_psf/HaounoTairiku_ezp104_PSF/)的旋律比对：
+内政、事件和战争计略短曲根据 [FC 场景曲目资料](https://famicom.tw/music/mid/mid_sa.htm)、[FC 曲目参考](https://candypot.nobody.jp/midiroom.htm)、[PS 场景曲目资料](https://www.bilibili.com/video/BV1JJ411m7p4/)与 [PSF 音源](https://ftpmirror2.infania.net/sites/modland/incoming/warehouse/PSF/HaounoTairiku_psf/HaounoTairiku_ezp104_PSF/)的旋律比对：
 
 | 场景 | FC NSF 曲目 | PSF 曲目 |
 | --- | --- | --- |
 | 土地开发、防灾 | 10 | haou_r_seq15 |
 | 产业开发 | 11 | haou_r_seq02 |
 | 城镇开发 | 12 | haou_r_seq01 |
+| 移动、搜索、运输 | 13 | haou_r_seq03 |
+| 外交 | 14 | haou_r_seq04 |
+| 记录 | 15 | haou_r_seq05 |
+| 出阵 | 16 | haou_r_seq06 |
+| 征兵 | 17 | haou_r_seq07 |
+| 城镇设施 | 18 | haou_r_seq08 |
+| 升级 | 21 | haou_j_seq04 |
 | 火计等 | 22 | haou_j_seq03 |
 | 虚兵、要击等 | 23 | haou_r_seq10 |
 | 笼络 | 24 | haou_r_seq14 |
 | 陷阱等 | 25 | haou_r_seq06 |
+| 洪水、旱灾、暴乱 | 26 | haou_r_seq10 |
+| 电脑势力之间的战斗 | 27 | haou_j_seq06 |
+| 税收、收获 | 28 | haou_r_seq09 |
 
-其他内政命令沿用项目原有的短曲分组。白兵战术按效果复用相近的地图计略短曲，并非逐项还原原作配乐；PS 短曲对应关系依据音源和场景资料，尚未逐项对照原游戏画面。单挑的马蹄、挥击、牵制、攻击和舍身音效采用 FC 音效，两个音乐版本共用；白兵箭矢落地也使用 FC 音效。短曲结束后恢复场景背景音乐，所选版本的短曲无法读取时尝试其他可用版本，文件缺失时沿用原有回退。
+其他内政命令沿用项目原有的短曲分组。白兵战术按效果复用相近的地图计略短曲，并非逐项还原原作配乐。PS 短曲按音源、场景资料和旋律比对推断，部分资料的事件名称互相冲突；表中出阵与陷阱、灾害与要击分别使用相同的 PSF 曲目，尚未逐项对照原 PS 游戏画面。单挑的马蹄、挥击、牵制、攻击和舍身音效采用 FC 音效，两个音乐版本共用；白兵箭矢落地也使用 FC 音效。短曲结束后恢复场景背景音乐，所选版本的短曲无法读取时尝试其他可用版本；爆炎音效文件不可用时使用合成音。
 
 原作音乐的权利归其权利人所有，不属于本项目生成素材的许可范围；对外分发或部署这些音频前需自行确认使用权限。
 

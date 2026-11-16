@@ -187,6 +187,13 @@ export class Audio {
   }
   cueEnded(cue) { if (this.cueing !== cue) return; this.cueing = null; if (cue.theme && !this.bgmKey) this.playBgm(cue.theme); }
   stopCue() { const c = this.cueing; this.cueing = null; if (c?.src) { c.src.onended = null; try { c.src.stop(); } catch {} } }
+  // 演出提前结束时只停止它自己启动的短曲，并恢复原场景音乐；不能打断后来启动的短曲。
+  finishCue(cue) {
+    if (!cue || this.cueing !== cue) return;
+    const theme = cue.theme;
+    this.stopCue();
+    if (theme && !this.bgmKey) this.playBgm(theme);
+  }
 
   sfx(key) {
     if (!this.ctx) return;
@@ -210,6 +217,8 @@ export class Audio {
       'sfx-select': () => this.tone(84, 0.06, 'square', 0.08),
       'sfx-step': () => this.noise(0.05, 900, 0.12),
       'sfx-clash': () => { this.noise(0.25, 2500, 0.3); this.tone(40, 0.2, 'sawtooth', 0.1); },
+      // 爆炎素材不可用时，爆点仍有低频冲击和短促的爆裂声。
+      'sfx-blast': () => { this.noise(0.5, 850, 0.3); this.sweep(180, 45, 0.4, 'sine', 0.3); },
       'sfx-horn': () => { this.tone(50, 0.6, 'sawtooth', 0.08); this.tone(57, 0.6, 'sawtooth', 0.05); },
       'sfx-victory': () => [0, 4, 7, 12].forEach((d, i) => setTimeout(() => this.tone(72 + d, 0.3, 'square', 0.08), i * 140)),
       'sfx-cancel': () => this.tone(60, 0.08, 'square', 0.06),

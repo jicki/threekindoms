@@ -57,6 +57,27 @@ hd2d-mvp/assets/**/*.mp3
 !hd2d-mvp/assets/audio/ps/cue-st-ruse.m4a
 !hd2d-mvp/assets/audio/ps/cue-st-lure.m4a
 !hd2d-mvp/assets/audio/ps/cue-st-trap.m4a
+# 本次收录的事件和其余内政短曲。
+!hd2d-mvp/assets/audio/original/cue-move.m4a
+!hd2d-mvp/assets/audio/original/cue-envoy.m4a
+!hd2d-mvp/assets/audio/original/cue-record.m4a
+!hd2d-mvp/assets/audio/original/cue-sortie.m4a
+!hd2d-mvp/assets/audio/original/cue-conscript.m4a
+!hd2d-mvp/assets/audio/original/cue-study.m4a
+!hd2d-mvp/assets/audio/original/cue-disaster.m4a
+!hd2d-mvp/assets/audio/original/cue-aiwar.m4a
+!hd2d-mvp/assets/audio/original/cue-income.m4a
+!hd2d-mvp/assets/audio/original/cue-levelup.m4a
+!hd2d-mvp/assets/audio/ps/cue-move.m4a
+!hd2d-mvp/assets/audio/ps/cue-envoy.m4a
+!hd2d-mvp/assets/audio/ps/cue-record.m4a
+!hd2d-mvp/assets/audio/ps/cue-sortie.m4a
+!hd2d-mvp/assets/audio/ps/cue-conscript.m4a
+!hd2d-mvp/assets/audio/ps/cue-study.m4a
+!hd2d-mvp/assets/audio/ps/cue-disaster.m4a
+!hd2d-mvp/assets/audio/ps/cue-aiwar.m4a
+!hd2d-mvp/assets/audio/ps/cue-income.m4a
+!hd2d-mvp/assets/audio/ps/cue-levelup.m4a
 hd2d-mvp/desktop/build/*.png
 hd2d-mvp/desktop/build/*.icns
 hd2d-mvp/desktop/build/*.ico

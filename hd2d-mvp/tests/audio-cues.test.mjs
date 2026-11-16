@@ -1,13 +1,14 @@
 // 实际资源、播放与失败恢复：内政和计略短曲随曲库选择，单挑音效通过独立音效通道播放。
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startGame, skipIntro, newCampaign, cmd } from './game.mjs';
+import { startGame, skipIntro, newCampaign, closeMessages, cmd } from './game.mjs';
 
 let game;
 before(async () => { game = await startGame(); });
 after(() => game?.close());
 
-const cues = ['cue-land', 'cue-industry', 'cue-town', 'cue-st-fire', 'cue-st-ruse', 'cue-st-lure', 'cue-st-trap'];
+const cues = ['cue-land', 'cue-industry', 'cue-town', 'cue-st-fire', 'cue-st-ruse', 'cue-st-lure', 'cue-st-trap',
+  'cue-move', 'cue-envoy', 'cue-record', 'cue-sortie', 'cue-conscript', 'cue-study', 'cue-disaster', 'cue-aiwar', 'cue-income', 'cue-levelup'];
 const effects = ['sfx-volley-land', 'sfx-duel-ride', 'sfx-duel-swing', 'sfx-chime', 'sfx-duel-desperate', 'sfx-duel-blow'];
 
 test('实际短曲可在两个曲库中解码播放，结束后恢复背景音乐', async () => {
@@ -52,7 +53,7 @@ test('实际短曲可在两个曲库中解码播放，结束后恢复背景音�
     const noFile = a.cue('cue-unavailable');
     return { found, played, durations, noFile, resumed: a.bgmKey };
   }, { cues, effects });
-  assert.equal(result.found.length, 14);
+  assert.equal(result.found.length, cues.length * 2);
   assert.deepEqual(result.played, effects);
   for (const [key, duration] of Object.entries(result.durations)) assert.ok(duration > 1 && duration < 11, `${key}: ${duration}`);
   assert.equal(result.noFile, false);
@@ -139,6 +140,44 @@ test('音效读取失败时播放合成回退，之后能够重试', async () =>
   assert.deepEqual(page.errors, []); await page.context().close();
 });
 
+test('爆炎文件缺失或损坏时能合成声音，文件可用时仍播放文件', async () => {
+  const rate = 22050, frames = rate / 5, wav = Buffer.alloc(44 + frames * 2);
+  wav.write('RIFF'); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8);
+  wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate * 2, 28);
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(frames * 2, 40);
+  for (let i = 0; i < frames; i++) wav.writeInt16LE(Math.round(8000 * Math.sin(2 * Math.PI * 440 * i / rate)), 44 + i * 2);
+  const page = await game.open('', { setup: async (ctx) => {
+    await ctx.route('**/assets/audio/blast-fixture-*', (route) => {
+      const url = route.request().url();
+      if (url.endsWith('http')) return route.fulfill({ status: 503 });
+      if (url.endsWith('corrupt')) return route.fulfill({ status: 200, body: 'bad audio' });
+      return route.fulfill({ status: 200, contentType: 'audio/wav', body: wav });
+    });
+  } });
+  const results = await page.evaluate(async () => {
+    const { Audio } = await import('./src/audio.js'), out = {};
+    for (const mode of ['missing', 'http', 'corrupt', 'valid', 'muted']) {
+      const ctx = new OfflineAudioContext(1, 44100, 44100), files = mode === 'missing' || mode === 'muted' ? {} : { 'sfx-blast': `assets/audio/blast-fixture-${mode}` };
+      const a = new Audio(files); a.ctx = ctx; a.sfxGain = ctx.createGain(); a.sfxGain.gain.value = mode === 'muted' ? 0 : 1; a.sfxGain.connect(ctx.destination);
+      let fallbacks = 0; const fallback = a.sfxFallback.bind(a);
+      a.sfxFallback = (k) => { fallbacks++; fallback(k); };
+      a.sfx('sfx-blast');
+      if (files['sfx-blast']) { const pending = a.cache['sfx-blast']; await pending.catch(() => {}); await new Promise((r) => setTimeout(r, 30)); }
+      const b = await ctx.startRendering(), samples = b.getChannelData(0);
+      let peak = 0; for (const sample of samples) peak = Math.max(peak, Math.abs(sample));
+      out[mode] = { peak, fallbacks };
+    }
+    return out;
+  });
+  for (const mode of ['missing', 'http', 'corrupt']) {
+    assert.equal(results[mode].fallbacks, 1, mode); assert.ok(results[mode].peak > 0.01, `${mode} 应有爆炸声`);
+  }
+  assert.equal(results.valid.fallbacks, 0); assert.ok(results.valid.peak > 0.01);
+  assert.equal(results.muted.peak, 0, '音效音量为零时静音');
+  assert.deepEqual(page.errors, []); await page.context().close();
+});
+
 test('实际开发和防灾命令触发对应短曲', async () => {
   const page = await game.open();
   await page.evaluate(async () => { (await import('./src/pace.js')).setPace(4); (await import('./src/vignette.js')).setVignettes(false); });
@@ -158,6 +197,122 @@ test('实际开发和防灾命令触发对应短曲', async () => {
   await cmd(page, '城', '防灾'); await page.locator('.modal tr[data-id]').first().click();
   await page.locator('.modal .runok').click(); await page.waitForFunction(() => window.__game.g.books === 6);
   assert.deepEqual(await page.evaluate(() => window.__cueLog), ['cue-land', 'cue-industry', 'cue-town', 'cue-land']);
+  assert.deepEqual(page.errors, []); await page.context().close();
+});
+
+test('洪水、旱灾、暴乱及收入事件触发所选曲库的短曲', async () => {
+  const page = await game.open('&flat');
+  await page.evaluate(async () => { (await import('./src/pace.js')).setPace(4); (await import('./src/vignette.js')).setVignettes(false); });
+  await newCampaign(page);
+  const home = await page.evaluate(() => {
+    const { g, audio } = window.__game, cue = audio.cue.bind(audio);
+    audio.setMusicSet('ps'); window.__eventCues = [];
+    audio.cue = (key) => { window.__eventCues.push([key, audio.url(key)]); return cue(key); };
+    return g.factions[g.player].city;
+  });
+  const stop = closeMessages(page);
+  try {
+    const events = [
+      { type: 'disaster', kind: 'flood', list: [[home, 3]] },
+      { type: 'disaster', kind: 'drought', list: [[home, 10]] },
+      { type: 'riot', list: [[home]] },
+      { type: 'income', kind: 'rice', list: [[home, 50]] },
+      { type: 'disaster', kind: 'flood', list: [] },
+    ];
+    for (const [i, event] of events.entries()) {
+      await page.evaluate(async (on) => (await import('./src/vignette.js')).setVignettes(on), i === 0);
+      await page.evaluate((e) => window.__game.io.event(e), event);
+    }
+  } finally { stop(); }
+  assert.deepEqual(await page.evaluate(() => window.__eventCues), [
+    ['cue-disaster', 'assets/audio/ps/cue-disaster.m4a'], ['cue-disaster', 'assets/audio/ps/cue-disaster.m4a'],
+    ['cue-disaster', 'assets/audio/ps/cue-disaster.m4a'], ['cue-income', 'assets/audio/ps/cue-income.m4a'],
+  ]);
+  assert.deepEqual(page.errors, []); await page.context().close();
+});
+
+test('NPC 战斗在跳过或加速结束后恢复背景音乐，不打断后来的短曲', async () => {
+  const page = await game.open('&flat');
+  await page.evaluate(async () => { (await import('./src/pace.js')).setPace(4); (await import('./src/vignette.js')).setVignettes(false); });
+  await newCampaign(page);
+  await page.evaluate(() => { const a = window.__game.audio; a.setMusicSet('ps'); a.playBgm('bgm-strategy'); });
+  await page.waitForFunction(() => !!window.__game.audio.bgm?.src);
+  const start = () => page.evaluate(() => {
+    const { g, G, io } = window.__game, fs = g.factions.filter((f) => f.ruler != null && f.id !== g.player);
+    const city = g.cities.find((c) => c.faction === fs[1].id).id, from = G.data().cities[city].roads[0];
+    window.__warDone = false;
+    window.__warEvent = io.event({ type: 'autobattle', war: { attacker: fs[0].id, defender: fs[1].id, city, from, att: { ids: [fs[0].ruler] } }, res: { attWins: false } }).then(() => { window.__warDone = true; });
+  });
+  await start();
+  await page.waitForFunction(() => !!window.__game.audio.cueing?.src && !!document.querySelector('.aiwar'));
+  assert.equal(await page.evaluate(async () => window.__game.audio.cueing.src.buffer === await window.__game.audio.cache['assets/audio/ps/cue-aiwar.m4a']), true);
+  await page.evaluate(() => document.querySelector('.aiwar').click());
+  await page.waitForFunction(() => window.__warDone && window.__game.audio.bgmKey === 'bgm-strategy' && !!window.__game.audio.bgm?.src);
+
+  await page.evaluate(() => window.__game.audio.setMusicSet('original'));
+  await page.waitForFunction(() => !!window.__game.audio.bgm?.src);
+  await start();
+  await page.waitForFunction(() => !!window.__game.audio.cueing?.src && !!document.querySelector('.aiwar'));
+  assert.equal(await page.evaluate(async () => window.__game.audio.cueing.src.buffer === await window.__game.audio.cache['assets/audio/original/cue-aiwar.m4a']), true);
+  await page.evaluate(() => {
+    const a = window.__game.audio; a.cue('cue-record'); window.__newCue = a.cueing;
+    document.querySelector('.aiwar').click();
+  });
+  await page.waitForFunction(() => window.__warDone);
+  assert.equal(await page.evaluate(() => window.__game.audio.cueing === window.__newCue), true, '不能停止后来的短曲');
+  await page.evaluate(() => window.__game.audio.playBgm('bgm-strategy'));
+  await page.waitForFunction(() => !!window.__game.audio.bgm?.src);
+
+  await start();
+  await page.waitForFunction(() => window.__warDone && window.__game.audio.bgmKey === 'bgm-strategy' && !!window.__game.audio.bgm?.src, null, { timeout: 15000 });
+  assert.equal(await page.evaluate(() => !!window.__game.audio.cueing), false, '加速演出完成后不遗留短曲');
+  assert.deepEqual(page.errors, []); await page.context().close();
+});
+
+test('玩家出阵进攻敌城时播放所选曲库的短曲', async () => {
+  const page = await game.open('&flat');
+  await page.evaluate(async () => { (await import('./src/pace.js')).setPace(4); (await import('./src/vignette.js')).setVignettes(false); });
+  await newCampaign(page);
+  const { target, officers } = await page.evaluate(() => {
+    const { g, G, audio } = window.__game, home = g.factions[g.player].city, c = g.cities[home];
+    const to = G.roads(home).map((id) => g.cities[id]).find((city) => city.faction !== g.player && city.faction !== G.NONE && city.officers.length && !g.factions[g.player].alliance[city.faction]);
+    if (!to) throw new Error('初始城市没有可进攻的敌城');
+    c.gold = 500; c.rice = 1000; g.books = 10; audio.setMusicSet('ps');
+    const cue = audio.cue.bind(audio); window.__sortieCues = [];
+    audio.cue = (key) => { window.__sortieCues.push([key, audio.url(key)]); return cue(key); };
+    return { target: G.cityName(to.id), officers: c.officers.length };
+  });
+  await cmd(page, '军', '出阵'); await page.locator('.mappick .chips .btn', { hasText: target }).click();
+  await page.locator('.modal tr[data-id]').first().click();
+  if (officers > 1) await page.locator('.modal .foot .btn.primary', { hasText: '确定' }).click();
+  await page.locator('.modal .btn.primary', { hasText: '出阵' }).click();
+  await page.waitForFunction(() => window.__sortieCues.length && !!document.querySelector('.panel.msg'));
+  assert.deepEqual(await page.evaluate(() => window.__sortieCues), [['cue-sortie', 'assets/audio/ps/cue-sortie.m4a']]);
+  assert.equal(await page.evaluate(() => window.__game.g.books), 9);
+  assert.deepEqual(page.errors, []); await page.context().close();
+});
+
+test('其余内政命令与敌军来袭使用对应短曲', async () => {
+  const page = await game.open('&flat');
+  const mapped = await page.evaluate(async () => {
+    const { cueFor } = await import('./src/vignette.js');
+    return ['移动', '搜索', '运输', '同盟', '诱纳', '离间', '记录', '征兵', '武器屋', '病院', '学问所'].map((act) => cueFor(act));
+  });
+  assert.deepEqual(mapped, ['cue-move', 'cue-move', 'cue-move', 'cue-envoy', 'cue-envoy', 'cue-envoy', 'cue-record',
+    'cue-conscript', 'cue-conscript', 'cue-study', 'cue-study']);
+  await page.evaluate(async () => { (await import('./src/pace.js')).setPace(4); (await import('./src/vignette.js')).setVignettes(false); });
+  await newCampaign(page);
+  await page.evaluate(() => {
+    const { g, G, debug, io, audio } = window.__game, home = g.factions[g.player].city;
+    const from = G.roads(home).map((id) => g.cities[id]).find((c) => c.faction !== g.player && c.faction !== G.NONE && c.officers.length);
+    const ids = from.officers.slice(0, 1); g.officers[ids[0]].soldiers = 500;
+    const w = debug.setupWar(g, { from: from.id, to: home, ids, commander: ids[0], gold: 0, rice: 0 });
+    const cue = audio.cue.bind(audio); window.__invasionCues = [];
+    audio.cue = (key) => { window.__invasionCues.push(key); return cue(key); };
+    window.__invasion = io.war(w);
+  });
+  await page.waitForFunction(() => window.__invasionCues.includes('cue-sortie') && !!document.querySelector('.panel.msg'));
+  assert.deepEqual(await page.evaluate(() => window.__invasionCues), ['cue-sortie']);
   assert.deepEqual(page.errors, []); await page.context().close();
 });
 

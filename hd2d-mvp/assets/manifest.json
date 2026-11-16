@@ -176,32 +176,44 @@
    "assets/audio/cue-town.mp3"
   ],
   "cue-move": [
+   "assets/audio/ps/cue-move.m4a",
    "assets/audio/remix/cue-move.mp3",
+   "assets/audio/original/cue-move.m4a",
    "assets/audio/original/cue-move.mp3",
    "assets/audio/cue-move.mp3"
   ],
   "cue-envoy": [
+   "assets/audio/ps/cue-envoy.m4a",
    "assets/audio/remix/cue-envoy.mp3",
+   "assets/audio/original/cue-envoy.m4a",
    "assets/audio/original/cue-envoy.mp3",
    "assets/audio/cue-envoy.mp3"
   ],
   "cue-record": [
+   "assets/audio/ps/cue-record.m4a",
    "assets/audio/remix/cue-record.mp3",
+   "assets/audio/original/cue-record.m4a",
    "assets/audio/original/cue-record.mp3",
    "assets/audio/cue-record.mp3"
   ],
   "cue-sortie": [
+   "assets/audio/ps/cue-sortie.m4a",
    "assets/audio/remix/cue-sortie.mp3",
+   "assets/audio/original/cue-sortie.m4a",
    "assets/audio/original/cue-sortie.mp3",
    "assets/audio/cue-sortie.mp3"
   ],
   "cue-conscript": [
+   "assets/audio/ps/cue-conscript.m4a",
    "assets/audio/remix/cue-conscript.mp3",
+   "assets/audio/original/cue-conscript.m4a",
    "assets/audio/original/cue-conscript.mp3",
    "assets/audio/cue-conscript.mp3"
   ],
   "cue-study": [
+   "assets/audio/ps/cue-study.m4a",
    "assets/audio/remix/cue-study.mp3",
+   "assets/audio/original/cue-study.m4a",
    "assets/audio/original/cue-study.mp3",
    "assets/audio/cue-study.mp3"
   ],
@@ -234,22 +246,30 @@
    "assets/audio/cue-st-trap.mp3"
   ],
   "cue-disaster": [
+   "assets/audio/ps/cue-disaster.m4a",
    "assets/audio/remix/cue-disaster.mp3",
+   "assets/audio/original/cue-disaster.m4a",
    "assets/audio/original/cue-disaster.mp3",
    "assets/audio/cue-disaster.mp3"
   ],
   "cue-aiwar": [
+   "assets/audio/ps/cue-aiwar.m4a",
    "assets/audio/remix/cue-aiwar.mp3",
+   "assets/audio/original/cue-aiwar.m4a",
    "assets/audio/original/cue-aiwar.mp3",
    "assets/audio/cue-aiwar.mp3"
   ],
   "cue-income": [
+   "assets/audio/ps/cue-income.m4a",
    "assets/audio/remix/cue-income.mp3",
+   "assets/audio/original/cue-income.m4a",
    "assets/audio/original/cue-income.mp3",
    "assets/audio/cue-income.mp3"
   ],
   "cue-levelup": [
+   "assets/audio/ps/cue-levelup.m4a",
    "assets/audio/remix/cue-levelup.mp3",
+   "assets/audio/original/cue-levelup.m4a",
    "assets/audio/original/cue-levelup.mp3",
    "assets/audio/cue-levelup.mp3"
   ]

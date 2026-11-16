@@ -2989,7 +2989,7 @@ async function showEvent(e) {
       const say = (f, word) => cap.replaceChildren(h('i', { style: { background: colorOf(f) } }), avatar(g.factions[f].ruler), h('span', {}, `${factionName(f)}军`), h('b', {}, word));
       document.body.append(cap); requestAnimationFrame(() => cap.classList.add('in'));
       const show = strategy.aiWar({ from: w.from, to: w.city, att: w.attacker, def: w.defender, attName: factionName(w.attacker), defName: factionName(w.defender) }), beat = ORIGINAL.aiWar / 3;
-      audio.cue('cue-aiwar');
+      const cue = audio.cue('cue-aiwar') ? audio.cueing : null;
       try {
         say(w.attacker, '出阵'); show.march(paced(beat));
         if (!(await hold(beat, { el: cap }))) break;
@@ -2999,7 +2999,7 @@ async function showEvent(e) {
         strategy.refresh(g);
         strategy.announce(w.city, res.attWins ? `${factionName(w.attacker)}军攻陷` : `${factionName(w.defender)}军守住`, colorOf(winner), paced(beat));
         await hold(beat, { el: cap });
-      } finally { show.dispose(); cap.remove(); strategy.refresh(g); }
+      } finally { audio.finishCue(cue); show.dispose(); cap.remove(); strategy.refresh(g); }
       break;
     }
     case 'phantom': {

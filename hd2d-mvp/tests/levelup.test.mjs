@@ -75,7 +75,8 @@ after(() => game?.close());
 async function castAfter(who, setup) {
   return page.evaluate(async ({ who, setup }) => {
     const P = await import('./src/pace.js'); P.setPace(4);
-    const w = window.__game.war, f = w.field, { g, G } = window.__game;
+    const w = window.__game.war, f = w.field, { g, G, audio } = window.__game;
+    const cue = audio.cue, sounds = []; audio.cue = function (key) { sounds.push(key); return cue.call(this, key); };
     const me = f.alive.find((u) => u.side === f.human), foe = f.alive.find((u) => u.side !== f.human);
     new Function('ctx', setup)({ g, G, f, me, foe });
     const seen = [], rise = new Set(), lines = () => [...document.querySelectorAll('.logbox p')].map((n) => n.textContent), log0 = new Set(lines());
@@ -87,15 +88,16 @@ async function castAfter(who, setup) {
     }, 20);
     const closer = setInterval(() => { const m = document.querySelector('.panel.msg'), s = seen.find((x) => x.el === m); if (s && m.querySelector('.more:not([hidden])')) { s.text = m.querySelector('p').textContent; m.click(); } }, 300); // read whole, then closed as the player would
     const [u, t] = who === 'me' ? [me, foe] : [foe, me];
-    await w.playStrategy(u, t, 2, { ok: true, hit: true, name: '虚兵', lines: ['测试'], hits: [] });
-    clearInterval(watch); clearInterval(closer); P.setPace(1);
+    try { await w.playStrategy(u, t, 2, { ok: true, hit: true, name: '虚兵', lines: ['测试'], hits: [] }); }
+    finally { audio.cue = cue; clearInterval(watch); clearInterval(closer); P.setPace(1); }
     const log = lines().filter((x) => !log0.has(x)).join('|');
-    return { seen: seen.map(({ title, text, face }) => ({ title, text, face })), rise: [...rise], log, left: G.takeLevelUps(g), name: G.name(me.id) };
+    return { seen: seen.map(({ title, text, face }) => ({ title, text, face })), rise: [...rise], log, sounds, left: G.takeLevelUps(g), name: G.name(me.id) };
   }, { who, setup });
 }
 
 test('the player\'s general who went up is told: 升级 window with the 武力 gained, his new level rising in gold', async () => {
   const r = await castAfter('me', `const { g, G, me } = ctx, o = g.officers[me.id]; o.level = 2; o.exp = 1999; o.war = 70; G.addExp(g, me.id, 1);`);
+  assert.ok(r.sounds.includes('cue-levelup'), '升级播放对应短曲');
   const lv = r.seen.filter((s) => s.title === '升级');
   assert.equal(lv.length, 1, JSON.stringify(r.seen));
   assert.match(lv[0].text, new RegExp(`${r.name}升级了\\s*等级 3`));

@@ -33,3 +33,16 @@ test('未收录的本地音频仍被忽略', () => {
     assert.equal(result.status, 0, `${path} 应保持忽略：${result.stderr}`);
   }
 });
+
+test('所有内政、事件和计略短曲都存在于两套曲库且不会被忽略', () => {
+  const cues = ['land', 'industry', 'town', 'st-fire', 'st-ruse', 'st-lure', 'st-trap',
+    'move', 'envoy', 'record', 'sortie', 'conscript', 'study', 'disaster', 'aiwar', 'income', 'levelup'];
+  for (const set of ['original', 'ps']) for (const cue of cues) {
+    const path = `assets/audio/${set}/cue-${cue}.m4a`, repoPath = `hd2d-mvp/${path}`;
+    assert.ok(manifest.audio[`cue-${cue}`].includes(path), `清单缺少 ${path}`);
+    const data = readFileSync(new URL(`../${path}`, import.meta.url));
+    assert.ok(data.length > 1000 && data.toString('ascii', 4, 8) === 'ftyp', `${path} 不是有效的 MP4 音频文件`);
+    const ignored = spawnSync('git', ['check-ignore', '--no-index', '-q', '--', repoPath], { cwd: root });
+    assert.equal(ignored.status, 1, `${repoPath} 不应被忽略：${ignored.stderr}`);
+  }
+});
