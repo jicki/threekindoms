@@ -2,7 +2,7 @@
 
 一款回合制三国战略游戏的 HD-2D 重制：像素角色立在 3D 地形上，加上实时光影、景深与后期。玩法规则和数值参照 1992 年 FC 游戏《三國志II 覇王の大陸》。游戏用浏览器运行（three.js），也能打包成 Electron 桌面版。
 
-> 本项目是非官方、非商业的同人重制，与 Bandai Namco 无关。仓库里没有原版 ROM 或任何原版素材，运行也不需要它们。立绘等美术由 AI 生成，经人工筛选与修改。
+> 本项目是非官方、非商业的同人重制，与 Bandai Namco 无关。仓库不包含原版 ROM，但包含原版和 PS 复刻版背景音乐。立绘等美术由 AI 生成，经人工筛选与修改。
 
 ## 项目结构
 
@@ -30,7 +30,7 @@ hd2d-mvp/
 
 ## 获取代码与素材
 
-仓库的 git 里只有代码和数据。美术、3D 模型、音效和图标只放在 [Releases](https://github.com/tianlin/threekindoms/releases) 的素材包 `threekindoms-assets-<版本>.zip` 里。
+仓库包含代码、数据和已收录的背景音乐。美术、3D 模型、其他音效和图标放在 [Releases](https://github.com/tianlin/threekindoms/releases) 的素材包 `threekindoms-assets-<版本>.zip` 里。
 
 ```bash
 git clone https://github.com/tianlin/threekindoms.git
@@ -40,7 +40,7 @@ unzip -o ~/Downloads/threekindoms-assets-0.3.6.zip
 shasum -a 256 -c ASSETS.sha256 | grep -v ': OK$'    # 没有输出就说明素材齐全
 ```
 
-素材文件已经写进 `.gitignore`，解压后不会出现在 `git status` 里。根目录的 `ASSETS.sha256` 列出了每个素材文件和它的哈希：
+素材包中的文件已经写进 `.gitignore`，解压后不会出现在 `git status` 里。根目录的 `ASSETS.sha256` 列出了素材包中文件的哈希：
 - 解压后如果 git 显示 `ASSETS.sha256` 被修改，说明素材包和代码版本不一致，请换用对应版本的素材包。
 - 缺少素材时，开发服务器、`tests/lfs-pointer.test.mjs` 和桌面版打包都会提示你先解压素材包。
 
@@ -59,7 +59,7 @@ python3 hd2d-mvp/tools/serve.py 8677      # 启动开发服务器
 
 游戏会自动检查本地可选音频。在标题页或游戏中的「☰ 系统 → 曲目」可以切换已提供的音乐版本，选择保存在当前浏览器中；浏览器可能要求先点击页面才能播放。没有可用音频时，部分场景使用合成音乐。已有的 `remix/` 素材仍显示为 Remix，不会误认为 PS 复刻版。
 
-原版和 PS 复刻版音频放在 `hd2d-mvp/assets/audio/original/` 和 `hd2d-mvp/assets/audio/ps/`，文件名与 `assets/manifest.json` 中的对应场景一致。两目录被 Git 忽略，不随代码或 Releases 素材包分发；在其他机器上运行时，需要自行提供相应的音频文件。构建 Docker 镜像或桌面版时，本地存在的音频会被打包；加入或更换音频后需要重新构建。
+原版和 PS 复刻版音频放在 `hd2d-mvp/assets/audio/original/` 和 `hd2d-mvp/assets/audio/ps/`，文件名与 `assets/manifest.json` 中的对应场景一致。已收录的 16 首曲目随 Git 仓库提供，无需另行下载；其他本地音频仍被忽略。构建 Docker 镜像或桌面版时会打包这些曲目；加入或更换音频后需要重新构建。
 
 目前接入的场景及音源对应关系如下。FC 音频来自 [原版 NSF 曲目表](https://www.zophar.net/music/nintendo-nes-nsf/sangokushi-2-haou-no-tairiku)，PS 曲目编号来自 [Namco Anthology 1 音源](https://downloads.khinsider.com/game-soundtracks/album/namco-anthology-1-ps1-gamerip-1998)，结合[场景曲目资料](https://w.atwiki.jp/gamemusicbest100/pages/5645.html)及旋律特征比对；结局使用 [PSF 音源](https://ftpmirror2.infania.net/sites/modland/incoming/warehouse/PSF/HaounoTairiku_psf/HaounoTairiku_ezp104_PSF/)中标注为 Epilogue 的曲目。PS 版战后和失败暂未找到可可靠对应的文件，选择 PS 版时会回退到该场景的其他可用版本。
 

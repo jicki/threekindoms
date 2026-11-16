@@ -1,5 +1,5 @@
 {
- "_comment": "Optional assets. Paths are relative to hd2d-mvp/; for a list the first existing file wins. Missing files (the original-game and remix audio are never part of this repository) fall back to code-drawn or synthesized placeholders.",
+ "_comment": "Asset paths are relative to hd2d-mvp/; for a list the first existing file wins. FC and PS background music is included; other optional assets fall back to code-drawn or synthesized placeholders when missing.",
  "portraits": {
   "8": [
    "assets/ai/portraits/8.webp",

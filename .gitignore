@@ -6,19 +6,36 @@ node_modules/
 hd2d-mvp/desktop/app/
 hd2d-mvp/desktop/release/
 hd2d-mvp/vendor/
-# Original-game audio is never part of this repository.
-hd2d-mvp/assets/audio/original/
+# 其他本地音频保持忽略；本次收录的曲目在下方单独放行。
+hd2d-mvp/assets/audio/original/*
 hd2d-mvp/assets/audio/remix/
-hd2d-mvp/assets/audio/ps/
+hd2d-mvp/assets/audio/ps/*
 *.nes
 *.nsf
-# The binary assets are published only as the Release asset pack (unzip it here; ASSETS.sha256 lists every file).
+# 美术及其他生成素材由 Release 素材包提供。
 hd2d-mvp/assets/**/*.webp
 hd2d-mvp/assets/**/*.png
 hd2d-mvp/assets/**/*.jpg
 hd2d-mvp/assets/**/*.glb
 hd2d-mvp/assets/**/*.bin
 hd2d-mvp/assets/**/*.mp3
+# 已收录的原版和 PS 复刻版背景音乐。
+!hd2d-mvp/assets/audio/original/bgm-battle.m4a
+!hd2d-mvp/assets/audio/original/bgm-duel.m4a
+!hd2d-mvp/assets/audio/original/bgm-ending.m4a
+!hd2d-mvp/assets/audio/original/bgm-gameover.m4a
+!hd2d-mvp/assets/audio/original/bgm-result.m4a
+!hd2d-mvp/assets/audio/original/bgm-select.m4a
+!hd2d-mvp/assets/audio/original/bgm-skirmish.m4a
+!hd2d-mvp/assets/audio/original/bgm-strategy.m4a
+!hd2d-mvp/assets/audio/original/bgm-title.m4a
+!hd2d-mvp/assets/audio/ps/bgm-battle.mp3
+!hd2d-mvp/assets/audio/ps/bgm-duel.mp3
+!hd2d-mvp/assets/audio/ps/bgm-ending.m4a
+!hd2d-mvp/assets/audio/ps/bgm-select.mp3
+!hd2d-mvp/assets/audio/ps/bgm-skirmish.mp3
+!hd2d-mvp/assets/audio/ps/bgm-strategy.mp3
+!hd2d-mvp/assets/audio/ps/bgm-title.mp3
 hd2d-mvp/desktop/build/*.png
 hd2d-mvp/desktop/build/*.icns
 hd2d-mvp/desktop/build/*.ico
