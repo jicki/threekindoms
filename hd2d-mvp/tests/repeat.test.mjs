@@ -154,6 +154,10 @@ const castDone = (page) => page.waitForFunction(() => { const w = window.__game.
 
 test('再施: he stays selected after a cast and 再施 is offered at once, straight to the target of last time; F and X press the commands', async () => {
   const page = await knot();
+  await page.evaluate(() => {
+    const audio = window.__game.audio, cue = audio.cue.bind(audio); window.__castCues = [];
+    audio.cue = (k) => { window.__castCues.push(k); return cue(k); };
+  });
   assert.ok(!(await acts(page)).some((b) => b.key === 'x'), 'no 再施 before he has cast anything');
 
   // F opens his 计略; 火计 on the second target of the list.
@@ -169,6 +173,7 @@ test('再施: he stays selected after a cast and 再施 is offered at once, stra
   try {
     await castGo(page);
     await castDone(page);
+    assert.ok(await page.evaluate(() => window.__castCues.includes('cue-st-fire')), '火计播放对应计略短曲');
     // He stays selected after the cast (2026-11-14), his commands back in his card: 再施 names the 计略 without picking him again.
     assert.ok(await page.evaluate(() => { const w = window.__game.war; return w.st.sel === window.__k.me && w.st.stage === 'cmds'; }), 'still selected, on his commands');
     const again = (await acts(page)).find((b) => b.key === 'x');

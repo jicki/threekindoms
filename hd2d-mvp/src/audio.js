@@ -165,7 +165,20 @@ export class Audio {
     const theme = this.cueing?.theme ?? this.bgmKey;
     this.stopCue(); this.stopBgm();
     const cue = this.cueing = { theme };
-    (this.cache[url] ||= fetch(url).then((r) => r.arrayBuffer()).then((b) => this.ctx.decodeAudioData(b))).then((buf) => {
+    const tries = [url, ...(this.music[key] || []).filter((u) => u !== url)];
+    const load = (n) => {
+      const u = tries[n];
+      const pending = this.cache[u] ||= fetch(u).then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.arrayBuffer();
+      }).then((b) => this.ctx.decodeAudioData(b));
+      return pending.catch((e) => {
+        if (this.cache[u] === pending) delete this.cache[u];
+        if (this.cueing === cue && n + 1 < tries.length) return load(n + 1);
+        throw e;
+      });
+    };
+    load(0).then((buf) => {
       if (this.cueing !== cue) return;
       const s = cue.src = this.ctx.createBufferSource(); s.buffer = buf; s.connect(this.musicGain);
       s.onended = () => this.cueEnded(cue); s.start();
@@ -184,9 +197,13 @@ export class Audio {
         if (!VARIED.has(key)) { s.connect(this.sfxGain); s.start(); return; }
         const gv = this.ctx.createGain(); gv.gain.value = 10 ** ((Math.random() * 3 - 1.5) / 20); s.playbackRate.value = 0.97 + Math.random() * 0.06;
         s.connect(gv).connect(this.sfxGain); s.start();
-      }).catch(() => {});
+      }).catch(() => this.sfxFallback(key));
       return;
     }
+    this.sfxFallback(key);
+  }
+
+  sfxFallback(key) {
     // sfx-select is the original's sound 90, which the ROM plays only for the 白兵 archers' volley (and, as sfx-arrow, the
     // title arrow): menu and map clicks are silent, as in the original (feedback F05, 2026-11-02: the 呲呲 on every click).
     const S = {
@@ -226,7 +243,15 @@ export class Audio {
   preload(key) {
     const url = this.files[key];
     if (!this.ctx || !url) return Promise.resolve(null);
-    return this.cache[key] ||= fetch(url).then((r) => r.arrayBuffer()).then((b) => this.ctx.decodeAudioData(b));
+    if (this.cache[key]) return this.cache[key];
+    const pending = fetch(url).then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.arrayBuffer();
+    }).then((b) => this.ctx.decodeAudioData(b)).catch((e) => {
+      if (this.cache[key] === pending) delete this.cache[key];
+      throw e;
+    });
+    return this.cache[key] = pending;
   }
 
   sweep(f0, f1, dur, wave, vol) {

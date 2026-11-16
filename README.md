@@ -2,7 +2,7 @@
 
 一款回合制三国战略游戏的 HD-2D 重制：像素角色立在 3D 地形上，加上实时光影、景深与后期。玩法规则和数值参照 1992 年 FC 游戏《三國志II 覇王の大陸》。游戏用浏览器运行（three.js），也能打包成 Electron 桌面版。
 
-> 本项目是非官方、非商业的同人重制，与 Bandai Namco 无关。仓库不包含原版 ROM，但包含原版和 PS 复刻版背景音乐。立绘等美术由 AI 生成，经人工筛选与修改。
+> 本项目是非官方、非商业的同人重制，与 Bandai Namco 无关。仓库不包含原版 ROM，但包含原版和 PS 复刻版音乐及部分音效。立绘等美术由 AI 生成，经人工筛选与修改。
 
 ## 项目结构
 
@@ -30,7 +30,7 @@ hd2d-mvp/
 
 ## 获取代码与素材
 
-仓库包含代码、数据和已收录的背景音乐。美术、3D 模型、其他音效和图标放在 [Releases](https://github.com/tianlin/threekindoms/releases) 的素材包 `threekindoms-assets-<版本>.zip` 里。
+仓库包含代码、数据和已收录的音乐、音效。美术、3D 模型、其他音效和图标放在 [Releases](https://github.com/tianlin/threekindoms/releases) 的素材包 `threekindoms-assets-<版本>.zip` 里。
 
 ```bash
 git clone https://github.com/tianlin/threekindoms.git
@@ -59,7 +59,7 @@ python3 hd2d-mvp/tools/serve.py 8677      # 启动开发服务器
 
 游戏会自动检查本地可选音频。在标题页或游戏中的「☰ 系统 → 曲目」可以切换已提供的音乐版本，选择保存在当前浏览器中；浏览器可能要求先点击页面才能播放。没有可用音频时，部分场景使用合成音乐。已有的 `remix/` 素材仍显示为 Remix，不会误认为 PS 复刻版。
 
-原版和 PS 复刻版音频放在 `hd2d-mvp/assets/audio/original/` 和 `hd2d-mvp/assets/audio/ps/`，文件名与 `assets/manifest.json` 中的对应场景一致。已收录的 16 首曲目随 Git 仓库提供，无需另行下载；其他本地音频仍被忽略。构建 Docker 镜像或桌面版时会打包这些曲目；加入或更换音频后需要重新构建。
+原版和 PS 复刻版音频放在 `hd2d-mvp/assets/audio/original/` 和 `hd2d-mvp/assets/audio/ps/`，文件名与 `assets/manifest.json` 中的对应场景一致。已收录的 16 首背景音乐、内政及计略短曲和原版单挑音效随 Git 仓库提供，无需另行下载；其他本地音频仍被忽略。构建 Docker 镜像或桌面版时会打包这些音频；加入或更换音频后需要重新构建。
 
 目前接入的场景及音源对应关系如下。FC 音频来自 [原版 NSF 曲目表](https://www.zophar.net/music/nintendo-nes-nsf/sangokushi-2-haou-no-tairiku)，PS 曲目编号来自 [Namco Anthology 1 音源](https://downloads.khinsider.com/game-soundtracks/album/namco-anthology-1-ps1-gamerip-1998)，结合[场景曲目资料](https://w.atwiki.jp/gamemusicbest100/pages/5645.html)及旋律特征比对；结局使用 [PSF 音源](https://ftpmirror2.infania.net/sites/modland/incoming/warehouse/PSF/HaounoTairiku_psf/HaounoTairiku_ezp104_PSF/)中标注为 Epilogue 的曲目。PS 版战后和失败暂未找到可可靠对应的文件，选择 PS 版时会回退到该场景的其他可用版本。
 
@@ -76,6 +76,20 @@ PS 结局的对应关系依据音源标签，尚未与原 PS 游戏的结局画�
 | 战后结算 | 7 End of War | 暂缺 |
 | 游戏失败 | 8 Game Over | 暂缺 |
 | 天下统一 | 9 Ending | Epilogue（haou_e_seq00） |
+
+内政和战争计略短曲根据 [FC 曲目参考](https://candypot.nobody.jp/midiroom.htm)、[PS 场景曲目资料](https://www.bilibili.com/video/BV1JJ411m7p4/)与 [PSF 音源](https://ftpmirror2.infania.net/sites/modland/incoming/warehouse/PSF/HaounoTairiku_psf/HaounoTairiku_ezp104_PSF/)的旋律比对：
+
+| 场景 | FC NSF 曲目 | PSF 曲目 |
+| --- | --- | --- |
+| 土地开发、防灾 | 10 | haou_r_seq15 |
+| 产业开发 | 11 | haou_r_seq02 |
+| 城镇开发 | 12 | haou_r_seq01 |
+| 火计等 | 22 | haou_j_seq03 |
+| 虚兵、要击等 | 23 | haou_r_seq10 |
+| 笼络 | 24 | haou_r_seq14 |
+| 陷阱等 | 25 | haou_r_seq06 |
+
+其他内政命令沿用项目原有的短曲分组。白兵战术按效果复用相近的地图计略短曲，并非逐项还原原作配乐；PS 短曲对应关系依据音源和场景资料，尚未逐项对照原游戏画面。单挑的马蹄、挥击、牵制、攻击和舍身音效采用 FC 音效，两个音乐版本共用；白兵箭矢落地也使用 FC 音效。短曲结束后恢复场景背景音乐，所选版本的短曲无法读取时尝试其他可用版本，文件缺失时沿用原有回退。
 
 原作音乐的权利归其权利人所有，不属于本项目生成素材的许可范围；对外分发或部署这些音频前需自行确认使用权限。
 

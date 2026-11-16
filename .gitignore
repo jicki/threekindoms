@@ -36,6 +36,27 @@ hd2d-mvp/assets/**/*.mp3
 !hd2d-mvp/assets/audio/ps/bgm-skirmish.mp3
 !hd2d-mvp/assets/audio/ps/bgm-strategy.mp3
 !hd2d-mvp/assets/audio/ps/bgm-title.mp3
+# 已收录的内政、计略短曲和单挑音效。
+!hd2d-mvp/assets/audio/original/cue-land.m4a
+!hd2d-mvp/assets/audio/original/cue-industry.m4a
+!hd2d-mvp/assets/audio/original/cue-town.m4a
+!hd2d-mvp/assets/audio/original/cue-st-fire.m4a
+!hd2d-mvp/assets/audio/original/cue-st-ruse.m4a
+!hd2d-mvp/assets/audio/original/cue-st-lure.m4a
+!hd2d-mvp/assets/audio/original/cue-st-trap.m4a
+!hd2d-mvp/assets/audio/original/sfx-volley-land.m4a
+!hd2d-mvp/assets/audio/original/sfx-duel-ride.m4a
+!hd2d-mvp/assets/audio/original/sfx-duel-swing.m4a
+!hd2d-mvp/assets/audio/original/sfx-chime.m4a
+!hd2d-mvp/assets/audio/original/sfx-duel-desperate.m4a
+!hd2d-mvp/assets/audio/original/sfx-duel-blow.m4a
+!hd2d-mvp/assets/audio/ps/cue-land.m4a
+!hd2d-mvp/assets/audio/ps/cue-industry.m4a
+!hd2d-mvp/assets/audio/ps/cue-town.m4a
+!hd2d-mvp/assets/audio/ps/cue-st-fire.m4a
+!hd2d-mvp/assets/audio/ps/cue-st-ruse.m4a
+!hd2d-mvp/assets/audio/ps/cue-st-lure.m4a
+!hd2d-mvp/assets/audio/ps/cue-st-trap.m4a
 hd2d-mvp/desktop/build/*.png
 hd2d-mvp/desktop/build/*.icns
 hd2d-mvp/desktop/build/*.ico

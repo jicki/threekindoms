@@ -13,10 +13,10 @@
 // also lets the title's music play at once. Once running, a click or key skips it.
 
 const CUE = 0.8;                  // splash seconds at which the chime is heard
-const FILE_ONSET = 0.017;         // where the sound starts inside sfx-chime.mp3 (the encoder's lead-in)
+const FILE_ONSET = 0.017;         // where the sound starts inside the original sfx-chime file
 const LEAD = 0.06;                // scheduling margin on the audio clock
 const FADE_OUT = CUE + 1.75, END = CUE + 2.1;
-// sfx-chime.mp3 loudness from its onset, 20 ms steps, peak = 1 (RMS of the file).
+// sfx-chime loudness from its onset, 20 ms steps, peak = 1 (RMS of the original sound).
 const ENV = [0.79, 0.82, 0.82, 0.95, 1, 0.96, 0.88, 0.73, 0.72, 0.73, 0.36, 0.33, 0.35, 0.29, 0.27, 0.29, 0.26, 0.25, 0.22, 0.21, 0.22, 0.19, 0.15, 0.16, 0.16, 0.12, 0.12, 0.1, 0.09, 0.1, 0.04, 0.04, 0.04, 0.04];
 const env = (k) => { if (k < 0) return 0; const i = k / 0.02, a = Math.floor(i); return a + 1 >= ENV.length ? 0 : ENV[a] + (ENV[a + 1] - ENV[a]) * (i - a); };
 

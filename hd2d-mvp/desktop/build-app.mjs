@@ -70,8 +70,10 @@ if (!process.argv.includes('--generated-music')) for (const [slot, list] of Obje
   let picks = [];
   if (slot.startsWith('bgm-') || slot.startsWith('cue-')) picks = [].concat(list).filter((f) => local.test(f) && existsSync(join(game, f)));
   else if (slot.startsWith('sfx-')) {
-    const pick = `assets/audio/original/${slot}.mp3`;
-    if (!existsSync(join(game, pick))) continue;
+    const legacy = `assets/audio/original/${slot}.mp3`;
+    const pick = [].concat(list).find((f) => /^assets\/audio\/original\//.test(f) && existsSync(join(game, f)))
+      || (existsSync(join(game, legacy)) ? legacy : null);
+    if (!pick) continue;
     manifest.audio[slot] = [pick, ...[].concat(list).filter((f) => f !== pick)];
     picks = [pick];
   }

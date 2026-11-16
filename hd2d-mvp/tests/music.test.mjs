@@ -1,4 +1,4 @@
-// 音乐素材不进入 Git；用可解码的短音频模拟文件，检查真实页面的发现、切换与回退。
+// 用可解码的短音频模拟不同曲库，检查真实页面的发现、切换与回退。
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startGame, newCampaign, skipIntro, closeMessages } from './game.mjs';

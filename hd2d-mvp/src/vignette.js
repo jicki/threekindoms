@@ -20,7 +20,7 @@ export function setVignettes(on) { enabled = on; try { localStorage.setItem('hd2
 const SCENE_OF = { 防灾: 'disaster', 记录: 'record', 征兵: 'conscript', 移动: 'march', 运输: 'move', 搜索: 'search', 侦察: 'scout', 赏赐: 'reward', 施舍: 'alms',
   买米: 'rice-buy', 卖米: 'rice-sell', 卖宝: 'treasure', 病院: 'hospital', 学问所: 'school', 武器屋: 'weapons', 同盟: 'ally', 诱纳: 'poach', 离间: 'discord' };
 // The phrase each command plays (the original's $04D6 writes, research/music-cues-evidence.md §5, and
-// research/music-cues.csv; assets/audio/*/cue-*.mp3 from tools/original_audio_placeholders.py). 侦察, 任命 and 分兵
+// research/music-cues.csv; the available phrases are listed in assets/manifest.json). 侦察, 任命 and 分兵
 // have none in the original.
 const CUE_OF = { 防灾: 'cue-land', 赏赐: 'cue-industry', 施舍: 'cue-industry', 买米: 'cue-town', 卖米: 'cue-town', 卖宝: 'cue-town',
   移动: 'cue-move', 搜索: 'cue-move', 运输: 'cue-move', 同盟: 'cue-envoy', 诱纳: 'cue-envoy', 离间: 'cue-envoy', 记录: 'cue-record',

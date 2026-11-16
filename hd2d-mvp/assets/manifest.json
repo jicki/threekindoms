@@ -1,5 +1,5 @@
 {
- "_comment": "Asset paths are relative to hd2d-mvp/; for a list the first existing file wins. FC and PS background music is included; other optional assets fall back to code-drawn or synthesized placeholders when missing.",
+ "_comment": "Asset paths are relative to hd2d-mvp/; for a list the first existing file wins. FC and PS background music and selected cues are included; optional assets fall back to code-drawn or synthesized placeholders when missing.",
  "portraits": {
   "8": [
    "assets/ai/portraits/8.webp",
@@ -84,6 +84,7 @@
    "assets/audio/original/sfx-step.mp3"
   ],
   "sfx-volley-land": [
+   "assets/audio/original/sfx-volley-land.m4a",
    "assets/audio/original/sfx-volley-land.mp3"
   ],
   "sfx-clash": [
@@ -94,18 +95,23 @@
    "assets/audio/sfx-blast.mp3"
   ],
   "sfx-duel-ride": [
+   "assets/audio/original/sfx-duel-ride.m4a",
    "assets/audio/original/sfx-duel-ride.mp3"
   ],
   "sfx-duel-swing": [
+   "assets/audio/original/sfx-duel-swing.m4a",
    "assets/audio/original/sfx-duel-swing.mp3"
   ],
   "sfx-chime": [
+   "assets/audio/original/sfx-chime.m4a",
    "assets/audio/original/sfx-chime.mp3"
   ],
   "sfx-duel-desperate": [
+   "assets/audio/original/sfx-duel-desperate.m4a",
    "assets/audio/original/sfx-duel-desperate.mp3"
   ],
   "sfx-duel-blow": [
+   "assets/audio/original/sfx-duel-blow.m4a",
    "assets/audio/original/sfx-duel-blow.mp3"
   ],
   "sfx-horn": [
@@ -149,17 +155,23 @@
    "assets/audio/original/sfx-arrow.mp3"
   ],
   "cue-land": [
+   "assets/audio/ps/cue-land.m4a",
    "assets/audio/remix/cue-land.mp3",
+   "assets/audio/original/cue-land.m4a",
    "assets/audio/original/cue-land.mp3",
    "assets/audio/cue-land.mp3"
   ],
   "cue-industry": [
+   "assets/audio/ps/cue-industry.m4a",
    "assets/audio/remix/cue-industry.mp3",
+   "assets/audio/original/cue-industry.m4a",
    "assets/audio/original/cue-industry.mp3",
    "assets/audio/cue-industry.mp3"
   ],
   "cue-town": [
+   "assets/audio/ps/cue-town.m4a",
    "assets/audio/remix/cue-town.mp3",
+   "assets/audio/original/cue-town.m4a",
    "assets/audio/original/cue-town.mp3",
    "assets/audio/cue-town.mp3"
   ],
@@ -194,22 +206,30 @@
    "assets/audio/cue-study.mp3"
   ],
   "cue-st-fire": [
+   "assets/audio/ps/cue-st-fire.m4a",
    "assets/audio/remix/cue-st-fire.mp3",
+   "assets/audio/original/cue-st-fire.m4a",
    "assets/audio/original/cue-st-fire.mp3",
    "assets/audio/cue-st-fire.mp3"
   ],
   "cue-st-ruse": [
+   "assets/audio/ps/cue-st-ruse.m4a",
    "assets/audio/remix/cue-st-ruse.mp3",
+   "assets/audio/original/cue-st-ruse.m4a",
    "assets/audio/original/cue-st-ruse.mp3",
    "assets/audio/cue-st-ruse.mp3"
   ],
   "cue-st-lure": [
+   "assets/audio/ps/cue-st-lure.m4a",
    "assets/audio/remix/cue-st-lure.mp3",
+   "assets/audio/original/cue-st-lure.m4a",
    "assets/audio/original/cue-st-lure.mp3",
    "assets/audio/cue-st-lure.mp3"
   ],
   "cue-st-trap": [
+   "assets/audio/ps/cue-st-trap.m4a",
    "assets/audio/remix/cue-st-trap.mp3",
+   "assets/audio/original/cue-st-trap.m4a",
    "assets/audio/original/cue-st-trap.mp3",
    "assets/audio/cue-st-trap.mp3"
   ],

@@ -22,6 +22,13 @@ export function duelEndSound(r, won) {
 }
 export function resetFormations() { lastForm.clear(); armyForm = null; }
 
+// 白兵战术借用效果相近的地图计略短曲，未提供短曲时沿用号角。
+const TACTIC_CUE = { bind: 'cue-st-trap', taunt: 'cue-st-lure', xbow: 'cue-st-fire', morale: 'cue-st-ruse', fire: 'cue-st-fire', blast: 'cue-st-fire' };
+export function playTacticCue(audio, id) {
+  const cue = TACTIC_CUE[id];
+  if (!cue || !audio.cue(cue)) audio.sfx('sfx-horn');
+}
+
 const KIND_NAME = { gen: '将', cav: '骑', arc: '弓', inf: '步' };
 const CMD_ICON = { advance: '▶', retreat: '◀', wait: '■', surround: '◎' };
 // One-character order names for the compact console (the full name is in each button's tooltip).
@@ -255,7 +262,7 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
   async function announce(ev) {
     // Cast → effect → outcome, so the result is not given away before the performance.
     const mine = ev.side === hs;
-    audio.sfx('sfx-horn');
+    playTacticCue(audio, ev.id);
     await banner(ev.name, mine ? '#6ab8ff' : '#ff8a70');
     await view.play({ ...ev, type: 'tactic' }, hooks);
     log(`${mine ? '我军' : '敌军'}施展 <b>${ev.name}</b>：${ev.ok ? '成功' : '失败'}`);
