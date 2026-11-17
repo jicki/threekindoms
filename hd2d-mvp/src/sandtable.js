@@ -408,7 +408,7 @@ export function buildSandtable(scene, S) {
     const wx = x + TERRITORY_WARP * (Math.sin(z * TERRITORY_WARP_X[0] + x * TERRITORY_WARP_X[1]) + TERRITORY_WARP_FINE * Math.sin(z * TERRITORY_WARP_X[2] - x * TERRITORY_WARP_X[3]));
     const wz = z + TERRITORY_WARP * (Math.sin(x * TERRITORY_WARP_Z[0] - z * TERRITORY_WARP_Z[1]) + TERRITORY_WARP_FINE * Math.sin(x * TERRITORY_WARP_Z[2] + z * TERRITORY_WARP_Z[3]));
     let best = 0, bd = Infinity;
-    for (let ci = 0; ci < cities.length; ci++) { const c = cities[ci], q = (wx - c.x) ** 2 + (wz - c.z) ** 2; if (q < bd) { bd = q; best = ci; } }
+    for (let ci = 0; ci < cities.length; ci++) { const c = cities[ci]; if (c.outpost) continue; const q = (wx - c.x) ** 2 + (wz - c.z) ** 2; if (q < bd) { bd = q; best = ci; } }
     return best;
   };
   // Each vertex belongs to the nearest city in the warped board. This geometry never changes when an owner changes.

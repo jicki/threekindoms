@@ -1,5 +1,5 @@
 // 特殊守城不创建可占城的势力；临时敌将只存在于战斗和中断记录中。
-import { data, rng, NONE, SERVING, RONIN, DEAD, maxHp, toRonin } from './game.js';
+import { data, rng, NONE, SERVING, RONIN, DEAD, maxHp, toRonin, isPass } from './game.js';
 
 // 以游戏的州郡范围划分近海，河流或洪水名单不能作为海岸判断。
 export const COASTAL_CITIES = Object.freeze([0, 3, 10, 16, 17, 18]);
@@ -17,7 +17,7 @@ export function chooseRaid(g, faction) {
   // 先让整个受灾势力处理灾情，避免同月在任何城市被迫进入守城。
   if (g.disasterFactions?.[faction] === now || g.cities.some((c) => c.faction === faction && g.disasterHistory?.[c.id] === now)) return null;
   const cities = g.cities.filter((c) => {
-    if (c.faction !== faction || !c.officers.length || now - (history.cities[c.id] ?? -Infinity) < RAID_COOLDOWN) return false;
+    if (c.faction !== faction || isPass(c.id) || !c.officers.length || now - (history.cities[c.id] ?? -Infinity) < RAID_COOLDOWN) return false;
     const troops = c.officers.reduce((sum, id) => sum + g.officers[id].soldiers, 0);
     return troops >= 100 && g.officers[c.officers[0]].hp >= 20 && c.rice >= Math.max(50, Math.ceil(troops * 4 / 1000) * 20);
   });

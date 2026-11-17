@@ -1,5 +1,6 @@
 // Geography of the 战略地图: city seats, coastline, rivers, lakes and mountain ranges in real lon/lat.
 // Pure data and lookups (no three.js), so tools/ can check it in node.
+import { EXPANDED_NODES } from './core/expanded-map.js';
 
 // Each ROM city sits on its Eastern Han / Three Kingdoms seat (治所), given as the modern place's lon/lat.
 export const CITY_SITES = [
@@ -34,6 +35,15 @@ export const CITY_SITES = [
   { lon: 100.60, lat: 25.48, seat: '云南（祥云）' },          // 28 云南
   { lon: 99.17, lat: 25.12, seat: '不韦（保山）' },           // 29 永昌
 ];
+
+// 扩展据点按原道路两端的治所估算地区；实际地图位置取预烘焙道路上的节点。
+export function siteOfCity(id) {
+  if (CITY_SITES[id]) return CITY_SITES[id];
+  const node = EXPANDED_NODES.find((n) => n.id === id);
+  if (!node) return null;
+  const [a, b] = node.road.map((n) => CITY_SITES[n]);
+  return { lon: (a.lon + b.lon) / 2, lat: (a.lat + b.lat) / 2, seat: node.name, kind: node.kind };
+}
 
 // The bank each riverside seat stands on, checked against the river's direction of flow
 // (left/right looking downstream). The map nudges a city off the water onto this bank.

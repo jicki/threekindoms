@@ -1,6 +1,6 @@
 // War set-up and write-back shared by field battles (player involved) and AI-vs-AI auto battles.
 // 出阵 (5.9 §7), 战后 (6.10 §3–6), AI 自动战 (6.5 第五/六批).
-import { data, rng, NONE, DEAD, SERVING, RONIN, roads, officerCity, capturedLoyalty, recruitLoyalty, addExp, citiesOf, kill, isRuler, sparedHp, rulerPassive } from './game.js';
+import { data, rng, NONE, DEAD, SERVING, RONIN, roads, officerCity, capturedLoyalty, recruitLoyalty, addExp, citiesOf, holdingsOf, kill, isRuler, isPass, sparedHp, rulerPassive } from './game.js';
 import { DUEL_SKILLS } from './duel-skills.js';
 import { makeSquads, officerSpecialty, officerSquadLimit } from './troop-specialties.js';
 
@@ -84,7 +84,7 @@ export function resolveWar(g, war, res) {
   };
   for (const id of res.dead) if (g.officers[id].status !== DEAD) g.officers[id].status = DEAD;
   // Occupation losses (`$BF0A`, only when the defender loses).
-  if (res.loser === 'def' && !res.skipCut) {
+  if (res.loser === 'def' && !res.skipCut && !isPass(war.city)) {
     const k = war.day < 6 ? 1 : war.day < 11 ? 2 : war.day < 16 ? 3 : war.day < 21 ? 4 : 6;
     const cut = (v, kk) => Math.floor(((v * (10 - kk)) % 65536) / 10);
     city.pop = cut(city.pop, 1 + r(2)); city.land = cut(city.land, k); city.industry = cut(city.industry, k); city.gov = cut(city.gov, k);
@@ -122,7 +122,7 @@ export function resolveWar(g, war, res) {
   for (const { id, city: dest } of walked) {
     const f = res.survivors[winSide].includes(id) ? winF : loseF;
     let over = g.cities[dest].faction === f || g.cities[dest].faction === NONE ? place(g, f, [id], dest) : [id];
-    if (over.length && g.noWarDeath && isRuler(g, id)) { const c = citiesOf(g, f).find((c) => c.officers.length < 10); if (c) over = place(g, f, [id], c.id); }
+    if (over.length && g.noWarDeath && isRuler(g, id)) { const c = holdingsOf(g, f).find((c) => c.officers.length < 10); if (c) over = place(g, f, [id], c.id); }
     if (over.length) roninAt(id, dest);
   }
   let queue = [...res.survivors[winSide].filter((id) => !left.has(id)), ...prisoners], back = loserQueue(res);
@@ -134,7 +134,7 @@ export function resolveWar(g, war, res) {
     const dest = retreatCity(g, war.city, winF);
     if (dest == null) {
       for (const id of queue) {
-        const room = protectedRuler(id) && citiesOf(g, winF).find((c) => c.officers.length < 10);
+        const room = protectedRuler(id) && holdingsOf(g, winF).find((c) => c.officers.length < 10);
         if (room) place(g, winF, [id], room.id); else roninAt(id, war.city);
       }
       break;
@@ -149,14 +149,14 @@ export function resolveWar(g, war, res) {
       for (const id of back) {
         // 败方尚未被俘的君主无路可退时，由胜方优先安置；没有空位则下野。
         const room = g.noWarDeath && isRuler(g, id) && res.survivors[loseSide].includes(id)
-          && citiesOf(g, winF).find((c) => c.officers.length < 10);
+          && holdingsOf(g, winF).find((c) => c.officers.length < 10);
         if (room) {
           const o = g.officers[id]; o.status = SERVING; o.loyalty = capturedLoyalty(o.loyalty); o.warRulerSpared = true;
           place(g, winF, [id], room.id); held(winSide).push(id);
           res.survivors[loseSide] = res.survivors[loseSide].filter((x) => x !== id);
         } else {
           // 败方携带的君主俘虏也优先安置到该俘获方的其他城市。
-          const captorRoom = protectedRuler(id) && held(loseSide).includes(id) && citiesOf(g, loseF).find((c) => c.officers.length < 10);
+          const captorRoom = protectedRuler(id) && held(loseSide).includes(id) && holdingsOf(g, loseF).find((c) => c.officers.length < 10);
           if (captorRoom) place(g, loseF, [id], captorRoom.id); else roninAt(id, war.city);
         }
       }
@@ -288,7 +288,7 @@ export function autoBattle(g, war) {
     def: { gold: shrink(war.def.gold), rice: shrink(Math.max(0, war.def.rice - proj(surv.def))) },
   };
   // City damage when the attacker wins (11:CD68) replaces the field-battle occupation formula.
-  if (attWins) {
+  if (attWins && !isPass(war.city)) {
     const c = g.cities[war.city], pct = days < 5 ? 10 : days < 10 ? 20 : days < 15 ? 30 : days < 20 ? 40 : 60;
     c.pop -= Math.floor((c.pop * (10 + r(10))) / 100);
     for (const k of ['land', 'industry', 'gov']) c[k] -= Math.floor((c[k] * pct) / 100);

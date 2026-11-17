@@ -289,7 +289,7 @@ export function buildWorld(scene, cities, seed = 5) {
         for (let j = 0; j < NZ; j++) for (let k = 0; k < NX; k++) {
           const i = j * NX + k, lon = lonOf(k), lat = latOf(j);
           let best = 0, bd = Infinity;
-          cities.forEach((c, ci) => { const q = Math.hypot((lon - c.lon) * 0.9, lat - c.lat); if (q < bd) { bd = q; best = ci; } });
+          cities.forEach((c, ci) => { if (c.kind === 'pass') return; const q = Math.hypot((lon - c.lon) * 0.9, lat - c.lat); if (q < bd) { bd = q; best = ci; } });
           out[i] = best; dd[i] = bd;
         }
         near = { out, dd };

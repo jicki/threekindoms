@@ -39,10 +39,12 @@ export function describeRulerPassive(officer, enhanced = false) {
   return { name: named ? name : `${officer.name || '君主'}·${name}`, effects, ...(combat ? { combat } : {}), text: `每月君主所在城：${effects.map(({ kind, value }) => `${LABELS[kind]}＋${value}`).join('，')}${battleText}` };
 }
 
-export function applyRulerPassive(g, faction, passive) {
+export function applyRulerPassive(g, faction, passive, atPass = false) {
   const fac = g.factions[faction], city = fac && g.cities[fac.city], ruler = fac?.ruler;
   if (!passive || ruler == null || !city || city.faction !== faction || !city.officers.includes(ruler) || g.officers[ruler]?.status !== 2) return false;
   for (const { kind, value } of passive.effects) {
+    // 驻守关隘时保留军资和部将效果，但据点没有土地、人口、预备兵或城市统治。
+    if (atPass && ['reserve', 'land', 'gov'].includes(kind)) continue;
     if (kind === 'gold' || kind === 'rice' || kind === 'reserve') {
       if (city[kind] < 9999) city[kind] = Math.min(9999, city[kind] + value);
     } else if (kind === 'land') {

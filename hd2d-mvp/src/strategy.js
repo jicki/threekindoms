@@ -8,7 +8,8 @@ import { U } from './seasons.js';
 import './weather.js';
 import { buildWorld, SEA_Y } from './worldmap.js';
 import { buildSandtable, TERRITORY_PALETTE } from './sandtable.js';
-import { placeCities } from './china.js';
+import { placeCities, siteOfCity } from './china.js';
+import { EXPANDED_NODES, expandedSandMeta } from './core/expanded-map.js';
 import { NONE, FACTION_COLORS, cityName, factionName } from './core/game.js';
 import { createStrategyRoads } from './strategyroads.js';
 import { createStrategyCities } from './strategycities.js';
@@ -23,7 +24,9 @@ export const colorOf = (f) => (f === NONE ? '#c8c0b0' : FACTION_COLORS[f]);
 const SITES = placeCities();
 
 export function createStrategy(ctx) {
-  const { data, sand } = ctx; // sand: the baked sand-table board (sandtable.js loadSandtable), else the procedural one
+  const { data } = ctx;
+  const sand = data.expandedMap && ctx.sand ? { ...ctx.sand, meta: expandedSandMeta(ctx.sand.meta) } : ctx.sand;
+  const sites = data.expandedMap ? [...SITES, ...EXPANDED_NODES.map((n) => siteOfCity(n.id))] : SITES;
   const scene = new THREE.Scene();
   // Sky, camera, lights, world, roads, cities and clouds must enter the scene in the same order as before the split.
   const atmosphere = createStrategySky({ scene, sand, onSeason: (m, instant) => ctx.onSeason?.(m, instant) });
@@ -33,8 +36,8 @@ export function createStrategy(ctx) {
   scene.add(camera);
   atmosphere.addLights();
 
-  const world = sand ? buildSandtable(scene, sand) : buildWorld(scene, SITES);
-  const citySetup = createStrategyCities({ scene, data, sand, world, sites: SITES, onCity: (id) => ctx.onCity(id), onHover: hoverCity, colorOf });
+  const world = sand ? buildSandtable(scene, sand) : buildWorld(scene, sites);
+  const citySetup = createStrategyCities({ scene, data, sand, world, sites, onCity: (id) => ctx.onCity(id), onHover: hoverCity, colorOf });
   const { cityPos } = citySetup;
   const groundY = (x, z) => Math.max(SEA_Y, world.heightAt(x, z));
 
@@ -67,6 +70,7 @@ export function createStrategy(ctx) {
       m.flag.material.color.set(col); m.flag.material.emissive.set(col); m.el.style.setProperty('--c', col);
       m.glaze = c.faction === NONE ? null : new THREE.Color(col); // unowned cities keep plain grey tile
       m.el.classList.toggle('mine', c.faction === g.player);
+      m.el.classList.toggle('pass', data.cities[c.id].kind === 'pass');
       const n = officerCount(c);
       m.el.innerHTML = `${cityName(c.id)}<small>${factionName(g, c.faction)}${n ? `·${n}将` : ''}</small>`;
       m.ruled = g.factions.some((f) => f.ruler != null && f.city === c.id && c.officers.includes(f.ruler));

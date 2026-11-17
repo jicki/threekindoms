@@ -7,7 +7,7 @@
 // in front of it (N09: nothing between the camera and the front row). Fortress walls (城战) are solid blocks
 // faced with a painted crenellated wall (tools/gen_tactical_codex.sh); woods are painted crowns on quads.
 import * as THREE from 'three';
-import { CITY_SITES } from './china.js';
+import { siteOfCity } from './china.js';
 import { plateKey } from './seasonenv.js';
 import { vnoise } from './diorama.js';
 
@@ -30,7 +30,7 @@ let loaded = null;
 export async function loadTacticalGround(month, city) {
   const key = `${month}|${city}`;
   if (loaded?.key === key) return loaded;
-  const season = seasonOf(month, CITY_SITES[city]?.lat ?? 33);
+  const season = seasonOf(month, siteOfCity(city)?.lat ?? 33);
   const names = [...MATS, season.grass];
   const [imgs, atlas, sheet, sets] = await Promise.all([
     Promise.all(names.map((n) => image(`${WG}${n}.webp`))), image(`${WG}${season.trees}.webp`), json(`${WG}${season.trees}.json`),

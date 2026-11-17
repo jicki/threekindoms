@@ -9,6 +9,8 @@ import { applyScenario, ORIGINAL_SCENARIO } from './scenario.js';
 import { loadScenario, selectedScenario } from './scenario-store.js';
 import { applyRulerPassive, describeRulerPassive } from './ruler-passives.js';
 import { relationDisposition, recruitDisposition, recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
+import { EXPANDED_MAP_ID, expandMap } from './expanded-map.js';
+import { SOVEREIGN_SCENARIO_ID } from './visuals.js';
 // 原版无主为 7；扩展剧本将无主编号放在实际势力编号之后。
 export let NONE = 7;
 export const DEAD = 3, SERVING = 2, UNAPPEARED = 1, RONIN = 0;
@@ -24,7 +26,9 @@ export async function loadData(url = 'data/game-data.json') {
   if (!response.ok) throw new Error('无法读取游戏基础数据');
   const base = await response.json(), id = selectedScenario();
   if (id === ORIGINAL_SCENARIO) return setData(base, id);
-  const scenario = await loadScenario(id, base), next = applyScenario(base, scenario);
+  const scenario = await loadScenario(id === EXPANDED_MAP_ID ? SOVEREIGN_SCENARIO_ID : id, base);
+  let next = applyScenario(base, scenario);
+  if (id === EXPANDED_MAP_ID) next = expandMap(next);
   next.scenarioName = scenario.name; return setData(next, id);
 }
 export function setData(d, id = ORIGINAL_SCENARIO) { D = d; NONE = d?.factions?.length ?? 7; scenarioId = id; return D; }
@@ -92,7 +96,10 @@ export function maxRulerCity(g) {
 // ---------- Queries ----------
 export const officerCity = (g, id) => g.cities.find((c) => c.officers.includes(id));
 export const factionOf = (g, id) => officerCity(g, id)?.faction ?? NONE;
-export const citiesOf = (g, f) => g.cities.filter((c) => c.faction === f);
+export const isPass = (cid) => D.cities[cid]?.kind === 'pass';
+export const holdingsOf = (g, f) => g.cities.filter((c) => c.faction === f);
+export const citiesOf = (g, f) => holdingsOf(g, f).filter((c) => !isPass(c.id));
+export const cityCount = () => D.cities.filter((c) => c.kind !== 'pass').length;
 export const alive = (g, f) => g.factions[f].ruler != null;
 export const isRuler = (g, id) => g.factions.some((f) => f.ruler === id);
 export const roads = (cid) => D.cities[cid].roads;
@@ -116,7 +123,7 @@ export function rulerPassive(g, f) {
 function grantRulerPassive(g, f) {
   const turn = `${g.year}:${g.month}:${f}`;
   if (g.rulerPassiveTurn === turn) return;
-  if (applyRulerPassive(g, f, rulerPassive(g, f))) g.rulerPassiveTurn = turn;
+  if (applyRulerPassive(g, f, rulerPassive(g, f), isPass(g.factions[f].city))) g.rulerPassiveTurn = turn;
 }
 
 // ---------- Income (5.2): every city, ID 29→0, regardless of owner ----------
@@ -125,7 +132,7 @@ export function income(g, kind) {
   const [A, B] = D.rules.income_ab[g.level];
   const out = [];
   for (const c of [...g.cities].reverse()) {
-    if (c.faction === NONE) continue;
+    if (c.faction === NONE || isPass(c.id)) continue;
     const Dv = kind === 'gold' ? c.industry : c.land, N = kind === 'gold' ? 80 : 60;
     const q = Math.floor((c.pop * (Math.floor(Dv / A) + B)) / N);
     const inc = Math.floor((q * GOV_C(c.gov)) / 100);
@@ -171,7 +178,7 @@ export function disaster(g, kind) {
   for (const cid of [...list, null]) {
     if (r(6) !== 0 || cid == null) continue; // 16 sequential draws, the trailing FF slot included
     const c = g.cities[cid];
-    if (c.faction === NONE) continue;
+    if (c.faction === NONE || isPass(c.id)) continue;
     const defense = c.disaster, k = disasterK(c, r);
     // 时间随游戏记录，旧记录无此字段时从首次受灾开始计算。
     const now = eventMonth(g), previous = g.disasterHistory?.[cid];
@@ -190,7 +197,7 @@ export function riots(g) {
   if (g.year === 189 && g.month < 4) return [];
   const r = rng(g), out = [];
   for (const c of g.cities) {
-    if (c.faction === NONE) continue;
+    if (c.faction === NONE || isPass(c.id)) continue;
     if (c.riot > 0) { c.riot--; continue; }
     const p = c.gov >= 50 ? 0 : c.gov >= 40 ? 5 : c.gov >= 30 ? 10 : c.gov >= 20 ? 30 : 50;
     if (!p || r(100) >= p) continue;
@@ -292,7 +299,7 @@ export const sparedHp = (g, id) => isRuler(g, id) ? Math.min(SPARED_HP, maxHp(g.
 export function naturalDeaths(g, f) {
   if (g.ageless) return [];
   const r = rng(g), dead = [], ruler = g.factions[f].ruler;
-  for (const c of citiesOf(g, f)) {
+  for (const c of holdingsOf(g, f)) {
     for (let i = 0; i < c.officers.length; i++) { // the original advances the slot even after compaction (skip quirk kept)
       const id = c.officers[i];
       if (id === ruler) continue;
@@ -313,7 +320,7 @@ export function kill(g, id) {
 }
 
 export function heirCandidates(g, f) {
-  return citiesOf(g, f).flatMap((c) => c.officers);
+  return holdingsOf(g, f).flatMap((c) => c.officers);
 }
 export function autoHeir(g, f) {
   const cands = heirCandidates(g, f);
@@ -349,7 +356,7 @@ export function toRonin(g, id) {
 }
 export function destroyFaction(g, f) {
   g.factions[f].fallen = g.factions[f].ruler; g.factions[f].ruler = null;
-  for (const c of citiesOf(g, f)) { for (const id of [...c.officers]) toRonin(g, id); c.faction = NONE; }
+  for (const c of holdingsOf(g, f)) { for (const id of [...c.officers]) toRonin(g, id); c.faction = NONE; }
 }
 
 // Recruit loyalty (CF3F): 8-bit subtraction wrap, then clamp 10..90.
@@ -390,8 +397,8 @@ export function talentCount(g) {
 export function unificationParts(g) {
   const ruler = g.factions[g.player].ruler;
   let n = 0, loy = 0, gov = 0;
-  for (const c of g.cities) { gov += c.gov; for (const id of c.officers) if (id !== ruler) { n++; loy += g.officers[id].loyalty; } }
-  return { officers: n, loyalty: n ? Math.floor(loy / n) : 0, talent: Math.floor((n * 100) / 130), gov: Math.floor(gov / 30) };
+  for (const c of g.cities) { if (!isPass(c.id)) gov += c.gov; for (const id of c.officers) if (id !== ruler) { n++; loy += g.officers[id].loyalty; } }
+  return { officers: n, loyalty: n ? Math.floor(loy / n) : 0, talent: Math.floor((n * 100) / 130), gov: Math.floor(gov / cityCount()) };
 }
 export function unificationScore(g) {
   const { loyalty, talent, gov } = unificationParts(g);
@@ -411,7 +418,7 @@ export async function run(g, io) {
   while (!g.over) {
     // Unification is judged before the turn can rotate: a war won with the last command book must not
     // roll into next month's deaths and successions first (the original checks at the command entry).
-    if (citiesOf(g, g.player).length === 30) { g.over = { type: 'unify', score: unificationScore(g) }; await io.event({ type: 'unify', score: g.over.score }); return; }
+    if (citiesOf(g, g.player).length === cityCount()) { g.over = { type: 'unify', score: unificationScore(g) }; await io.event({ type: 'unify', score: g.over.score }); return; }
     if (g.current == null || g.books <= 0 || g.endTurn) { g.endTurn = false; await rotate(g, io); continue; }
     // 若页面在回合初始化途中恢复，补发尚未领取的被动；已领取的回合不会重复。
     if (D.rulerPassives) grantRulerPassive(g, g.current);
@@ -478,11 +485,22 @@ async function rotate(g, io) {
     const dead = naturalDeaths(g, f);
     if (dead.length) await io.event({ type: 'death', faction: f, list: dead });
     if (g.officers[oldRuler].status === DEAD && !(await succession(g, io, f, oldRuler))) continue;
+    // 君主可能驻守关隘；最后一城的守将病逝或继位后下野时，须在本回合立即判定灭亡。
+    if (D.expandedMap && !citiesOf(g, f).length) {
+      await checkFactions(g, io);
+      if (g.over) return;
+      if (!alive(g, f)) continue;
+    }
     // 君主继位后按新君主的当前属性生效；已开始的回合和中断战斗恢复不会重复领取。
     if (D.rulerPassives) grantRulerPassive(g, f);
     // 只在本势力新回合检查，玩家从中断战斗恢复后不会重复抽取。
     if (g.cityRaids === true && io.raid) { await io.raid(f); if (g.over) return; }
-    if (g.factions[f].ai) { await io.aiTurn(f); if (g.over) return; g.books = 0; continue; }
+    if (g.factions[f].ai) {
+      await io.aiTurn(f); if (g.over) return;
+      // 电脑外交可能诱走最后守将；战斗已有自己的结算检查，此处也覆盖非战斗行动。
+      if (D.expandedMap) { await checkFactions(g, io); if (g.over) return; }
+      g.books = 0; continue;
+    }
     return; // player's turn begins
   }
 }
@@ -512,6 +530,7 @@ export function devCost(g, executor) { const r = rng(g); return [10, 12, 14, 16,
 export const devCostRange = (g, executor) => { const b = bandI(g.officers[executor].int) * 4; return [10 + b, 18 + b]; };
 export const disasterCostRange = (g, executor) => { const b = [10, 13, 16][bandI(g.officers[executor].int)]; return [b, b + 3]; };
 export function develop(g, cid, executor, field, cost) {
+  if (isPass(cid)) return { ok: false, msg: '关隘不能开发城市' };
   const c = g.cities[cid], r = rng(g);
   const cap = field === 'pop' ? 9999 : 999;
   if (c[field] >= cap) return { ok: false, msg: '已经达到上限' };
@@ -527,6 +546,7 @@ export function develop(g, cid, executor, field, cost) {
 }
 export function disasterCost(g, executor) { const r = rng(g); return [10, 13, 16][bandI(g.officers[executor].int)] + r(4); }
 export function prevent(g, cid, executor, cost) {
+  if (isPass(cid)) return { ok: false, msg: '关隘无需防灾' };
   const c = g.cities[cid], r = rng(g);
   if (c.disaster >= 99) return { ok: false, msg: '防灾已满' };
   if (c.gold < cost) return { ok: false, msg: '金不足' };
@@ -546,6 +566,7 @@ export function reward(g, cid, target, gold, treasure = false) {
   return { ok: true, msg: `${name(target)} 忠诚 +${o.loyalty - before}` };
 }
 export function charity(g, cid, gold, rice) {
+  if (isPass(cid)) return { ok: false, msg: '关隘不能施舍' };
   const c = g.cities[cid], r = rng(g);
   if (c.gov >= 100) return { ok: false, msg: '统治度已满' };
   if ((!gold && !rice) || c.gold < gold || c.rice < rice) return { ok: false, msg: '金米不足' };
@@ -579,6 +600,7 @@ export function heal(g, cid, id) {
 }
 export const conscriptMax = (c) => Math.floor(Math.min(Math.max(0, 10000 - c.reserve), Math.floor(c.gold / 20) * 100) / 100);
 export function conscript(g, cid, hundreds) {
+  if (isPass(cid)) return { ok: false, msg: '关隘不能征兵，请从城市补给' };
   const c = g.cities[cid];
   if (hundreds < 1 || hundreds > conscriptMax(c)) return { ok: false, msg: '无法征兵' };
   c.gold -= 20 * hundreds; c.reserve += 100 * hundreds;
@@ -592,11 +614,17 @@ export function assignTroops(g, cid, id, delta) {
   if (delta > 0 && o.soldiers <= 900 && c.reserve > 0) { const n = Math.min(100, c.reserve); o.soldiers += n; c.reserve -= n; }
   if (delta < 0 && o.soldiers > 0 && !rem && c.reserve < 9901) { o.soldiers -= 100; c.reserve += 100; }
 }
+// 关隘不计入城数，最后一城向关隘派兵时必须留守，避免移动后出现没有城市的存续势力。
+export function mustGuardLastCity(g, from, to) {
+  const c = g.cities[from];
+  return !!c && c.faction !== NONE && !isPass(from) && isPass(to) && citiesOf(g, c.faction).length === 1;
+}
 export function moveOfficers(g, from, to, ids) {
   const a = g.cities[from], b = g.cities[to];
   if (!roads(from).includes(to)) return { ok: false, msg: '只能移往道路相连的城' };
   if (b.faction !== a.faction && b.faction !== NONE) return { ok: false, msg: '只能移往己方或无主城' };
   if (b.officers.length + ids.length > 10) return { ok: false, msg: '目标城武将已满10人' };
+  if (mustGuardLastCity(g, from, to) && a.officers.every((id) => ids.includes(id))) return { ok: false, msg: '前往关隘时须在最后一座城市留守至少一名武将' };
   const f = a.faction, ruler = g.factions[f].ruler;
   a.officers = a.officers.filter((x) => !ids.includes(x));
   b.officers.push(...ids);
@@ -686,6 +714,7 @@ export function buyEquip(g, cid, id, eq) {
 const band = (v) => (v <= 40 ? 40 : v <= 80 ? 80 : 99);
 export const SANGU_VISITS = 3;
 export function search(g, cid, executor) {
+  if (isPass(cid)) return { ok: false, msg: '关隘不能搜索人才' };
   const c = g.cities[cid], o = g.officers[executor], r = rng(g);
   const n = Math.min(10, c.officers.length);
   const row = D.search_outcomes[`${Math.max(1, n)},${band(o.int)},${band(o.virtue)}`];
@@ -802,7 +831,7 @@ export function upgrade(g) {
     && (g.eliteTroops === undefined || typeof g.eliteTroops === 'boolean')
     && (g.safeAiLure === undefined || typeof g.safeAiLure === 'boolean')
     && (g.balancedTroops === undefined || typeof g.balancedTroops === 'boolean')
-    && Array.isArray(g.officers) && Array.isArray(g.factions) && Array.isArray(g.cities) && g.cities.length === 30 && g.cities.every((c) => Array.isArray(c?.officers)) && validRoster(g) && validRaidState(g);
+    && Array.isArray(g.officers) && Array.isArray(g.factions) && Array.isArray(g.cities) && g.cities.length === D.cities.length && g.cities.every((c) => Array.isArray(c?.officers)) && validRoster(g) && validRaidState(g);
   return ok ? g : null;
 }
 const fromBak = new WeakSet();
@@ -895,7 +924,7 @@ function quickUpgrade(g) {
     || !Number.isInteger(g.turnIdx) || g.turnIdx < -1 || g.turnIdx >= g.factions.length
     || (g.current != null && (!Number.isInteger(g.current) || !g.factions[g.current]))
     || !Number.isInteger(g.books) || g.books < 0
-    || !Array.isArray(g.aiCursor) || g.aiCursor.length < g.factions.length || g.aiCursor.some((i) => !Number.isInteger(i) || i < 0 || i > 30)) return null;
+    || !Array.isArray(g.aiCursor) || g.aiCursor.length < g.factions.length || g.aiCursor.some((i) => !Number.isInteger(i) || i < 0 || i > D.cities.length)) return null;
   const f = g.factions[g.player], ruler = f?.ruler, city = f?.city;
   if (g.clones != null && !Array.isArray(g.clones)) return null;
   const clones = new Set(g.clones ?? []);

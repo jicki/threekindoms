@@ -9,6 +9,7 @@ import { TERRITORY_PALETTE, TERRITORY_FILL, TERRITORY_MID_BOOST, TERRITORY_BAND_
 import { createSky2d } from './skyfx2d.js';
 import { layoutTags, measureTags } from './citytags.js';
 import { NONE, cityName, factionName } from './core/game.js';
+import { expandedFlatBoard } from './core/expanded-map.js';
 
 const DIR = 'assets/ai/sandtable/flat';
 const SEASONS = ['spring', 'summer', 'autumn', 'winter'], seasonOf = (m) => Math.floor(m / 3);
@@ -44,7 +45,8 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 // (the title's 季春 unless a switch brings it in mid-game); ctx.onPicturesFailed: no picture could be had, and there is none to keep showing.
 export async function createStrategyFlat(ctx) {
   const { data, month: start = 2 } = ctx;
-  const board = await (await fetch(`${DIR}/board.json`)).json();
+  let board = await (await fetch(`${DIR}/board.json`)).json();
+  if (data.expandedMap) board = expandedFlatBoard(board);
   const [W, H] = board.size, B = board.bounds, cities = [];
   for (const c of board.cities) cities[c.id] = c;
 
@@ -216,6 +218,7 @@ export async function createStrategyFlat(ctx) {
     const { k, x, y } = viewState();
     paintUnder(k, x, y);
     g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.drawImage(under, 0, 0);
+    if (data.expandedMap) drawAddedSites(k, x, y);
     // Rings and lines in picture px, so they scale with the board; what must stay legible at the whole board is sized in screen px below.
     g.setTransform(dpr * k, 0, 0, dpr * k, dpr * x, dpr * y);
     drawRings();
@@ -227,6 +230,23 @@ export async function createStrategyFlat(ctx) {
     g.setTransform(dpr, 0, 0, dpr, 0, 0); g.globalAlpha = 1;
     warShow?.draw(k, x, y);
     if (skyOn) drawSky(k, y, dt);
+  }
+
+  // 额外据点绘制在同一条预烘焙道路上；尺寸随缩放变化，但在手机全图时保留可见轮廓。
+  function drawAddedSites(k, x, y) {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    for (const c of board.cities) {
+      if (!c.added) continue;
+      const s = Math.max(k, 0.14), px = c.cx * k + x, py = c.cy * k + y;
+      if (px < -30 || px > vw + 30 || py < -30 || py > vh + 30) continue;
+      g.save(); g.translate(px, py); g.scale(s, s);
+      g.fillStyle = 'rgba(30, 24, 13, .35)'; g.beginPath(); g.ellipse(0, 6, c.rx, c.ry * .62, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#d7cfb3'; g.strokeStyle = '#55462e'; g.lineWidth = 3;
+      const w = c.outpost ? 56 : 62, h = c.outpost ? 24 : 36;
+      g.fillRect(-w / 2, -h / 2, w, h); g.strokeRect(-w / 2, -h / 2, w, h);
+      g.fillStyle = '#756b55'; g.beginPath(); g.moveTo(-w / 2 - 4, -h / 2); g.lineTo(0, -h / 2 - (c.outpost ? 13 : 21)); g.lineTo(w / 2 + 4, -h / 2); g.closePath(); g.fill(); g.stroke();
+      g.fillStyle = '#382b1d'; g.fillRect(-6, 0, 12, h / 2); g.restore();
+    }
   }
 
   // ---- Owners' tint: a transparent colour grid over the existing seasonal pictures; land/sea is stored independently
@@ -251,6 +271,16 @@ export async function createStrategyFlat(ctx) {
         for (let i = 0; i < cells.length; i++) cells[i] = packed.charCodeAt(i) - 1;
       } // zero is sea/outside; otherwise city id + 1
     } else for (let i = 0; i < cells.length; i++) cells[i] = (T.land ? T.land[i] : T.k[i] > 0) ? T.near[i] : -1; // older cached metadata stays safe at sea
+    if (data.expandedMap) {
+      const added = board.cities.filter((c) => c.added && !c.outpost);
+      for (let i = 0; i < cells.length; i++) {
+        if (cells[i] < 0) continue; // 保持原海岸线和水域蒙版
+        const px = (i % TW + .5) * W / TW, py = (Math.floor(i / TW) + .5) * H / TH;
+        const distance = (c) => (px - c.cx) ** 2 + ((py - c.cy) / DOWN) ** 2;
+        let best = distance(cities[cells[i]]);
+        for (const c of added) { const next = distance(c); if (next < best) { best = next; cells[i] = c.id; } }
+      }
+    }
     tintCv = Object.assign(document.createElement('canvas'), { width: TW, height: TH }); tintG = tintCv.getContext('2d'); tintPx = tintG.createImageData(TW, TH); tintCells = cells;
   }
   const tintOwners = new Int16Array(data.cities.length).fill(-1);
@@ -723,6 +753,7 @@ export async function createStrategyFlat(ctx) {
     crowned = gs.cities.filter((c) => gs.factions.some((f) => f.ruler != null && f.city === c.id && c.officers.includes(f.ruler))).map((c) => c.id);
     for (const c of gs.cities) {
       const m = marks[c.id];
+      m.el.classList.toggle('pass', data.cities[c.id].kind === 'pass');
       flagColors[c.id] = colorOf(c.faction);
       m.el.style.setProperty('--c', flagColors[c.id]);
       m.el.classList.toggle('mine', c.faction === gs.player);

@@ -1,7 +1,7 @@
 // Strategic AI (6.5). Budget = command books × 10 points; the main dispatch draws 0–15 against the
 // faction/difficulty/situation weights (`10:A19C` uses D4AD, so sums above 16 never reach the last
 // branches), then attack/vacant expansion, inner moves + BD7A reinforcement, diplomacy, or domestic work.
-import { data, currentScenario, rng, NONE, SERVING, UNAPPEARED, RONIN, roads, citiesOf, troopsOf, recruitLoyalty, books, isRuler, officerCity, searchOrder, maxHp, weaponGroup, equipBlock, wearEquip } from './game.js';
+import { data, currentScenario, rng, NONE, SERVING, UNAPPEARED, RONIN, roads, citiesOf, holdingsOf, isPass, troopsOf, recruitLoyalty, books, isRuler, officerCity, searchOrder, maxHp, weaponGroup, equipBlock, wearEquip } from './game.js';
 import { setupWar, occupyEmpty, autoBattle } from './warcore.js';
 import { phantomWar } from './ahuinan.js';
 import { FEMALE_SCENARIO_ID } from './visuals.js';
@@ -41,6 +41,7 @@ export async function aiTurn(g, f, io) {
 // BEC7's domestic loop with `pts` points left: the end of every AI turn (aiTurn), and the rest of one whose war on the
 // player was suspended and resumed (src/app.js). Its draws come from g.seed, so a resumed turn draws as the unbroken one.
 export function aiDomestic(g, f, pts, r = rng(g)) {
+  if (!citiesOf(g, f).length) return;
   const spend = (n) => (pts -= n) > 0;
   let wraps = 0;
   while (pts > 0 && !g.over) {
@@ -49,11 +50,11 @@ export function aiDomestic(g, f, pts, r = rng(g)) {
     let cur = g.aiCursor[f];
     do {
       cur++;
-      if (cur >= 30) {
+      if (cur >= g.cities.length) {
         if (++wraps === 3) { g.aiCursor[f] = cur; return; }
         cur = 0;
       }
-    } while (g.cities[cur].faction !== f);
+    } while (g.cities[cur].faction !== f || isPass(cur));
     g.aiCursor[f] = cur;
     // Failed work returns to BEC7 without a debit. Successful actions charge their own five points.
     domestic(g, f, g.cities[cur], r, spend);
@@ -81,6 +82,15 @@ const capitalOf = (g, f) => officerCity(g, g.factions[f].ruler);
 // original order; two cities pass only when one row holds both. Not graph reachability (two adjacent own
 // cities with no third own city fail it).
 function linker(g, f) {
+  // 扩展地图允许据点串联，旧地图保留 ROM 的特殊连通算法和结果。
+  if (data().expandedMap) return (a, b) => {
+    if (g.cities[a]?.faction !== f || g.cities[b]?.faction !== f) return false;
+    const seen = new Set([a]), queue = [a];
+    for (let i = 0; i < queue.length; i++) for (const n of roads(queue[i])) {
+      if (g.cities[n].faction === f && !seen.has(n)) { seen.add(n); queue.push(n); }
+    }
+    return seen.has(b);
+  };
   const rows = g.cities.map(() => [0, 0, 0, 0]);
   for (const c of g.cities) if (c.faction === f) for (const n of roads(c.id)) if (g.cities[n].faction === f) rows[c.id][n >> 3] |= 1 << (n & 7);
   for (let d = 0; d < 29; d += 2) for (let v = Math.max(1, d - 1); v < 30; v++) for (let k = 0; k < 4; k++) if (rows[d][k] & rows[v][k]) rows[v][k] |= rows[d][k];
@@ -203,7 +213,8 @@ function outCount(g, n, r, eager = 0) {
 function gather(g, f, dst, need, mode, spend) {
   const ruler = g.factions[f].ruler, home = capitalOf(g, f), link = linker(g, f);
   for (const pass of [0, 1]) {
-    const th = Math.max(2, (pass ? FRONT : REAR)[aiProfile(f)] - warlike(g));
+    // 小势力通过关隘时允许从连通城市调兵，但每个来源至少留一人守城。
+    const th = data().expandedMap && isPass(dst.id) ? 2 : Math.max(2, (pass ? FRONT : REAR)[aiProfile(f)] - warlike(g));
     for (const c of g.cities) {
       if (c === dst || c.faction !== f || (c === home || isFront(g, f, c)) !== (pass === 1) || !link(dst.id, c.id)) continue;
       while (c.officers.length >= th) {
@@ -226,7 +237,8 @@ function gather(g, f, dst, need, mode, spend) {
 // A55C/A60C: 100 at a time from the richest other own city above 100 (first on ties, no road check), 2 points.
 function requisition(g, f, dst, k, spend) {
   let donor = null;
-  for (const c of citiesOf(g, f)) if (c !== dst && c[k] > 100 && (donor == null || c[k] > donor[k])) donor = c;
+  const link = data().expandedMap ? linker(g, f) : null;
+  for (const c of citiesOf(g, f)) if (c !== dst && (!link || link(dst.id, c.id)) && c[k] > 100 && (donor == null || c[k] > donor[k])) donor = c;
   if (!donor) return false;
   const amt = Math.min(100, donor[k] - 100);
   donor[k] -= amt; dst[k] = Math.min(9999, dst[k] + amt);
@@ -246,13 +258,40 @@ function fill(c, o, paid) {
   c.reserve = Math.min(9999, c.reserve + (cost / 20) * 100 - need); o.soldiers = 1000;
 }
 
+// 关隘不能自行征兵：驻军只能消耗关内已有后备兵，或由连通的己方城市提供后备兵和征兵费用。
+function passDonors(g, f, gate) {
+  const linked = linker(g, f);
+  return citiesOf(g, f).filter((c) => linked(gate.id, c.id));
+}
+function passSupply(g, f, gate) {
+  return gate.reserve + passDonors(g, f, gate).reduce((n, c) => n + c.reserve + Math.floor(c.gold / 20) * 100, 0);
+}
+function refillAtPass(g, f, gate, officer) {
+  const before = officer.soldiers;
+  const take = (c) => {
+    const n = Math.min(1000 - officer.soldiers, c.reserve);
+    c.reserve -= n; officer.soldiers += n;
+  };
+  take(gate);
+  const donors = passDonors(g, f, gate);
+  for (const c of donors) { if (officer.soldiers >= 1000) break; take(c); }
+  for (const c of donors) {
+    if (officer.soldiers >= 1000) break;
+    const need = 1000 - officer.soldiers;
+    const hundreds = Math.min(Math.ceil(need / 100), Math.floor(c.gold / 20));
+    const recruited = hundreds * 100, moved = Math.min(need, recruited);
+    c.gold -= hundreds * 20; officer.soldiers += moved; c.reserve += recruited - moved;
+  }
+  return officer.soldiers - before;
+}
+
 async function attackBranch(g, f, r, io, spend) {
   if (r(100) < (g.level === 2 ? 30 : 20)) return vacant(g, f, r, spend);
   const open = g.level === 2 || g.year >= 190 || (g.level === 1 && g.month >= 6);
   if (!open) return false;
   // A240: target with the fewest officers among non-allied enemy neighbours.
   let target = null, source = null;
-  for (const c of citiesOf(g, f)) for (const n of roads(c.id)) {
+  for (const c of holdingsOf(g, f)) for (const n of roads(c.id)) {
     const t = g.cities[n];
     if (t.faction === NONE || t.faction === f || g.factions[f].alliance[t.faction] > 0) continue;
     // 刚遭袭扰的势力本月不再成为电脑战争目标，避免连续被迫作战。
@@ -270,13 +309,19 @@ async function attackBranch(g, f, r, io, spend) {
   }
   const src = g.cities[source];
   // A208: the source must hold min(10, defenders+3) officers, else A303 gathers them (failure → domestic).
-  const need = Math.min(10, g.cities[target].officers.length + 3 - warlike(g));
+  const need = Math.min(10, g.cities[target].officers.length + (data().expandedMap && isPass(source) ? 2 : 3) - warlike(g));
   if (src.officers.length < need) { const ok = gather(g, f, src, need, 0, spend); if (ok !== true) return ok === null; }
   // A45C/A481: every officer in the source to 1000, 2 points each. Short of gold, A55C requisitions it; when
   // no city can pay, the whole attack is dropped for domestic work (no one marches under strength).
   for (const id of [...src.officers]) {
     const o = g.officers[id];
     if (o.soldiers >= 1000) continue;
+    if (data().expandedMap && isPass(src.id)) {
+      const moved = refillAtPass(g, f, src, o);
+      if (moved && !spend(2)) return true;
+      if (o.soldiers < 1000) return false;
+      continue;
+    }
     const t = cover(g, f, src, 'gold', fillCost(src, o), spend);
     if (t !== true) return t === null;
     fill(src, o, true);
@@ -300,6 +345,31 @@ async function attackBranch(g, f, r, io, spend) {
 }
 
 function vacant(g, f, r, spend) {
+  // 关隘不计城数；有两名武将时允许留一人守城、派一人先占领无主关隘。
+  if (data().expandedMap) for (const c of holdingsOf(g, f)) {
+    if (c.officers.length < 2) continue;
+    const target = roads(c.id).find((n) => isPass(n) && g.cities[n].faction === NONE && !g.cities[n].officers.length);
+    const id = c.officers.find((o) => o !== g.factions[f].ruler);
+    if (target == null || id == null) continue;
+    const gold = Math.min(50, c.gold), rice = Math.min(150, c.rice);
+    occupyEmpty(g, { from: c.id, to: target, ids: [id], gold, rice });
+    spend(4); return true;
+  }
+  // 有人驻守的关隘可以继续向前占领空城，不必等待城市的平均守将达到四人。
+  if (data().expandedMap) for (const c of holdingsOf(g, f)) {
+    if (!isPass(c.id)) continue;
+    const target = roads(c.id).find((n) => !isPass(n) && g.cities[n].faction === NONE && !g.cities[n].officers.length);
+    if (target == null) continue;
+    if (c.officers.length < 2) {
+      const result = gather(g, f, c, 2, 0, spend);
+      if (result === null) return true;
+      if (!result) continue;
+    }
+    const id = c.officers.find((o) => o !== g.factions[f].ruler);
+    if (id == null) continue;
+    occupyEmpty(g, { from: c.id, to: target, ids: [id], gold: Math.min(50, c.gold), rice: Math.min(100, c.rice) });
+    spend(4); return true;
+  }
   // B10E: average officers over own frontier cities (else all); <2 → abandon a city, 2–3 → domestic,
   // 4+ → expand with that average as the source's required count.
   const mine = citiesOf(g, f), front = mine.filter((c) => isFront(g, f, c));
@@ -308,7 +378,7 @@ function vacant(g, f, r, spend) {
   if (avg < 4) return false;
   // B180: last different empty neutral target wins; same target keeps the source with more officers (later on ties).
   let target = null, source = null;
-  for (const c of citiesOf(g, f)) for (const n of roads(c.id)) {
+  for (const c of holdingsOf(g, f)) for (const n of roads(c.id)) {
     if (g.cities[n].faction !== NONE || g.cities[n].officers.length) continue;
     if (n !== target) { target = n; source = c.id; } else if (c.officers.length >= g.cities[source].officers.length) source = c.id;
   }
@@ -334,6 +404,8 @@ function vacant(g, f, r, spend) {
 // officer, gold and rice to that neighbour and becomes neutral; 4+2×officers points. The original writes past
 // a full destination roster; here the move is skipped instead.
 function abandon(g, f, spend) {
+  // 关隘不算城市，不能把最后一座城市迁空到关隘而让势力在下一次检查时灭亡。
+  if (data().expandedMap && citiesOf(g, f).length <= 1) return false;
   let from = null, to = null;
   for (const c of citiesOf(g, f)) {
     const own = roads(c.id).filter((n) => g.cities[n].faction === f);
@@ -391,7 +463,20 @@ function reinforce(g, f, spend) {
       if (s >= top) { top = s; best = { c, o: g.officers[id] }; }
     });
   }
+  if (data().expandedMap && fixed) for (const c of holdingsOf(g, f)) {
+    if (!isPass(c.id)) continue;
+    const supply = passSupply(g, f, c);
+    if (supply <= 0) continue;
+    c.officers.forEach((id, i) => {
+      const o = g.officers[id]; if (o.soldiers >= 1000) return;
+      const priority = (i === 0 ? 100 : o.war) + (smart && isFront(g, f, c) ? 45 : 0) + (smart && c === home ? 30 : 0);
+      const available = smart ? Math.min(1000 - o.soldiers, supply) : 1;
+      const score = smart ? available * (100 + priority) : priority;
+      if (score >= top) { top = score; best = { c, o, pass: true }; }
+    });
+  }
   if (!best) return;
+  if (best.pass) { refillAtPass(g, f, best.c, best.o); spend(2); return; }
   if (fixed) {
     const { c, o } = best, need = 1000 - o.soldiers;
     // 先使用后备兵，再按每 20 金购买 100 人；资金不足时只补充实际可负担的人数。
@@ -514,7 +599,7 @@ export function equip(g, c, r, spend) {
 // ---------- AI diplomacy (6.5 第七批: 10:BBB2 / B98B / B619) ----------
 const maxBy = (arr, f) => arr.reduce((best, x) => (best == null || f(x) >= f(best) ? x : best), null);
 async function incite(g, f, r, io) {
-  const actor = maxBy(citiesOf(g, f).flatMap((c) => c.officers), (id) => g.officers[id].int);
+  const actor = maxBy(holdingsOf(g, f).flatMap((c) => c.officers), (id) => g.officers[id].int);
   const city = maxBy(g.cities.filter((c) => c.faction !== f && c.faction !== NONE && !g.factions[c.faction].ai && c.officers.length >= 6), (c) => c.officers.length);
   if (actor == null || !city) return;
   const cands = city.officers.filter((id) => g.officers[id].loyalty >= 50 && g.officers[id].loyalty <= 89 && !isRuler(g, id));
@@ -533,7 +618,7 @@ async function recruit(g, f, r, io) {
   for (const c of g.cities) if (c.faction !== f && c.faction !== NONE) for (const id of c.officers) if (!isRuler(g, id) && (target == null || g.officers[id].loyalty < g.officers[target].loyalty)) target = id;
   if (target == null || g.officers[target].loyalty >= 70) return;
   const t = g.officers[target], lb = t.loyalty <= 30 ? 0 : t.loyalty <= 50 ? 1 : 2;
-  const own = Math.max(...citiesOf(g, f).flatMap((c) => c.officers).map((id) => g.officers[id].level - 1)), diff = own - (t.level - 1);
+  const own = Math.max(...holdingsOf(g, f).flatMap((c) => c.officers).map((id) => g.officers[id].level - 1)), diff = own - (t.level - 1);
   const raw = [[40, 15, 0], [50, 20, 0], [60, 30, 10]][g.level][lb] + Math.floor(t.virtue / 20) + (diff >= 0 ? diff : 2 * diff);
   // 原版按无符号字节回绕；新规则避免负概率变成必然成功，记录缺少标记时不改变旧行为。
   const th = g.safeAiLure === true ? Math.max(0, Math.min(100, raw)) : raw & 255;
@@ -546,9 +631,9 @@ async function recruit(g, f, r, io) {
 async function ally(g, f, r, io) {
   const fac = g.factions[f], live = g.factions.filter((x) => x.ruler != null).length;
   if (live < 3 || fac.alliance.some((t) => t > 0)) return;
-  const mine = citiesOf(g, f), adj = new Set();
-  if (!mine.some((c) => c.officers.some((id) => id !== fac.ruler))) return; // B619 needs a non-ruler envoy
-  for (const c of mine) for (const n of roads(c.id)) { const o = g.cities[n].faction; if (o !== f && o !== NONE) adj.add(o); }
+  const mine = citiesOf(g, f), holdings = holdingsOf(g, f), adj = new Set();
+  if (!holdings.some((c) => c.officers.some((id) => id !== fac.ruler))) return; // B619 needs a non-ruler envoy
+  for (const c of holdings) for (const n of roads(c.id)) { const o = g.cities[n].faction; if (o !== f && o !== NONE) adj.add(o); }
   if (adj.size < 2) return;
   const target = maxBy([...adj], (o) => citiesOf(g, o).length);
   const tc = citiesOf(g, target).length;

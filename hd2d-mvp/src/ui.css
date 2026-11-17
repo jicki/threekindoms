@@ -149,6 +149,9 @@ body.season-turning { transition: --panel 2.5s, --lacquer 2.5s, --lacquer2 2.5s,
 /* Five options on one row from 1280 wide (a second row pushes the ruler cards under 返回/开始 at 1280×800). */
 .setup-opts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .setup-opts .opt { padding: 7px 11px; font-size: 14px; letter-spacing: 1px; }
+.setup-map { display: flex; align-items: center; justify-content: center; gap: 12px; color: var(--dim); }
+.setup-map .btn { padding: 4px 12px; letter-spacing: 1px; }
+.tt-menu .map-choice { letter-spacing: 1px; font-size: 16px; }
 .cheat.on i { background: #ffd890; box-shadow: inset 0 0 0 2px #3a2208; }
 .level.on, .ruler.on { border-color: #ffd890; box-shadow: inset 0 0 0 3px var(--lacquer), inset 0 0 0 4px #ffd890, 0 0 26px #ffb34a66; }
 .rulers { display: grid; grid-template-columns: repeat(7, minmax(0, 150px)); justify-content: center; width: min(100%, 1122px); gap: 12px; }
@@ -177,6 +180,10 @@ body.season-turning { transition: --panel 2.5s, --lacquer 2.5s, --lacquer2 2.5s,
 .citypanel { top: var(--hud-top, 70px); left: 12px; width: 340px; max-height: calc(100% - 160px); display: flex; flex-direction: column; overflow-y: auto; }
 .citypanel header { padding: 12px 14px 8px; display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid color-mix(in srgb, var(--rule) 50.2%, transparent); }
 .citypanel header h2 { font: 30px var(--brush); letter-spacing: 3px; }
+.map-focus .rightcol, .map-focus:not(.city-open) .citypanel > :not(header) { display: none; }
+.map-focus .citypanel { width: auto; min-width: 160px; }
+.pass-note { padding: 4px 14px; }
+.citypanel header .mapfocusbtn { margin-left: auto; padding: 2px 6px; font-size: 12px; letter-spacing: 0; }
 .citypanel header .owner { font-size: 15px; padding: 1px 8px; border-radius: 2px; color: #fff; }
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px 10px; padding: 8px 14px; font-size: 15px; }
 .stats div { display: flex; justify-content: space-between; } .stats span { color: var(--dim); }
@@ -259,6 +266,12 @@ body:has(.vig-dim) .cmd-preview { display: none; } /* a show is up (from the boo
 body.handoff .dock, body.handoff .endturn { pointer-events: none; opacity: .45; filter: saturate(.4); transition: opacity .3s, filter .3s; }
 .ctag { position: relative; pointer-events: auto; cursor: pointer; transform: translateY(var(--dy, 0px)) scale(var(--s, 1)); opacity: var(--o, 1); transition: box-shadow .15s, background .15s, opacity .3s; font: 600 13px/1.2 var(--serif); text-align: center; text-shadow: 0 1px 2px #000; padding: 1px 5px 1px; border-radius: 3px; background: var(--tag-bg); box-shadow: inset 0 -2px 0 var(--c), 0 2px 6px #0006; }
 .ctag.far small { display: none; }
+.ctag.pass { border: 1px solid #d0ae70; border-radius: 5px 5px 2px 2px; }
+.map-overview-filter { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.map-overview-filter select { min-height: 36px; max-width: 100%; }
+.map-overview-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 8px; max-height: 50vh; overflow-y: auto; }
+.map-overview-list .btn { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; letter-spacing: 0; }
+.map-overview-list .btn small { color: var(--dim); }
 /* A tag stepped up out of a neighbour's way hangs on a thin leader down to its city (strategy.js update, T14). */
 .ctag::after { content: ''; position: absolute; left: 50%; top: 100%; width: 1px; height: var(--lead, 0px); background: linear-gradient(var(--c), #0000); opacity: .85; pointer-events: none; }
 /* The city under the pointer, from its model or its tag: the one a click takes. */

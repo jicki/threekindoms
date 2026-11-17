@@ -5,7 +5,7 @@
 // painted horizon ring (GPT-image panoramas, tools/gen_backdrops_codex.sh) shows the same season.
 import * as THREE from 'three';
 import { canvasTex } from './pixel.js';
-import { CITY_SITES } from './china.js';
+import { siteOfCity } from './china.js';
 import { lookOf, paintSky, MONTHS, U } from './seasons.js';
 import { createWeather } from './weather.js';
 
@@ -50,7 +50,7 @@ export function seasonEnv(scene, { sun, back, hemi, sunK = 1, hemiK = 1, snowH =
       sun.color.copy(look.sun); sun.intensity = look.si * sunK;
       back.color.copy(look.back); hemi.color.copy(look.hemi); hemi.groundColor.copy(look.hg); hemiBase = hemi.intensity = look.hi * hemiK;
       scene.fog?.color.copy(look.fog); paintSky(sky, look.sky);
-      const lat = CITY_SITES[city]?.lat ?? 33, key = plateKey(month, lat), snowing = lat > MONTHS[month].snow - 0.6;
+      const lat = siteOfCity(city)?.lat ?? 33, key = plateKey(month, lat), snowing = lat > MONTHS[month].snow - 0.6;
       // Weather follows the place: snow falls only north of the snow line, blossom only south of the 黄河.
       const sky_ = { rain: look.rain, snowfall: snowing ? Math.max(look.snowfall, 0.25) : 0, petals: lat < 38.5 ? look.petals : 0, fall: look.fall, thunder: look.thunder };
       weather.set({ ...look, ...sky_ });

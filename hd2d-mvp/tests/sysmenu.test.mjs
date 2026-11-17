@@ -41,7 +41,7 @@ async function everySize(rows) {
     await page.setViewportSize({ width, height }); await page.waitForTimeout(150);
     assert.equal(await page.locator(ROWS).count(), rows, `${width}x${height}`);
     assert.deepEqual(await lostRows(), [], `${width}x${height}`);
-    for (const last of ['说明', '欣赏模式', '回到标题']) { // a real click would leave the screen, so this one only checks it could land
+    for (const last of ['说明', '欣赏模式', '城池与关隘总览', '回到标题']) { // a real click would open another screen, so this one only checks it could land
       const el = page.locator('.sysmenu-list button', { hasText: last });
       if (await el.count()) await el.click({ trial: true, timeout: 2000 });
     }
@@ -73,10 +73,10 @@ test('on the title every row is in the window', async () => {
   await everySize(await (async () => { await openMenu(); return page.locator(ROWS).count(); })());
 });
 
-test('on the strategy map all 26 rows can be clicked at every window size', async () => {
+test('on the strategy map all 27 rows can be clicked at every window size', async () => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await newCampaign(page, '曹操');
-  await everySize(26);
+  await everySize(27);
   await tabThroughSmallWindow();
   await page.setViewportSize({ width: 1600, height: 900 });
 });

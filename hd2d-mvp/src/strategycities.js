@@ -49,11 +49,11 @@ export function createStrategyCities({ scene, data, sand, world, sites, onCity, 
       const half = st ? world.size[{ capital: 'city-capital', major: 'city-major', county: 'city-county', pass: 'pass' }[st.tier]] / 2 * st.ms : 0;
       if (st) for (const { geo, mat } of world.cityModel(st.tier)) { const m = new THREE.Mesh(geo, mat); m.scale.setScalar(st.ms); m.position.y = -0.03; g.add(m); }
       else if (CAPITAL.has(c.id)) { const f = buildFortress(g, { x: 0, h: 0, z: 0 }, null, { roofMat: roof, lights: false }); f.group.scale.setScalar(0.95); flags.push(...f.flags); }
-      else if (PASS.has(c.id)) buildPass(g, roof);
+      else if (PASS.has(c.id) || c.kind === 'pass') buildPass(g, roof);
       else buildTown(g, roof, c.id * 7 + 3);
       g.traverse((o) => { if (o.isMesh) { o.castShadow = o.receiveShadow = !st; o.material = SWAP.get(o.material) ?? o.material; } });
       // A pale paved terrace under the walls: the town reads as one bright block from any height.
-      const pad = PASS.has(c.id) ? [1.32, 0.42] : CAPITAL.has(c.id) ? [1.08, 1.08] : [0.9, 0.9];
+      const pad = PASS.has(c.id) || c.kind === 'pass' ? [1.32, 0.42] : CAPITAL.has(c.id) ? [1.08, 1.08] : [0.9, 0.9];
       if (!st) { const terrace = new THREE.Mesh(new THREE.BoxGeometry(pad[0], 0.07, pad[1]), terraceMat); terrace.position.y = -0.02; terrace.receiveShadow = true; g.add(terrace); }
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.62, 5), poleMat);
       const [fx, fz, ph] = st ? [half * 0.92, -half * 0.4, st.tier === 'capital' ? 0.56 : 0.44] : [0.56, 0.12, 0.62];

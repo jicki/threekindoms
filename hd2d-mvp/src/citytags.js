@@ -16,7 +16,7 @@ export function layoutTags(entries, { dt }) {
     if (!m.w) continue;
     const w = m.w * s, h = m.h * s;
     let dy = 0;
-    for (let k = 0; k < 6; k++) {
+    for (let k = 0; k < Math.min(12, entries.length); k++) {
       const hit = placed.find((r) => Math.abs(r.x - x) < (r.w + w) / 2 + 2 && Math.abs(r.y - (y0 + dy)) < (r.h + h) / 2 + 1);
       if (!hit) break;
       dy = hit.y - (hit.h + h) / 2 - 2 - y0;

@@ -53,7 +53,8 @@ export function setAlliance(g, a, b, v) {
 export function checkRecord(g) {
   if (!g || typeof g !== 'object') return '不是记录';
   if (!Array.isArray(g.officers) || !Array.isArray(g.cities) || !Array.isArray(g.factions)) return '缺少武将、城市或势力';
-  if (g.cities.length !== 30) return `城市数为 ${g.cities.length}，应为 30`;
+  const expected = data()?.cities?.length ?? 30;
+  if (g.cities.length !== expected) return `地图据点数为 ${g.cities.length}，应为 ${expected}`;
   if (g.cities.some((c) => !Array.isArray(c.officers))) return '城市名册损坏';
   return null;
 }

@@ -216,6 +216,11 @@ body.phone .level .lv-name { font-size: 17px; letter-spacing: 2px; line-height: 
 body.phone .level small { font-size: 10.5px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.phone .level .cheat { grid-column: 1 / -1; margin-top: 2px; padding: 1px 4px; font-size: 10.5px; min-height: 24px; }
 body.phone .setup-opts { flex-wrap: nowrap; justify-content: flex-start; width: 100%; overflow-x: auto; gap: 5px; flex: none; }
+body.phone .setup-map { gap: 6px; font-size: 12px; }
+body.phone .setup-map .btn { min-height: 28px; padding: 2px 8px; font-size: 12px; }
+body.phone .tt-menu .map-choice { padding: 3px 8px; font-size: 13px; letter-spacing: 0; }
+body.phone.map-focus:not(.city-open) .citypanel { width: auto; max-height: 36px; }
+body.phone .citypanel header .mapfocusbtn { min-height: 28px; }
 body.phone .setup .opt, body.phone .setup-opts .opt { flex: none; padding: 2px 7px; font-size: 11px; min-height: 28px; white-space: nowrap; }
 body.phone .ruler { height: clamp(140px, calc(var(--vh) - 168px), 270px); flex-basis: 116px; }
 

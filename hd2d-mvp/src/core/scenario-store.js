@@ -2,6 +2,7 @@ import { ORIGINAL_SCENARIO, newDraft, validateScenario } from './scenario.js';
 import { FEMALE_PRESETS, EXTRA_PRESETS, ROSTER_PRESETS, WARLORD_PRESETS, SOVEREIGN_PRESETS, FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, ROSTER_SCENARIO_ID, ROSTER_SCENARIO_NAME, WARLORD_SCENARIO_ID, WARLORD_SCENARIO_NAME, SOVEREIGN_SCENARIO_ID, SOVEREIGN_SCENARIO_NAME, femaleOfficer, presetVisual } from './visuals.js';
 import { ensureFemaleGear } from './equipment.js';
 import { famousAssignments } from './troop-specialties.js';
+import { EXPANDED_MAP_ID } from './expanded-map.js';
 
 const SESSION = 'haou-hd2d-scenario';
 const api = () => new URL('/api/versions', location.href).href;
@@ -56,7 +57,7 @@ export function hasLegacyRecords(id = FEMALE_SCENARIO_ID) {
   } catch { return true; } // 无法检查时仍保留入口，避免隐藏用户的旧记录。
 }
 export function selectScenario(id) {
-  if (id !== ORIGINAL_SCENARIO && id !== FEMALE_SCENARIO_ID && id !== HERO_SCENARIO_ID && id !== ROSTER_SCENARIO_ID && id !== WARLORD_SCENARIO_ID && id !== SOVEREIGN_SCENARIO_ID && !/^v-[a-f0-9]{32}$/.test(id)) throw new Error('版本编号无效');
+  if (id !== ORIGINAL_SCENARIO && id !== FEMALE_SCENARIO_ID && id !== HERO_SCENARIO_ID && id !== ROSTER_SCENARIO_ID && id !== WARLORD_SCENARIO_ID && id !== SOVEREIGN_SCENARIO_ID && id !== EXPANDED_MAP_ID && !/^v-[a-f0-9]{32}$/.test(id)) throw new Error('版本编号无效');
   try { if (id === ORIGINAL_SCENARIO) sessionStorage.removeItem(SESSION); else sessionStorage.setItem(SESSION, id); }
   catch { throw new Error('无法保存当前页面的版本选择'); }
 }
