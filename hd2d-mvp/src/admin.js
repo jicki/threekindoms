@@ -398,13 +398,15 @@ if (base) {
     const maxUses = el('input', { name: 'maxUses', type: 'number', min: 1, max: 3, step: 1, value: s.maxUses ?? '', placeholder: '不限' });
     form.append(el('div', { class: 'form-grid' }, field('名称', string('name', s.name)),
       ...fields.map(([key, label, lo, hi]) => field(label, input(key, s[key], lo, hi))), field('每场使用次数', maxUses),
-      field('技能演出', select('visualEffect', [['', '默认'], ...Object.entries(SKILL_VISUALS).map(([key, visual]) => [key, visual.name])], s.visualEffect ?? ''))),
-      el('p', { class: 'intro' }, '目标为 5 格内敌将；效果可以组合，命中率沿用现有战场规则。可限制每场使用 1–3 次，尝试失败也消耗次数；技能可在武将页面分配。'), formButtons());
+      field('技能演出', select('visualEffect', [['', '默认'], ...Object.entries(SKILL_VISUALS).map(([key, visual]) => [key, visual.name])], s.visualEffect ?? '')),
+      field('新版条件效果', select('effectProfile', [['', '无'], ['fortress', '施术者在城中：额外损兵25'], ['frontier', '目标距己方总大将两格内：额外限制移动1日'], ['interdict', '目标兵力至少400：额外损米30']], s.effectProfile ?? ''))),
+      el('p', { class: 'intro' }, '目标为 5 格内敌将；效果可以组合，命中率沿用现有战场规则。条件效果仅在启用新版玩法时生效。可限制每场使用 1–3 次，尝试失败也消耗次数；技能可在武将页面分配。'), formButtons());
     markForm(form);
     form.addEventListener('submit', (event) => {
       event.preventDefault(); const fd = new FormData(form), value = { id: s.id, name: String(fd.get('name')).trim(),
         ...Object.fromEntries(fields.map(([key]) => [key, number(fd, key)])), ...(fd.get('maxUses') !== '' ? { maxUses: number(fd, 'maxUses') } : {}),
-        ...(fd.get('visualEffect') ? { visualEffect: String(fd.get('visualEffect')) } : {}) };
+        ...(fd.get('visualEffect') ? { visualEffect: String(fd.get('visualEffect')) } : {}),
+        ...(fd.get('effectProfile') ? { effectProfile: String(fd.get('effectProfile')) } : {}) };
       update((d) => { d.skills[d.skills.findIndex((item) => item.id === s.id)] = value; }, '技能修改已应用到草稿');
     });
     return workspace(side, panel('detail', el('h2', {}, s.name), form));
@@ -412,6 +414,8 @@ if (base) {
 
   function renderRelations() {
     const data = currentData(), choices = data.officers.map((o) => [o.id, `${o.name} · ${o.id}`]), form = el('form');
+    const relations = [...draft.relations.map((r, i) => ({ r, i, group: 'relations' })),
+      ...(draft.campaignRelations ?? []).map((r, i) => ({ r, i, group: 'campaignRelations' }))];
     const effects = el('input', { type: 'checkbox', checked: !!draft.relationshipEffects });
     effects.addEventListener('change', () => {
       if (!abandonForm()) { effects.checked = !!draft.relationshipEffects; return; }
@@ -426,24 +430,24 @@ if (base) {
     markForm(form);
     form.addEventListener('submit', (event) => {
       event.preventDefault(); const fd = new FormData(form), relation = { from: number(fd, 'from'), to: number(fd, 'to'), kind: fd.get('kind') === '__custom__' ? String(fd.get('customKind')).trim() : fd.get('kind') };
-      if (draft.relations.some((r) => r.kind === relation.kind && ((r.from === relation.from && r.to === relation.to) || (r.from === relation.to && r.to === relation.from)))) {
+      if (relations.some(({ r }) => r.kind === relation.kind && ((r.from === relation.from && r.to === relation.to) || (r.from === relation.to && r.to === relation.from)))) {
         report('这两人已有相同关系', true); return;
       }
       update((d) => d.relations.push(relation), '人物关系已添加到草稿');
     });
     const search = el('input', { type: 'search', placeholder: '搜索人物姓名或编号', 'aria-label': '搜索人物关系' });
-    const kinds = [...new Set([...RELATION_KINDS, ...draft.relations.map((r) => r.kind)])];
+    const kinds = [...new Set([...RELATION_KINDS, ...relations.map(({ r }) => r.kind)])];
     const kind = select('relationFilter', [['', '全部关系类型'], ...kinds.map((k) => [k, k])], '');
     const count = el('p', { class: 'intro', 'aria-live': 'polite' }), rows = el('div', { class: 'relations' });
     const fill = () => {
       const query = search.value.trim(), wanted = kind.value;
-      const found = draft.relations.map((r, i) => ({ r, i })).filter(({ r }) => (!wanted || r.kind === wanted)
+      const found = relations.filter(({ r }) => (!wanted || r.kind === wanted)
         && (!query || [data.officers[r.from].name, data.officers[r.to].name, String(r.from), String(r.to)].some((s) => s.includes(query))));
-      count.textContent = `当前关系 ${draft.relations.length} 条${found.length === draft.relations.length ? '' : `，符合筛选 ${found.length} 条`}`;
-      rows.replaceChildren(...(found.length ? found.map(({ r, i }) => el('div', { class: 'relation' },
-        el('span', {}, `${data.officers[r.from].name} · ${r.kind} · ${data.officers[r.to].name}`),
-        el('button', { type: 'button', onclick: () => { if (abandonForm()) update((d) => d.relations.splice(i, 1), '人物关系已移除'); } }, '移除')))
-        : [el('p', { class: 'empty' }, draft.relations.length ? '没有符合条件的关系。' : '原版没有内置人物关系；可在此添加。')]));
+      count.textContent = `当前关系 ${relations.length} 条${found.length === relations.length ? '' : `，符合筛选 ${found.length} 条`}`;
+      rows.replaceChildren(...(found.length ? found.map(({ r, i, group }) => el('div', { class: 'relation' },
+        el('span', {}, `${data.officers[r.from].name} · ${r.kind} · ${data.officers[r.to].name}${group === 'campaignRelations' ? '（新版玩法）' : ''}`),
+        el('button', { type: 'button', onclick: () => { if (abandonForm()) update((d) => d[group].splice(i, 1), '人物关系已移除'); } }, '移除')))
+        : [el('p', { class: 'empty' }, relations.length ? '没有符合条件的关系。' : '原版没有内置人物关系；可在此添加。')]));
     };
     search.addEventListener('input', fill); kind.addEventListener('change', fill); fill();
     return panel('detail', el('h2', {}, '人物关系'), field('启用人物关系效果', effects),
@@ -453,6 +457,16 @@ if (base) {
 
   function renderRulers() {
     const data = currentData(), items = draft.rulers ?? [], form = el('form');
+    const map = select('map', [['standard', '标准地图（30城）'], ['expanded', '扩展地图（33城和4处关隘）']], draft.map ?? 'standard');
+    map.addEventListener('change', () => {
+      if (!abandonForm()) { map.value = draft.map ?? 'standard'; return; }
+      update((d) => { if (map.value === 'expanded') d.map = 'expanded'; else delete d.map; }, '地图设置已应用到草稿');
+    });
+    const campaignRules = el('input', { type: 'checkbox', checked: !!draft.campaignRules });
+    campaignRules.addEventListener('change', () => {
+      if (!abandonForm()) { campaignRules.checked = !!draft.campaignRules; return; }
+      update((d) => { if (campaignRules.checked) d.campaignRules = true; else delete d.campaignRules; }, '新版玩法设置已应用到草稿');
+    });
     const passive = el('input', { type: 'checkbox', checked: !!draft.rulerPassives });
     passive.addEventListener('change', () => {
       if (!abandonForm()) { passive.checked = !!draft.rulerPassives; return; }
@@ -523,7 +537,9 @@ if (base) {
     const rows = items.map((r, i) => el('div', { class: 'relation' },
       el('span', {}, `${data.officers[r.officer].name} · ${data.officers[data.factions[r.faction].ruler].name}势力 · ${data.cities[data.officers[r.officer].city].name}`),
       el('button', { type: 'button', onclick: () => { if (abandonForm()) update((d) => d.rulers.splice(i, 1), '君主候选已移除'); } }, '移除')));
-    return panel('detail', el('h2', {}, '君主候选'), field('启用君主被动技能', passive), el('p', { class: 'intro' }, '启用后君主每月按当前属性为所在城提供固定增益；继位者按自身属性获得被动，玩家和电脑规则相同。'),
+    return panel('detail', el('h2', {}, '君主候选'), field('地图', map), el('p', { class: 'intro' }, '扩展地图增加三城与四处关隘；人物登场和装备商店仍按原有三十城配置。发布后各版本存档独立。'),
+      field('启用新版玩法', campaignRules), el('p', { class: 'intro' }, '新开局启用改进的电脑决策、同盟和战斗规则；设置随记录保存。'),
+      field('启用君主被动技能', passive), el('p', { class: 'intro' }, '启用后君主每月按当前属性为所在城提供固定增益；继位者按自身属性获得被动，玩家和电脑规则相同。'),
       field('增强君主被动', enhancedPassive), el('p', { class: 'intro' }, '新开局增加每月资源，并为全军提供战斗武力、计策和战场机动力增益；部分君主延长己方增益战术。不修改武将基础属性，旧记录可在游戏中选择启用。'),
       field('修正电脑补兵', fixedRecruitment), el('p', { class: 'intro' }, '启用后电脑按实际金币和后备兵补兵，金币不足时只能补充可负担的人数。'),
       field('优化电脑补兵优先级', smartReinforcement), el('p', { class: 'intro' }, '新开局在启用修正电脑补兵时，兼顾可补人数、前线和君主所在城；已启用的存档使用更新后的排序，未启用的旧存档保留原有排序。'),
@@ -564,7 +580,7 @@ if (base) {
     await withBusy(async () => {
       try {
         const id = $('published').value;
-        draft = id ? { ...clone(await loadScenario(id, base)), id: null } : newDraft(base);
+        draft = id ? { ...clone(await loadScenario(id, base)), id: null, ...(id === SOVEREIGN_SCENARIO_ID ? { map: 'expanded' } : {}) } : newDraft(base);
         $('version-name').value = draft.name; formDirty = draftDirty = false; lastPublished = null;
         selected = { officers: 0, weapons: null, armors: null, skills: null }; render(); report('已载入新草稿');
       } catch (error) { report(error.message, true); }

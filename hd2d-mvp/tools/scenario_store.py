@@ -19,7 +19,7 @@ MAX_PORTRAIT_BYTES = 64 * 1024
 MAX_PORTRAIT_SIDE = 384
 MAX_ASSET_BYTES = 1024 * 1024
 ASSET_ID = re.compile(r'^a-[a-f0-9]{64}$')
-BUILTIN_VISUAL = re.compile(r'^b-(sun|zhen|diao|cai|wang|chen|gao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong|v2-(?:sun|zhen|diao|cai|wang|chen|gao|dao|xin|gongsun|yuanshu|liubiao|guanjing|tiankai|yanxiang|zhangxun|caimao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong))-(portrait|calm|joy|angry|grief|motion)$')
+BUILTIN_VISUAL = re.compile(r'^b-(sun|zhen|diao|cai|wang|chen|gao|gongsun|yuanshu|liubiao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong|v2-(?:sun|zhen|diao|cai|wang|chen|gao|dao|xin|gongsun|yuanshu|liubiao|guanjing|tiankai|yanxiang|zhangxun|caimao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong))-(portrait|calm|joy|angry|grief|motion)$')
 MOODS = ('calm', 'joy', 'angry', 'grief')
 
 
@@ -110,7 +110,8 @@ def visual_ref(value, kind, count):
         fail('人物素材引用无效')
     builtin = BUILTIN_VISUAL.fullmatch(value)
     officer = re.fullmatch(r'o-(0|[1-9][0-9]{0,5})', value) if kind == 'motion' else None
-    if ASSET_ID.fullmatch(value) or (builtin and builtin.group(2) == kind and not (kind == 'motion' and builtin.group(1).startswith('v2-'))) or (officer and int(officer.group(1)) < count):
+    if ASSET_ID.fullmatch(value) or (builtin and builtin.group(2) == kind and not (kind == 'motion' and builtin.group(1).startswith('v2-'))
+                                    and (builtin.group(1) not in ('gongsun', 'yuanshu', 'liubiao') or kind == 'motion')) or (officer and int(officer.group(1)) < count):
         return
     fail('人物素材引用无效')
 
@@ -184,7 +185,7 @@ def image_info(data):
 
 
 def validate(s, base):
-    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops'])
+    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops', 'campaignRules', 'campaignRelations', 'map'])
     if type(s.get('format')) is not int or s['format'] != 1:
         fail('不支持的版本文件格式')
     if not isinstance(s.get('id'), str) or not ID.fullmatch(s['id']):
@@ -214,6 +215,10 @@ def validate(s, base):
         fail('电脑补兵优先级设置无效')
     if 'cityRaids' in s and type(s['cityRaids']) is not bool:
         fail('守城事件设置无效')
+    if 'campaignRules' in s and type(s['campaignRules']) is not bool:
+        fail('新版玩法设置无效')
+    if 'map' in s and s['map'] not in ('standard', 'expanded'):
+        fail('地图设置无效')
     if s.get('base') != base_signature(base):
         fail('版本所需的基础数据与当前游戏不一致')
     officers, weapons, skills, relations = (s.get(k) for k in ('officers', 'weapons', 'skills', 'relations'))
@@ -223,6 +228,8 @@ def validate(s, base):
     array(armors, '新防具', 64)
     array(skills, '新技能', 64)
     array(relations, '人物关系', 1000)
+    campaign_relations = s.get('campaignRelations', [])
+    array(campaign_relations, '新版人物关系', 1000)
     rulers = s.get('rulers', [])
     array(rulers, '君主候选', len(base['officers']) + 100)
     nbase = len(base['officers'])
@@ -321,7 +328,7 @@ def validate(s, base):
             integer(a.get(key), label, 0, maximum)
         check_icon(a.get('icon'), 'armor'); check_shops(a); check_requirements(a)
     for i, skill in enumerate(skills):
-        obj(skill, '技能', ['id', 'name', 'cost', 'soldiers', 'hp', 'stop', 'rice', 'maxUses', 'visualEffect'])
+        obj(skill, '技能', ['id', 'name', 'cost', 'soldiers', 'hp', 'stop', 'rice', 'maxUses', 'visualEffect', 'effectProfile'])
         if type(skill.get('id')) is not int or skill['id'] != 16 + i:
             fail('新技能编号不连续')
         text(skill.get('name'), '技能名称')
@@ -331,6 +338,8 @@ def validate(s, base):
             integer(skill['maxUses'], '每场使用次数', 1, 3)
         if 'visualEffect' in skill and (not isinstance(skill['visualEffect'], str) or skill['visualEffect'] not in ('tianyu', 'huangzu', 'xunyou', 'qianzhao', 'huangshi')):
             fail('技能演出无效')
+        if 'effectProfile' in skill and skill['effectProfile'] not in ('fortress', 'frontier', 'interdict'):
+            fail('技能条件效果无效')
         if not any(skill[key] for key in ('soldiers', 'hp', 'stop', 'rice')):
             fail('技能至少需要一种效果')
     seen, rosters = set(), [list(c['officers']) for c in base['cities']]
@@ -421,13 +430,16 @@ def validate(s, base):
     if any(len(roster) > 10 for roster in rosters):
         fail('开局城市的武将不能超过 10 人')
     pairs = set()
-    for r in relations:
+    for r in relations + campaign_relations:
         obj(r, '人物关系', ['from', 'to', 'kind'])
         integer(r.get('from'), '关系起点', 0, max_officer); integer(r.get('to'), '关系终点', 0, max_officer)
         if r['from'] == r['to']:
             fail('人物关系无效')
         text(r.get('kind'), '关系名称', 16)
-        key = (r['from'], r['to'], r['kind'])
+        if s.get('campaignRules'):
+            key = (min(r['from'], r['to']), max(r['from'], r['to']), r['kind'])
+        else:
+            key = (r['from'], r['to'], r['kind'])
         if key in pairs:
             fail('人物关系重复')
         pairs.add(key)

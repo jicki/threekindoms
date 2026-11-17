@@ -18,6 +18,8 @@ after(() => game?.close());
 
 function fixtures({ onlyPsTitle = false, legacy = false, corruptPsTitle = false, requests = [] } = {}) {
   return async (ctx) => {
+    // 模拟静态托管：曲目由下面的 HEAD 拦截动态提供，不使用服务器磁盘的素材清单。
+    await ctx.route('**/api/asset-availability', (route) => route.fulfill({ status: 404 }));
     await ctx.route(/\/assets\/audio\/(ps|original|remix)\//, async (route) => {
       const req = route.request(), path = new URL(req.url()).pathname.split('/assets/audio/')[1];
       const [set, file] = path.split('/'), match = /^bgm-(.+)\.(m4a|mp3)$/.exec(file);

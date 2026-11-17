@@ -272,6 +272,7 @@ body.handoff .dock, body.handoff .endturn { pointer-events: none; opacity: .45; 
 .map-overview-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 8px; max-height: 50vh; overflow-y: auto; }
 .map-overview-list .btn { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; letter-spacing: 0; }
 .map-overview-list .btn small { color: var(--dim); }
+.map-overview-list .btn small.overview-warning { color: #f3b977; }
 /* A tag stepped up out of a neighbour's way hangs on a thin leader down to its city (strategy.js update, T14). */
 .ctag::after { content: ''; position: absolute; left: 50%; top: 100%; width: 1px; height: var(--lead, 0px); background: linear-gradient(var(--c), #0000); opacity: .85; pointer-events: none; }
 /* The city under the pointer, from its model or its tag: the one a click takes. */
@@ -365,6 +366,7 @@ body.picking #ui > :is(.endturn, .dock, .sysbtns, .citypanel) { opacity: .45; fi
 .slots.scenario-choices .slot { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 .slots.scenario-choices .slot b { min-width: 0; overflow-wrap: anywhere; letter-spacing: 1px; line-height: 1.35; }
 .slots.scenario-choices .slot span { white-space: nowrap; }
+.slots.campaign-choices .btn { text-align: left; white-space: normal; overflow-wrap: anywhere; }
 body.phone .slots.scenario-choices .slot { min-height: var(--hit); }
 .modal label { color: var(--dim); min-width: 56px; }
 .modal input[type=range] { width: 240px; accent-color: #d8a050; }

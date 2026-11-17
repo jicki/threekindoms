@@ -150,13 +150,13 @@ test('标题默认只显示原版和君主列传，后者包含原扩展人物',
     assert.equal(await dialog.getByRole('button', { name: /群英新篇·十方诸侯/ }).count(), 0);
     assert.equal(await dialog.getByRole('button', { name: /巾帼群英/ }).count(), 0);
     await merged.click();
-    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns', null, { timeout: 30000 });
+    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns-expanded-map', null, { timeout: 30000 });
     assert.equal(await page.evaluate(() => window.__game.G.data().officers[242].name), '陈宫');
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });
 
-test('版本选择适配长名称，旧版记录和已发布版本仍可访问', { timeout: 90000 }, async () => {
+test('版本选择适配长名称，旧版入口隐藏且已发布版本仍可访问', { timeout: 90000 }, async () => {
   const longName = '群英'.repeat(20), id = `v-${'a'.repeat(32)}`;
   for (const [query, width, height] of [['', 900, 650], ['&phone', 568, 320]]) {
     const page = await game.open(query, { setup: async (context) => {
@@ -175,8 +175,8 @@ test('版本选择适配长名称，旧版记录和已发布版本仍可访问',
       await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
       const dialog = page.getByRole('dialog', { name: '选择游戏版本' }); await dialog.waitFor();
       const choices = dialog.locator('.scenario-choices .slot');
-      assert.equal(await choices.count(), 7);
-      assert.equal(await choices.filter({ hasText: '旧存档兼容' }).count(), 4);
+      assert.equal(await choices.count(), 3);
+      assert.equal(await choices.filter({ hasText: '旧存档兼容' }).count(), 0);
       assert.equal(await choices.filter({ hasText: '原版' }).getAttribute('aria-current'), 'true');
       const custom = choices.filter({ hasText: longName }); await custom.scrollIntoViewIfNeeded();
       const geometry = await custom.evaluate((button) => {
@@ -191,13 +191,13 @@ test('版本选择适配长名称，旧版记录和已发布版本仍可访问',
   }
 });
 
-test('新阵容有旧记录时可在标题选择，君主列传也可由编辑器发布', async () => {
+test('新阵容人物包含在君主列传，编辑器可发布', async () => {
   const page = await game.open('', { setup: (context) => context.addInitScript(() => localStorage.setItem('haou-hd2d-save:scenario:builtin-heroes-roster:1', '{}')) });
   try {
     await skipIntro(page); await page.locator('.sysmenu-btn').click();
     await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
-    await page.getByRole('dialog', { name: '选择游戏版本' }).getByRole('button', { name: /群英新篇·新阵容/ }).click();
-    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-heroes-roster', null, { timeout: 30000 });
+    await page.getByRole('dialog', { name: '选择游戏版本' }).getByRole('button', { name: /群英新篇·君主列传/ }).click();
+    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns-expanded-map', null, { timeout: 30000 });
     assert.deepEqual(await page.evaluate(() => {
       const d = window.__game.G.data(); return [d.officers[244].name, d.officers[244].duelSkill, d.officers[245].name, d.officers[245].skills];
     }), ['陈到', 'baier', '辛宪英', [23]]);
@@ -230,71 +230,37 @@ test('新阵容有旧记录时可在标题选择，君主列传也可由编辑�
   } finally { await admin.context().close(); }
 });
 
-test('手机横屏可选择有旧记录的新阵容', async () => {
+test('手机横屏可选择包含新阵容的君主列传', async () => {
   const page = await game.open('&phone', { setup: (context) => context.addInitScript(() => localStorage.setItem('haou-hd2d-save:scenario:builtin-heroes-roster:quick', '{}')) });
   try {
     await page.setViewportSize({ width: 812, height: 375 });
     await skipIntro(page); await page.locator('.sysmenu-btn').click();
     await page.getByRole('tab', { name: '其他' }).click();
     await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
-    const choice = page.getByRole('dialog', { name: '选择游戏版本' }).getByRole('button', { name: /群英新篇·新阵容/ });
+    const choice = page.getByRole('dialog', { name: '选择游戏版本' }).getByRole('button', { name: /群英新篇·君主列传/ });
     await choice.click();
-    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-heroes-roster', null, { timeout: 30000 });
+    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns-expanded-map', null, { timeout: 30000 });
     assert.equal(await page.evaluate(() => window.__game.G.data().officers[244].name), '陈到');
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });
 
-test('旧版动态武将和各类记录可通过兼容入口继续，合并版存档独立', async () => {
-  const page = await game.open('&flat', { setup: (context) => context.addInitScript(() => {
-    if (!sessionStorage.getItem('haou-hd2d-scenario')) sessionStorage.setItem('haou-hd2d-scenario', 'builtin-female');
-  }) });
+test('旧版本会话转入君主列传，旧记录不再提供入口且保持原样', async () => {
+  const keys = ['haou-hd2d-save:scenario:builtin-female:1', 'haou-hd2d-save:scenario:builtin-female:quick',
+    'haou-hd2d-save:scenario:builtin-female:auto', 'haou-hd2d-suspend:scenario:builtin-female'];
+  const page = await game.open('&flat', { setup: (context) => context.addInitScript((names) => {
+    sessionStorage.setItem('haou-hd2d-scenario', 'builtin-female');
+    names.forEach((key, i) => localStorage.setItem(key, JSON.stringify({ old: i })));
+  }, keys) });
   try {
-    const old = await page.evaluate(async () => {
-      const { G } = window.__game, g = G.newGame(4, 1, 9), { suspend } = await import('./src/core/suspend.js');
-      const { Field } = await import('./src/core/field.js');
-      g.year = 200; g.officers.push({ ...g.officers[0], id: 240, debut: 200 }); g.clones = [240]; G.registerClones(g);
-      g.officers[222].soldiers = g.officers[22].soldiers = 500;
-      const war = { city: 8, from: 12, attacker: 4, defender: 0,
-        att: { ids: [222], gold: 100, rice: 500 }, def: { ids: [22], gold: 100, rice: 500 } };
-      const field = new Field(g, war, 'att');
-      const ok = [G.save(g, 1), G.saveQuick(g), G.saveAuto(g),
-        suspend(g, war, field, { side: 'att', start: { 222: 500, 22: 500 }, after: { kind: 'att' } })];
-      const keys = ['haou-hd2d-save:scenario:builtin-female:1', 'haou-hd2d-save:scenario:builtin-female:quick',
-        'haou-hd2d-save:scenario:builtin-female:auto', 'haou-hd2d-suspend:scenario:builtin-female'];
-      return { ok, records: keys.map((key) => [key, localStorage.getItem(key)]) };
-    });
-    assert.deepEqual(old.ok, [true, true, true, true]);
     await skipIntro(page);
-    await page.getByRole('button', { name: '进入君主列传' }).click();
-    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns', null, { timeout: 30000 });
-    const merged = await page.evaluate(() => {
-      const { G } = window.__game, g = G.newGame(4, 1, 10); g.year = 210;
-      return { name: G.data().officers[240].name, saved: G.save(g, 1), year: G.load(1).year };
-    });
-    assert.deepEqual(merged, { name: '蔡琰', saved: true, year: 210 });
+    assert.equal(await page.evaluate(() => window.__game.G.currentScenario()), 'builtin-sovereigns-expanded-map');
+    assert.equal(await page.getByText('继续记录').count(), 0);
+    assert.equal(await page.getByText('继续战斗').count(), 0);
     await page.locator('.sysmenu-btn').click(); await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
     const dialog = page.getByRole('dialog', { name: '选择游戏版本' });
-    await dialog.getByText(/旧存档仍按原有规则继续/).waitFor();
-    await dialog.getByRole('button', { name: /巾帼群英（旧存档兼容）/ }).click();
-    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-female', null, { timeout: 30000 });
-    const restored = await page.evaluate(async (records) => {
-      const { G } = window.__game, { peekSuspend } = await import('./src/core/suspend.js');
-      const normal = G.load(1), quick = G.loadQuick(), auto = G.loadAuto(), held = peekSuspend();
-      return { years: [normal?.year, quick?.year, auto?.year, held?.g.year], clone: G.data().officers[240]?.clone,
-        cloneId: normal?.clones?.[0], records: records.map(([key]) => [key, localStorage.getItem(key)]),
-        mergedYear: JSON.parse(localStorage.getItem('haou-hd2d-save:scenario:builtin-sovereigns:1')).year };
-    }, old.records);
-    assert.deepEqual(restored.years, [200, 200, 200, 200]); assert.equal(restored.clone, true); assert.equal(restored.cloneId, 240);
-    assert.deepEqual(restored.records, old.records); assert.equal(restored.mergedYear, 210);
-    await page.getByRole('button', { name: '继续战斗' }).waitFor();
-    assert.equal(await page.getByRole('button', { name: '新的征程' }).count(), 0);
-    await page.getByRole('button', { name: '继续战斗' }).click();
-    await page.waitForFunction(() => window.__game?.war?.field?.resumed && document.body.dataset.screen === 'war', null, { timeout: 30000 });
-    const resumed = await page.evaluate(() => ({ year: window.__game.g.year, clone: window.__game.G.data().officers[240].clone,
-      units: window.__game.war.field.units.map((u) => u.id), held: localStorage.getItem('haou-hd2d-suspend:scenario:builtin-female'),
-      mergedYear: JSON.parse(localStorage.getItem('haou-hd2d-save:scenario:builtin-sovereigns:1')).year }));
-    assert.deepEqual(resumed, { year: 200, clone: true, units: [22, 222], held: null, mergedYear: 210 });
+    assert.equal(await dialog.getByText('旧存档兼容', { exact: false }).count(), 0);
+    assert.deepEqual(await page.evaluate((names) => names.map((key) => localStorage.getItem(key)), keys), keys.map((_, i) => JSON.stringify({ old: i })));
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });

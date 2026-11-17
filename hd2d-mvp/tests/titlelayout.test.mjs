@@ -62,7 +62,7 @@ for (const count of [0, 1, 2]) for (const held of [false, true]) test(`${count} 
       await cdp.detach();
     }
     // A late font metric change must reserve space without requiring another window resize.
-    await page.evaluate(() => { document.querySelector('.tt-foot .free').style.fontSize = '24px'; });
+    await page.evaluate(() => { document.querySelector('.tt-foot p').style.fontSize = '24px'; });
     await page.waitForFunction(() => document.querySelector('.tt-menu').getBoundingClientRect().bottom + 12 <= document.querySelector('.tt-foot').getBoundingClientRect().top, null, { timeout: 3000 }).catch(() => issues.push('footer font growth overlaps the menu'));
     assert.deepEqual(issues, []);
     assert.deepEqual(page.errors, []);

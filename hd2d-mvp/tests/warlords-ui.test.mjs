@@ -33,13 +33,13 @@ async function begin(page, ruler) {
   finally { stop(); }
 }
 
-test('有旧记录时可选择十势力剧本，3D 地图正确区分新势力与无主地区', { timeout: 180000 }, async () => {
+test('合并版本的 3D 地图正确区分新势力与无主地区', { timeout: 180000 }, async () => {
   const page = await game.open('', { setup: (context) => context.addInitScript(() => localStorage.setItem('haou-hd2d-save:scenario:builtin-warlords:1', '{}')) });
   try {
     await skipIntro(page); await page.locator('.sysmenu-btn').click();
     await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
-    await page.getByRole('dialog', { name: '选择游戏版本' }).getByRole('button', { name: /群英新篇·十方诸侯/ }).click();
-    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-warlords', null, { timeout: 30000 });
+    await page.getByRole('dialog', { name: '选择游戏版本' }).getByRole('button', { name: /群英新篇·君主列传/ }).click();
+    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns-expanded-map', null, { timeout: 30000 });
     await begin(page, '公孙瓒');
     const result = await page.evaluate(() => {
       const { g, G, strategy: s, debug } = window.__game;
@@ -129,7 +129,13 @@ test('手机横屏可选择袁术并进入自己的势力', { timeout: 180000 },
 });
 
 test('新势力对战时能进入战场并加载双方将领', { timeout: 180000 }, async () => {
-  const page = await game.open('&flat&phone', { setup: (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-warlords')) });
+  const responses = [];
+  const page = await game.open('&flat&phone', { setup: async (context) => {
+    await context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-warlords'));
+    context.on('response', (response) => { if (/\/characters\/(yuanshu|liubiao)\/motion\.png$/.test(response.url())) responses.push([response.url(), response.status()]); });
+  } });
+  const motionErrors = [];
+  page.on('console', (message) => { if (message.text().includes('动作素材无法读取')) motionErrors.push(message.text()); });
   try {
     await page.setViewportSize({ width: 812, height: 375 }); await begin(page, '袁术');
     await page.evaluate(() => {
@@ -145,7 +151,9 @@ test('新势力对战时能进入战场并加载双方将领', { timeout: 180000
     });
     assert.equal(result.attacker, 8); assert.equal(result.defender, 9);
     assert.ok(result.attackers.includes('袁术')); assert.ok(result.defenders.includes('刘表'));
-    assert.ok(result.defenders.includes('文聘')); assert.deepEqual(page.errors, []);
+    assert.ok(result.defenders.includes('文聘'));
+    for (const key of ['yuanshu', 'liubiao']) assert.ok(responses.some(([url, status]) => url.includes(`/characters/${key}/motion.png`) && status === 200));
+    assert.deepEqual(motionErrors, []); assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });
 

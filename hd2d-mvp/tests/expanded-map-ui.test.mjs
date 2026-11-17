@@ -9,44 +9,42 @@ after(async () => { await game?.close(); });
 const setup = (ctx) => ctx.addInitScript(() => {
   if (!sessionStorage.getItem('haou-hd2d-scenario')) sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns');
 });
-async function openMapChoice(page, name) {
-  await page.locator('.map-choice').click();
-  await page.locator('.scenario-choices .slot').filter({ hasText: name }).click();
-}
 async function waitScenario(page, id, screen = 'title') {
   await page.waitForFunction(({ id, screen }) => window.__game?.G.currentScenario() === id && document.body.dataset.screen === screen,
     { id, screen }, { timeout: 60000 });
 }
 
-test('标题地图切换保留标准和扩展地图各自的记录', async () => {
+test('君主列传的新征程使用扩展地图，并保留当前版本已有记录', async () => {
   const page = await game.open('&flat&phone', { setup });
   try {
     await skipIntro(page);
-    await page.evaluate(() => { const g = window.__game.G.newGame(4, 1, 5); g.year = 195; window.__game.G.save(g, 1); });
-    await openMapChoice(page, '扩展地图');
-    await waitScenario(page, 'builtin-sovereigns-expanded-map'); await skipIntro(page);
+    const oldRecord = await page.evaluate(() => {
+      const g = window.__game.G.newGame(4, 1, 5); g.year = 195; window.__game.G.save(g, 1);
+      return localStorage.getItem('haou-hd2d-save:scenario:builtin-sovereigns:1');
+    });
+    assert.equal(await page.locator('.map-choice').count(), 0);
+    assert.equal(await page.getByText('本游戏免费发布').count(), 0);
+    assert.equal(await page.getByText('制作 tianlin', { exact: false }).count(), 0);
+    await page.getByText('新的征程').click();
+    await waitScenario(page, 'builtin-sovereigns-expanded-map', 'setup');
     assert.equal(await page.evaluate(() => window.__game.G.data().cities.length), 37);
-    assert.equal(await page.locator('button', { hasText: '继续记录' }).count(), 0);
-    await page.evaluate(() => { const g = window.__game.G.newGame(4, 1, 6); g.year = 196; window.__game.G.save(g, 1); });
-    await openMapChoice(page, '标准地图');
-    await waitScenario(page, 'builtin-sovereigns'); await skipIntro(page);
-    assert.match(await page.locator('button', { hasText: '继续记录' }).innerText(), /195年/);
-    await openMapChoice(page, '扩展地图');
-    await waitScenario(page, 'builtin-sovereigns-expanded-map'); await skipIntro(page);
-    assert.match(await page.locator('button', { hasText: '继续记录' }).innerText(), /196年/);
+    assert.equal(await page.locator('.setup-map button').count(), 0);
+    assert.ok(await page.locator('.ruler').count() >= 10);
+    assert.equal(await page.evaluate(() => localStorage.getItem('haou-hd2d-save:scenario:builtin-sovereigns:1')), oldRecord);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });
 
-test('新开局中切换扩展地图会回到君主选择页', async () => {
-  const page = await game.open('&flat&phone', { setup });
+test('旧版会话转到新版，但旧存档数据不被覆盖', async () => {
+  const page = await game.open('&flat&phone', { setup: (context) => context.addInitScript(() => {
+    sessionStorage.setItem('haou-hd2d-scenario', 'builtin-warlords');
+    localStorage.setItem('haou-hd2d-save:scenario:builtin-warlords:1', '{"example":"preserved"}');
+  }) });
   try {
-    await skipIntro(page); await page.getByText('新的征程').click();
-    await page.locator('.setup-map button').click();
-    await page.locator('.scenario-choices .slot').filter({ hasText: '扩展地图' }).click();
-    await waitScenario(page, 'builtin-sovereigns-expanded-map', 'setup');
-    assert.match(await page.locator('.setup-map').innerText(), /扩展地图/);
-    assert.ok(await page.locator('.ruler').count() >= 10);
+    await waitScenario(page, 'builtin-sovereigns-expanded-map'); await skipIntro(page);
+    assert.equal(await page.evaluate(() => window.__game.G.data().cities.length), 37);
+    assert.equal(await page.getByText('继续记录').count(), 0);
+    assert.equal(await page.evaluate(() => localStorage.getItem('haou-hd2d-save:scenario:builtin-warlords:1')), '{"example":"preserved"}');
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });

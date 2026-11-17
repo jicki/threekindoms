@@ -40,7 +40,7 @@ test('标题可选择君主列传，技能说明与人物资料显示实际生�
     await skipIntro(page); await page.locator('.sysmenu-btn').click();
     await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
     await page.getByRole('dialog', { name: '选择游戏版本' }).getByRole('button', { name: /群英新篇·君主列传/ }).click();
-    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns');
+    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns-expanded-map');
     const card = await chooseRuler(page, '公孙瓒');
     assert.equal(await page.locator('.ruler').count(), 10);
     assert.match(await page.locator('.setup-passive').textContent(), /白马备战.*金＋44.*后备兵＋45/);

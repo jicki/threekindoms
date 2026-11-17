@@ -7,7 +7,8 @@ const HOSTILE = new Set(['对手', '宿敌']);
 export function relationDisposition(data, g, a, b) {
   if (g.relationshipEffects !== true || a == null || b == null || a === b) return 0;
   let friendly = false, hostile = false;
-  for (const rel of data.relationships ?? []) {
+  const relations = g.campaignRules === true ? [...(data.relationships ?? []), ...(data.campaignRelationships ?? [])] : data.relationships ?? [];
+  for (const rel of relations) {
     if (!((rel.from === a && rel.to === b) || (rel.from === b && rel.to === a))) continue;
     friendly ||= FRIENDLY.has(rel.kind); hostile ||= HOSTILE.has(rel.kind);
   }

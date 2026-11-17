@@ -302,12 +302,22 @@ async function attackBranch(g, f, r, io, spend) {
   const open = g.level === 2 || g.year >= 190 || (g.level === 1 && g.month >= 6);
   if (!open) return false;
   // A240: target with the fewest officers among non-allied enemy neighbours.
-  let target = null, source = null;
+  let target = null, source = null, bestScore = Infinity;
   for (const c of holdingsOf(g, f)) for (const n of roads(c.id)) {
     const t = g.cities[n];
     if (t.faction === NONE || t.faction === f || g.factions[f].alliance[t.faction] > 0) continue;
     // 刚遭袭扰的势力本月不再成为电脑战争目标，避免连续被迫作战。
     if (g.cityRaids === true && g.raidHistory?.factions?.[t.faction] === g.year * 12 + g.month) continue;
+    if (g.campaignRules === true) {
+      // 守将数之外兼顾实际兵力、出发城粮草及关隘价值；不额外消耗随机数。
+      const score = t.officers.length * 20 + Math.floor(troopsOf(g, t) / 100)
+        - Math.min(30, Math.floor(troopsOf(g, c) / 200)) - Math.min(6, c.officers.length) * 5
+        + (c.rice < 240 ? 20 : 0) + (c.gold < 100 ? 10 : 0) - (isPass(t.id) ? 4 : 0);
+      if (score < bestScore || (score === bestScore && c.officers.length >= (source == null ? 0 : g.cities[source].officers.length))) {
+        target = n; source = c.id; bestScore = score;
+      }
+      continue;
+    }
     if (target == null || t.officers.length < g.cities[target].officers.length || (t.officers.length === g.cities[target].officers.length && n !== target)) { target = n; source = c.id; }
     else if (n === target && c.officers.length >= g.cities[source].officers.length) source = c.id;
   }
@@ -657,9 +667,10 @@ async function ally(g, f, r, io) {
   const gold = r(100) < 50, amount = (3 * tc + 7) * (gold ? 4 : 6), kind = gold ? 'gold' : 'rice';
   const home = officerCity(g, fac.ruler);
   if (!home || home[kind] < amount) return;
-  const accepted = g.factions[target].ai ? true : await io.allianceOffer(f, kind, amount & 255);
+  // 原版保留低字节截断；新版按完整报价支付，避免超过 255 后出现零价同盟。
+  const paid = g.campaignRules === true ? amount : amount & 255;
+  const accepted = g.factions[target].ai ? true : await io.allianceOffer(f, kind, paid);
   if (!accepted) return;
-  const paid = amount & 255; // only the low byte is transferred (原版缺陷)
   home[kind] -= paid; const dst = officerCity(g, g.factions[target].ruler); if (dst) dst[kind] = Math.min(9999, dst[kind] + paid);
   fac.alliance[target] = 10; g.factions[target].alliance[f] = 10;
   await io.event({ type: 'aiAlliance', faction: f, target });

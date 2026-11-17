@@ -79,7 +79,7 @@ export function newScenarioId() {
 // 只接受已知结构；读取时也要验证，不能假定本地存储或导入文件可信。
 export function validateScenario(s, base, { draft = false } = {}) {
   obj(s, '版本');
-  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops'], '版本');
+  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops', 'campaignRules', 'campaignRelations', 'map'], '版本');
   if (s.format !== SCENARIO_FORMAT) fail('不支持的版本文件格式');
   if (!(draft && s.id === null) && s.id !== FEMALE_SCENARIO_ID && s.id !== HERO_SCENARIO_ID && s.id !== ROSTER_SCENARIO_ID && s.id !== WARLORD_SCENARIO_ID && s.id !== SOVEREIGN_SCENARIO_ID && (typeof s.id !== 'string' || !ID.test(s.id))) fail('版本编号无效');
   text(s.name, '版本名称', 40);
@@ -87,6 +87,7 @@ export function validateScenario(s, base, { draft = false } = {}) {
   array(s.officers, '武将', base.officers.length + 100);
   const armors = s.armors === undefined ? [] : s.armors;
   array(s.weapons, '新武器', 64); array(armors, '新防具', 64); array(s.skills, '新技能', 64); array(s.relations, '人物关系', 1000);
+  if (s.campaignRelations !== undefined) array(s.campaignRelations, '新版人物关系', 1000);
   if (s.rulerPassives !== undefined && typeof s.rulerPassives !== 'boolean') fail('君主被动设置无效');
   if (s.enhancedRulerPassives !== undefined && typeof s.enhancedRulerPassives !== 'boolean') fail('增强君主被动设置无效');
   if (s.enhancedRulerPassives && !s.rulerPassives) fail('增强君主被动需要先启用君主被动');
@@ -99,6 +100,8 @@ export function validateScenario(s, base, { draft = false } = {}) {
   if (s.enhancedDisasters !== undefined && typeof s.enhancedDisasters !== 'boolean') fail('增强灾害设置无效');
   if (s.smartAiReinforcement !== undefined && typeof s.smartAiReinforcement !== 'boolean') fail('电脑补兵优先级设置无效');
   if (s.cityRaids !== undefined && typeof s.cityRaids !== 'boolean') fail('守城事件设置无效');
+  if (s.campaignRules !== undefined && typeof s.campaignRules !== 'boolean') fail('新版玩法设置无效');
+  if (s.map !== undefined && !['standard', 'expanded'].includes(s.map)) fail('地图设置无效');
   if (s.rulers !== undefined) array(s.rulers, '君主候选', base.officers.length + 100);
   const maxOfficer = base.officers.length + s.officers.filter((o) => Number.isInteger(o?.id) && o.id >= base.officers.length).length - 1;
   if (s.specialTroops !== undefined) {
@@ -179,13 +182,14 @@ export function validateScenario(s, base, { draft = false } = {}) {
   }
   for (let i = 0; i < s.skills.length; i++) {
     const skill = s.skills[i]; obj(skill, '技能');
-    keys(skill, ['id', 'name', 'cost', 'soldiers', 'hp', 'stop', 'rice', 'maxUses', 'visualEffect'], '技能');
+    keys(skill, ['id', 'name', 'cost', 'soldiers', 'hp', 'stop', 'rice', 'maxUses', 'visualEffect', 'effectProfile'], '技能');
     if (skill.id !== 16 + i) fail('新技能编号不连续');
     text(skill.name, '技能名称'); integer(skill.cost, '技能机动力', 1, 60);
     integer(skill.soldiers, '损兵', 0, 1000); integer(skill.hp, '体力伤害', 0, 99);
     integer(skill.stop, '限制移动天数', 0, 10); integer(skill.rice, '粮草损失', 0, 9999);
     if (skill.maxUses !== undefined) integer(skill.maxUses, '每场使用次数', 1, 3);
     if (skill.visualEffect !== undefined && (typeof skill.visualEffect !== 'string' || !Object.hasOwn(SKILL_VISUALS, skill.visualEffect))) fail('技能演出无效');
+    if (skill.effectProfile !== undefined && !['fortress', 'frontier', 'interdict'].includes(skill.effectProfile)) fail('技能条件效果无效');
     if (!skill.soldiers && !skill.hp && !skill.stop && !skill.rice) fail('技能至少需要一种效果');
   }
   for (const o of s.officers) {
@@ -240,12 +244,14 @@ export function validateScenario(s, base, { draft = false } = {}) {
     const ruler = s.officers.find((o) => o.id === f.ruler) ?? base.officers[f.ruler];
     if (!ruler || ruler.appear !== 'initial' || ruler.city !== f.city || ruler.faction !== f.id) fail('新势力君主必须在该势力开局城市');
   }
-  for (const r of s.relations) {
+  for (const r of [...s.relations, ...(s.campaignRelations ?? [])]) {
     obj(r, '人物关系'); keys(r, ['from', 'to', 'kind'], '人物关系');
     integer(r.from, '关系起点', 0, maxOfficer); integer(r.to, '关系终点', 0, maxOfficer);
     if (r.from === r.to) fail('人物关系无效');
     text(r.kind, '关系名称', 16);
-    const key = `${r.from}:${r.to}:${r.kind}`; if (seenRelations.has(key)) fail('人物关系重复'); seenRelations.add(key);
+    // 新规则将关系视为无方向；旧的已发布版本仍可按原校验读取和恢复。
+    const from = s.campaignRules ? Math.min(r.from, r.to) : r.from, to = s.campaignRules ? Math.max(r.from, r.to) : r.to;
+    const key = `${from}:${to}:${r.kind}`; if (seenRelations.has(key)) fail('人物关系重复'); seenRelations.add(key);
   }
   const seenRulers = new Set();
   for (const r of s.rulers ?? []) {
@@ -288,7 +294,9 @@ export function applyScenario(base, scenario, { draft = false } = {}) {
   d.enhancedDisasters = scenario.enhancedDisasters === true;
   d.smartAiReinforcement = scenario.smartAiReinforcement === true;
   d.cityRaids = scenario.cityRaids === true;
+  d.campaignRules = scenario.campaignRules === true;
   d.relationships = clone(scenario.relations);
+  d.campaignRelationships = clone(scenario.campaignRelations ?? []);
   d.rulerCandidates = clone(scenario.rulers ?? []);
   const equipment = [...scenario.weapons.map((item) => ({ item, kind: 'weapon' })), ...(scenario.armors ?? []).map((item) => ({ item, kind: 'armor' }))];
   for (const { item, kind } of equipment.sort((a, b) => a.item.id - b.item.id)) {

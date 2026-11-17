@@ -30,6 +30,27 @@ def version(letter='a'):
 
 
 class ValidationTest(unittest.TestCase):
+    def test_campaign_map_skills_and_relations_match_browser_validation(self):
+        scenario = version()
+        scenario.update({'campaignRules': True, 'map': 'expanded', 'campaignRelations': [{'from': 38, 'to': 222, 'kind': '结义'}],
+                         'skills': [{'id': 16, 'name': '固阵', 'cost': 9, 'soldiers': 60, 'hp': 0, 'stop': 1, 'rice': 0, 'effectProfile': 'fortress'}]})
+        cases = [scenario]
+        for field, value in [('campaignRules', 'true'), ('map', 'unknown'), ('campaignRelations', {}), ('map', None)]:
+            bad = copy.deepcopy(scenario); bad[field] = value; cases.append(bad)
+        bad = copy.deepcopy(scenario); bad['skills'][0]['effectProfile'] = 'arbitrary'; cases.append(bad)
+        bad = copy.deepcopy(scenario); bad['skills'][0]['effectProfile'] = []; cases.append(bad)
+        bad = copy.deepcopy(scenario); bad['relations'] = [{'from': 222, 'to': 38, 'kind': '结义'}]; cases.append(bad)
+        code = """import {readFileSync} from 'node:fs'; import {validateScenario} from './hd2d-mvp/src/core/scenario.js';
+const base=JSON.parse(readFileSync('hd2d-mvp/data/game-data.json')), cases=JSON.parse(readFileSync(0,'utf8'));
+console.log(JSON.stringify(cases.map(s=>{try {validateScenario(s,base); return true;} catch {return false;}})));"""
+        browser = json.loads(subprocess.check_output(['node', '--input-type=module', '-e', code], cwd=ROOT, input=json.dumps(cases), text=True))
+        server = []
+        for item in cases:
+            try: validate(item, BASE); server.append(True)
+            except ScenarioError: server.append(False)
+        self.assertEqual(server, [True] + [False] * (len(cases) - 1))
+        self.assertEqual(browser, server)
+
     def test_signature_matches_the_browser(self):
         code = "import {readFileSync} from 'node:fs'; import {baseSignature} from './hd2d-mvp/src/core/scenario.js'; console.log(baseSignature(JSON.parse(readFileSync('hd2d-mvp/data/game-data.json','utf8'))));"
         browser_signature = subprocess.check_output(['node', '--input-type=module', '-e', code], cwd=ROOT, text=True).strip()
@@ -343,6 +364,18 @@ class ServerTest(unittest.TestCase):
 
     def tearDown(self):
         self.stop_server(); self.temp.cleanup()
+
+    def test_asset_availability_reports_only_manifest_files(self):
+        status, availability = self.request('/api/asset-availability')
+        self.assertEqual(status, 200)
+        manifest = json.loads((ROOT / 'hd2d-mvp/assets/manifest.json').read_text(encoding='utf-8'))
+        entries = [url for group in ('portraits', 'sprites', 'audio') for value in manifest[group].values()
+                   for url in (value if isinstance(value, list) else [value])]
+        self.assertTrue(entries)
+        self.assertEqual(set(availability), set(entries))
+        for url in entries:
+            path = ROOT / 'hd2d-mvp' / url
+            self.assertEqual(availability[url], path.is_file() and os.access(path, os.R_OK), url)
 
     def asset_request(self, path, data=None, token=None, mime='image/png', origin=None):
         headers = {'Content-Type': mime} if data is not None else {}

@@ -28,10 +28,10 @@ import { PHONE, hint } from './phone.js';
 import { unitCard } from './warcard.js';
 import * as G from './core/game.js';
 import { NONE } from './core/game.js';
-import { hasLegacyRecords, listScenarios, selectScenario } from './core/scenario-store.js';
+import { listScenarios, selectScenario } from './core/scenario-store.js';
 import { ORIGINAL_SCENARIO } from './core/scenario.js';
 import { EXPANDED_MAP_ID } from './core/expanded-map.js';
-import { FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, ROSTER_SCENARIO_ID, ROSTER_SCENARIO_NAME, WARLORD_SCENARIO_ID, WARLORD_SCENARIO_NAME, SOVEREIGN_SCENARIO_ID, SOVEREIGN_SCENARIO_NAME, visualUrl } from './core/visuals.js';
+import { SOVEREIGN_SCENARIO_ID, SOVEREIGN_SCENARIO_NAME, visualUrl } from './core/visuals.js';
 import { DUEL_SKILLS } from './core/duel-skills.js';
 import { describeRulerPassive } from './core/ruler-passives.js';
 import { aiTurn, aiDomestic } from './core/ai.js';
@@ -117,7 +117,7 @@ async function loadConfiguredMotion(id) {
     return;
   }
   const url = visualUrl(ref); if (!url) return;
-  if (!configuredMotion.has(ref)) configuredMotion.set(ref, loadGridMotion(url));
+  if (!configuredMotion.has(ref)) configuredMotion.set(ref, loadGridMotion(url, { builtinSize: /^b-(?:gongsun|yuanshu|liubiao)-motion$/.test(ref) }));
   try {
     const { march, duel } = await configuredMotion.get(ref);
     sprites[`march-${id}`] = march; sprites[`duel-${id}`] = duel;
@@ -937,7 +937,7 @@ function help() {
   return modal('说明', () => h('div', { class: 'help' },
     h('h4', {}, '操作'), controls({ input: pad.active ? 'pad' : 'keys', family: pad.family, east: pad.confirm === 'east', label: padKey }),
     h('h4', {}, '战略'), h('p', {}, '一个势力行动一轮为一个月。每月按占城数发放命令书（1–3城3张……28–30城13张），点击己方城市，在下方菜单下令；命令书用完即结束本月。4月收税金，10月收米；统治度低于50易生暴乱；5–6月洪水、8–9月旱灾，防灾可减损。'),
-    g?.scenarioId === EXPANDED_MAP_ID ? h('p', {}, '扩展地图共有33城及4处关隘。关隘可驻军和储存补给，但不计城数、税收或统一目标；关内不征兵，须从城市运输军资。标准地图与扩展地图的记录分开保存，可在标题切换地图继续。') : null,
+    D.expandedMap ? h('p', {}, '扩展地图共有33城及4处关隘。关隘可驻军和储存补给，但不计城数、税收或统一目标；关内不征兵，须从城市运输军资。') : null,
     g?.enhancedDisasters ? h('p', {}, '本局的旱灾与洪水至少损失金、米各50及土地、产业各5；不足时最多扣除现有数量。防灾越高，资源和建设损失越少；相邻月份连续受灾时，第二次的额外损失减半。') : null,
     g?.cityRaids ? h('p', {}, '本局可能遭遇山贼或近海海贼守城战，内陆暴乱也可能引来山贼；首年及势力受灾当月不会发生，城市粮草需足够约20日，同一势力与城市至少间隔18个月。普通守将受到致命伤或被擒后下野，君主阵亡则游戏失败；开启不战死时君主仍受保护。') : null,
     h('p', {}, '武将到史实卒年后一年比一年易病逝；开局或「☰ 系统」可选「武将不老」，「武将不战死」（体力归零改为被俘，体力回复至30；君主不超过体力上限，无法安置时下野），「三顾模式」（同一位人才在该城至多搜索3次必定出仕），「武将不能读书」（敌我都不能入学问所提高智力），以及「免费记录」（存档不消耗命令书）。进度不会自动保存：城市菜单「城 → 记录」或「☰ 系统 → 记录进度」存入八个记录位置之一（消耗一张命令书，免费记录除外），「☰ 系统 → 读取记录」或标题画面读取。战争中可「☰ 系统 → 中断战斗」回到标题，之后从标题「继续战斗」接着打（不占记录位置，只能继续一次）。'),
@@ -1097,19 +1097,11 @@ async function chooseScenario() {
     catch { unavailable = true; }
   }
   if (!Array.isArray(versions)) return toast('<em>游戏版本列表无效</em>', 3500);
-  const legacy = [
-    { id: FEMALE_SCENARIO_ID, name: FEMALE_SCENARIO_NAME },
-    { id: HERO_SCENARIO_ID, name: HERO_SCENARIO_NAME },
-    { id: ROSTER_SCENARIO_ID, name: ROSTER_SCENARIO_NAME },
-    { id: WARLORD_SCENARIO_ID, name: WARLORD_SCENARIO_NAME },
-  ].filter((v) => G.currentScenario() === v.id || hasLegacyRecords(v.id));
-  const options = [{ id: ORIGINAL_SCENARIO, name: '原版' }, { id: SOVEREIGN_SCENARIO_ID, name: SOVEREIGN_SCENARIO_NAME },
-    ...versions.filter((v) => /^v-[a-f0-9]{32}$/.test(v?.id) && typeof v.name === 'string'),
-    ...legacy.map((v) => ({ ...v, name: `${v.name}（旧存档兼容）` }))];
-  const activeVersion = G.currentScenario() === EXPANDED_MAP_ID ? SOVEREIGN_SCENARIO_ID : G.currentScenario();
+  const options = [{ id: ORIGINAL_SCENARIO, name: '原版' }, { id: EXPANDED_MAP_ID, name: SOVEREIGN_SCENARIO_NAME },
+    ...versions.filter((v) => /^v-[a-f0-9]{32}$/.test(v?.id) && typeof v.name === 'string')];
+  const activeVersion = G.currentScenario() === SOVEREIGN_SCENARIO_ID ? EXPANDED_MAP_ID : G.currentScenario();
   const choice = await modal('选择游戏版本', (close) => [
     h('p', {}, '各版本的存档分开保存。切换版本后可在标题画面开始新游戏或读取该版本的记录。'),
-    legacy.length ? h('p', {}, '旧版内容已合并至君主列传；旧存档仍按原有规则继续，不能直接合并到新版本。') : null,
     unavailable ? h('p', {}, '无法读取服务器版本，仍可选择原版和内置版本。') : null,
     versions.skipped ? h('p', {}, `有 ${versions.skipped} 个已发布版本无法读取，请联系管理员。`) : null,
     h('div', { class: 'slots scenario-choices' }, options.map((v) => h('button', { class: `btn slot${v.id === activeVersion ? ' on' : ''}`, 'aria-current': v.id === activeVersion ? 'true' : null, onclick: () => close(v.id) },
@@ -1118,30 +1110,11 @@ async function chooseScenario() {
   if (!choice || choice === activeVersion) return;
   changeScenario(choice);
 }
-function changeScenario(id) {
-  try { selectScenario(id); sessionStorage.setItem('hd2d-title-seen', '1'); location.reload(); }
+function changeScenario(id, { setup = false } = {}) {
+  try { selectScenario(id); sessionStorage.setItem('hd2d-title-seen', '1'); if (setup) sessionStorage.setItem('hd2d-map-setup', '1'); location.reload(); }
   catch { toast('<em>无法切换游戏版本</em>', 3500); }
 }
 const sovereignMap = () => [SOVEREIGN_SCENARIO_ID, EXPANDED_MAP_ID].includes(G.currentScenario());
-const mapName = () => G.currentScenario() === EXPANDED_MAP_ID ? '扩展地图' : '标准地图';
-async function chooseSovereignMap(returnToSetup = false) {
-  const current = G.currentScenario();
-  const choice = await modal('选择君主列传地图', (close) => [
-    h('p', {}, '标准地图与扩展地图的记录分开保存。旧记录保留在标准地图，可以随时切回继续。'),
-    h('div', { class: 'slots scenario-choices' }, ...[
-      [SOVEREIGN_SCENARIO_ID, '标准地图', '30城，沿用现有规则'],
-      [EXPANDED_MAP_ID, '扩展地图', '33城及4处可驻守关隘'],
-    ].map(([id, name, note]) => h('button', { class: `btn slot${id === current ? ' on' : ''}`, 'aria-current': id === current ? 'true' : null, onclick: () => close(id) }, h('b', {}, name), h('span', {}, id === current ? `当前 · ${note}` : note)))),
-    h('div', { class: 'foot' }, h('button', { class: 'btn', onclick: () => close(null) }, '取消')),
-  ]);
-  if (!choice || choice === current) return;
-  try {
-    selectScenario(choice);
-    sessionStorage.setItem('hd2d-title-seen', '1');
-    if (returnToSetup) sessionStorage.setItem('hd2d-map-setup', '1');
-    location.reload();
-  } catch { toast('<em>无法切换地图</em>', 3500); }
-}
 // ---------- Records (save slots) ----------
 // 系统 → 记录进度 runs the city menu's 记录 (one 命令书, as the original) from wherever the player is on the 战略地图, and says
 // why not elsewhere (feedback F03, 2026-11-02: players found only 读取 in 系统 and lost their progress closing the window).
@@ -1321,12 +1294,8 @@ async function title() {
         if (!current || JSON.stringify(current) !== JSON.stringify(pick.record)) return toast('<em>记录已改变，请重新选择</em>', 3500);
         begin(pick.record, true);
       } }, '读取记录') : null,
-      h('button', { class: 'btn', onclick: () => { audio.unlock(); if (G.currentScenario() === FEMALE_SCENARIO_ID) changeScenario(SOVEREIGN_SCENARIO_ID); else setup(); } },
-        G.currentScenario() === FEMALE_SCENARIO_ID ? '进入君主列传' : '新的征程'),
-      sovereignMap() ? h('button', { class: 'btn map-choice', onclick: () => chooseSovereignMap() }, `地图：${mapName()}`) : null],
-    footnote: [h('p', { class: 'free' }, ['本游戏免费发布，', '仅供爱好者交流，', '请勿付费购买'].map((t) => h('span', {}, t))),
-      h('p', { class: 'maker' }, '制作　tianlin ', h('small', {}, '@GitHub')),
-      h('p', {}, '原作《三国志II 霸王的大陆》© 1992 NAMCO · 以FC日版规则为准 · 立绘由AI生成 · ' +
+      h('button', { class: 'btn', onclick: () => { audio.unlock(); if (G.currentScenario() === SOVEREIGN_SCENARIO_ID) changeScenario(EXPANDED_MAP_ID, { setup: true }); else setup(); } }, '新的征程')],
+    footnote: [h('p', {}, '原作《三国志II 霸王的大陆》© 1992 NAMCO · 以FC日版规则为准 · 立绘由AI生成 · ' +
         (audio.sets.length > 1 ? `曲目可在「☰ 系统 → 曲目」切换 ${audio.sets.map((t) => t.label).join('／')}` : `音乐：${audio.sets[0]?.label ?? '合成音'}`))] });
   titleSeen = true;
   root().append(screen.el);
@@ -1397,7 +1366,7 @@ async function setup() {
     const o = D.officers[officer], on = ruler?.faction === f && ruler?.officer === officer;
     return h('div', { class: `panel ruler ${on ? 'on' : ''}`, style: { '--c': colorOf(f) }, 'aria-pressed': on ? 'true' : 'false', title: on ? '再次点击开始' : `选择${name(officer)}`,
       ...pressable(() => { if (on) return start.click(); ruler = { faction: f, officer }; start.disabled = false; start.textContent = `${name(officer)} · 出征`;
-        if (passiveNote) { const p = describeRulerPassive(o, D.enhancedRulerPassives); passiveNote.textContent = `君主被动 · ${p.name}：${p.text}`; }
+        if (passiveNote) { const p = describeRulerPassive(o, D.enhancedRulerPassives, D.campaignRules); passiveNote.textContent = `君主被动 · ${p.name}：${p.text}`; }
         keep(rulers, drawRulers); }) },
       figure(officer), h('i', { class: 'chip' }),
       h('div', { class: 'meta' }, h('b', {}, name(officer)),
@@ -1406,7 +1375,6 @@ async function setup() {
   }));
   drawRulers();
   root().append(sysButtons(), files.titleArt ? h('div', { class: 'title-art', style: { backgroundImage: `url(${files.titleArt})`, position: 'fixed', filter: 'blur(3px) brightness(.55)' } }) : null, h('div', { class: 'setup' },
-    sovereignMap() ? h('div', { class: 'setup-map' }, h('span', {}, `当前：${mapName()}`), h('button', { class: 'btn', onclick: () => chooseSovereignMap(true) }, '选择地图')) : null,
     h('h2', {}, '选择难度'), levels, h('div', { class: 'setup-opts' }, agelessBtn, noDeathBtn, sanguBtn, warlikeBtn, noStudyBtn, freeSaveBtn), optNote, h('h2', {}, '选择君主'), passiveNote, rulers,
     h('div', { class: 'setup-foot' }, h('button', { class: 'btn', onclick: title }, '返回'), start)));
 }
@@ -1599,9 +1567,15 @@ async function mapOverview() {
         return true;
       };
       const cities = current.cities.filter(match);
-      list.replaceChildren(...(cities.length ? cities.map((c) => h('button', { class: 'btn', onclick: () => close(c.id) },
-        h('b', {}, `${cityName(c.id)}${G.isPass(c.id) ? ' · 关隘' : ''}`),
-        h('small', {}, `${G.factionName(current, c.faction)} · ${c.officers.length}将${c.faction === player ? ` · ${G.troopsOf(current, c)}兵` : ''}`))) : [h('p', { class: 'hint' }, '没有符合条件的据点')]));
+      list.replaceChildren(...(cities.length ? cities.map((c) => {
+        const mine = c.faction === player, troops = mine ? G.troopsOf(current, c) : 0;
+        const warnings = mine ? [!troops ? '兵力空虚' : '', troops && c.rice < Math.floor(troops * 4 / 1000) * 30 ? '军粮不足' : '',
+          !G.isPass(c.id) && c.gov < 50 ? '统治偏低' : '', !G.isPass(c.id) && c.disaster < 50 ? '防灾偏低' : ''].filter(Boolean) : [];
+        return h('button', { class: 'btn', onclick: () => close(c.id) },
+          h('b', {}, `${cityName(c.id)}${G.isPass(c.id) ? ' · 关隘' : ''}`),
+          h('small', {}, `${G.factionName(current, c.faction)} · ${c.officers.length}将${mine ? ` · ${troops}兵` : ''}`),
+          warnings.length ? h('small', { class: 'overview-warning' }, warnings.join(' · ')) : null);
+      }) : [h('p', { class: 'hint' }, '没有符合条件的据点')]));
     };
     filter.addEventListener('change', draw); draw();
     return [h('div', { class: 'map-overview-filter' }, h('label', {}, '显示 ', filter), h('span', { class: 'hint' }, '选择据点后定位到地图')), list,
@@ -1833,14 +1807,14 @@ function officerSheet(id, { live = null, foot = null } = {}) {
       meter('体力', hp, G.maxHp(o, id), hp < G.maxHp(o, id) / 2 ? 'low' : ''), meter('武力', o.war, 100, 'war'), meter('智力', o.int, 100, 'int'), meter('人德', o.virtue, 100, 'vir'), meter('忠诚', o.loyalty, 100, o.loyalty < 60 ? 'low' : 'loy'),
       h('div', { class: 'stats ocard-gear' },
         h('div', {}, h('span', {}, '兵数'), h('b', {}, soldiers)), h('div', {}, h('span', {}, '经验'), h('b', {}, expText(o))),
-        h('div', {}, h('span', {}, '武器'), h('b', {}, w ? h('img', { class: 'eqi', src: equipIcon(o.weapon), alt: '' }) : null, `${w?.name ?? '—'}`, w ? h('small', {}, ` 攻${w.atk}`) : null)),
-        h('div', {}, h('span', {}, '防具'), h('b', {}, a ? h('img', { class: 'eqi', src: equipIcon(24 + o.armor), alt: '' }) : null, `${a?.name ?? '—'}`, a ? h('small', {}, ` 防${a.dfn}`) : null))),
+        h('div', {}, h('span', {}, '武器'), h('b', {}, w ? h('img', { class: 'eqi', src: equipIcon(o.weapon), alt: '' }) : null, `${w?.name ?? '—'}${w?.grade ? ` · ${w.grade}级` : ''}`, w ? h('small', {}, ` 攻${w.atk}`) : null)),
+        h('div', {}, h('span', {}, '防具'), h('b', {}, a ? h('img', { class: 'eqi', src: equipIcon(24 + o.armor), alt: '' }) : null, `${a?.name ?? '—'}${a?.grade ? ` · ${a.grade}级` : ''}`, a ? h('small', {}, ` 防${a.dfn}`) : null))),
       live ? null : h('p', { class: 'hint' }, d.birthYear != null ? `${d.birthYear}年出生　·　` : '', d.birthCity != null ? `出生于${cityName(d.birthCity)}　·　` : '', `${d.year}年登场`, debutShown(id) ? `　·　${debutText(id)}` : '', o.status === G.UNAPPEARED && talentMode === 'all' ? `　·　${waitText(id)[0]}` : ''),
       strategies.length || duelSkill ? h('p', { class: 'hint' }, strategies.length ? `战场计略：${strategies.join('、')}` : '', strategies.length && duelSkill ? '　·　' : '', duelSkill ? `单挑技：${duelSkill}` : '') : null,
       specialty ? h('p', { class: 'hint' }, `特色兵队：${specialty.name} · ${specialty.text}（当前最多${officerSquadLimit(D, g, id, specialty)}队）${targetTroop && targetTroop !== specialty ? `；${targetTroop.level}级可用${targetTroop.name}` : ''}`) : null,
       passive ? h('p', { class: 'hint' }, `君主被动：${passive.name} · ${passive.text}`) : null,
-      live || !D.relationships?.some((r) => r.from === id || r.to === id) ? null : h('p', { class: 'hint' }, '人物关系：',
-        D.relationships.filter((r) => r.from === id || r.to === id).map((r) => `${r.kind} ${name(r.from === id ? r.to : r.from)}`).join('　·　')),
+      live || ![...(D.relationships ?? []), ...(g?.campaignRules ? D.campaignRelationships ?? [] : [])].some((r) => r.from === id || r.to === id) ? null : h('p', { class: 'hint' }, '人物关系：',
+        [...(D.relationships ?? []), ...(g?.campaignRules ? D.campaignRelationships ?? [] : [])].filter((r) => r.from === id || r.to === id).map((r) => `${r.kind} ${name(r.from === id ? r.to : r.from)}`).join('　·　')),
       foot));
 }
 async function officerCard(id) {
@@ -2393,7 +2367,7 @@ async function command(cid, act) {
     case '武器屋': {
       if (!f.weapons) return toast('<em>此城没有武器屋</em>');
       // Each one's weapon and armour stand in the list, so the buyer sees who needs what (feedback R08, 2026-11-02).
-      const gear = (eq, k, t) => h('span', { class: 'gearcell' }, eq ? [equipIcon(eq.id) ? h('img', { class: 'eqi', src: equipIcon(eq.id), alt: '' }) : null, `${eq.name} ${t}+${eq[k]}`] : '—');
+      const gear = (eq, k, t) => h('span', { class: 'gearcell' }, eq ? [equipIcon(eq.id) ? h('img', { class: 'eqi', src: equipIcon(eq.id), alt: '' }) : null, `${eq.name}${eq.grade ? ` · ${eq.grade}级` : ''} ${t}+${eq[k]}`] : '—');
       const cols = [['武器', (o) => D.equipment[o.weapon]?.atk ?? 0, (o) => gear(D.equipment[o.weapon], 'atk', '攻')],
         ['防具', (o) => D.equipment[24 + o.armor]?.dfn ?? 0, (o) => gear(D.equipment[24 + o.armor], 'dfn', '防')]];
       const ids = await pickOfficers(g, '为谁购买装备？', c.officers, { cols }); if (!ids?.length) return;
@@ -3192,8 +3166,8 @@ async function showEvent(e) {
     case 'fall': addLog(`<em>${factionName(e.faction)}势力灭亡</em>`); if (e.faction !== P) await message('灭亡', `<span style="color:${colorOf(e.faction)}">${factionName(e.faction)}</span>一族灭亡了。`, null, 'calm', { auto: paced(ORIGINAL.notice) }); break;
     case 'autobattle': {
       const { war: w, res } = e, winner = res.attWins ? w.attacker : w.defender;
-      const skill = res.autoSkillBonus, troop = res.autoTroopBonus;
-      addLog(`${factionName(w.attacker)}进攻${cityName(w.city)}（${factionName(w.defender)}）：${res.attWins ? '<strong>攻陷</strong>' : '败退'}${skill ? `（专属技能战力：攻＋${skill.att}、守＋${skill.def}）` : ''}${troop ? `（特色兵队战力：攻＋${troop.att}、守＋${troop.def}）` : ''}`);
+      const skill = res.autoSkillBonus, troop = res.autoTroopBonus, gear = res.autoGearBonus, lord = res.autoRulerBonus;
+      addLog(`${factionName(w.attacker)}进攻${cityName(w.city)}（${factionName(w.defender)}）：${res.attWins ? '<strong>攻陷</strong>' : '败退'}${skill ? `（专属技能战力：攻＋${skill.att}、守＋${skill.def}）` : ''}${troop ? `（特色兵队战力：攻＋${troop.att}、守＋${troop.def}）` : ''}${gear ? `（装备战力：攻＋${gear.att}、守＋${gear.def}）` : ''}${lord ? `（君主专属：攻＋${lord.att}、守＋${lord.def}）` : ''}${res.autoGateBonus ? `（关隘守备＋${res.autoGateBonus}）` : ''}`);
       // The original plays every war between two AI factions on the map in three beats of 142 frames under its
       // phrase 162 (7.09 s in all), its AI-turn window reading 「××軍 出陣」, 「××軍 戦闘中」 and the winner's
       // 「××軍 勝利」 (research/strategic-ai-evidence.md). The board does the same with the two standards: down the
@@ -3274,6 +3248,17 @@ const io = {
     await message(`${kind}来袭`, `${attack}敌军约${plan.troops}人，请率守军迎战。<br>守将受致命伤或被擒后下野；${g.noWarDeath ? '君主受不战死保护' : '君主阵亡则游戏失败'}。`, g.cities[plan.city].officers[0], 'grief');
     const w = startRaid(g, plan);
     await fieldWar(w, 'def', { after: { kind: 'raid' } });
+  },
+  async campaignEvent(event) {
+    const c = g.cities[event.city];
+    const disaster = Math.max(0, Math.min(5, 100 - c.disaster)), land = Math.max(0, Math.min(3, 999 - c.land)), rice = Math.max(0, Math.min(100, 9999 - c.rice));
+    strategy.refresh(g); strategy.select(event.city); strategy.focusCity(event.city);
+    return modal('地方建言', (close) => [
+      h('p', {}, `${cityName(event.city)}的官民希望筹办一项建设，现有金 ${c.gold}。请选择：`),
+      h('div', { class: 'slots campaign-choices' },
+        h('button', { class: 'btn', disabled: !disaster && !land, onclick: () => close('works') }, `兴修水利（金 −80，防灾＋${disaster}、土地＋${land}）`),
+        h('button', { class: 'btn', disabled: !rice, onclick: () => close('rice') }, `筹措粮食（金 −80、米＋${rice}）`)),
+      h('div', { class: 'foot' }, h('button', { class: 'btn', onclick: () => close(null) }, '暂不办理'))]);
   },
   async war(w, budget) {
     // the war screen takes over; no 战略中 hold after it. Every plaque goes: the last faction's may still be fading out.

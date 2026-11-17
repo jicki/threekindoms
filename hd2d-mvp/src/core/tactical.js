@@ -47,11 +47,11 @@ export class Tactical {
       const original = g.officers[id], bonus = bonuses?.[key];
       // 武将可能在白兵中升级；战斗属性临时加成，同时保持等级等其他字段与原武将同步。
       const o = bonus ? new Proxy(original, { get(target, prop, receiver) {
-        if (prop === 'war' || prop === 'int') return Math.max(target[prop], Math.min(99, target[prop] + bonus[prop]));
+        if (prop === 'war' || prop === 'int') return Math.max(target[prop], Math.min(99, target[prop] + (bonus[prop] ?? 0)));
         return Reflect.get(target, prop, receiver);
       } }) : original;
       const eq = { atk: D.equipment[o.weapon]?.atk || 0, def: D.equipment[24 + o.armor]?.dfn || 0, wgrp: weaponGroup(o.weapon), weight: (D.equipment[o.weapon]?.weight || 0) + (D.equipment[24 + o.armor]?.weight || 0) };
-      return { key, id, o, baseWar: original.war, tacticRounds: bonus?.tacticRounds ?? 0, F: Math.floor((C(o.war) * o.war) / 100) + 9 - r(9), eq, hp: o.hp, start: o.soldiers, tp: Math.floor((o.int * 13) / 100), fx: {}, cmd: { gen: 'advance', cav: 'advance', arc: 'advance', inf: 'advance' }, formation: 0 };
+      return { key, id, o, baseWar: original.war, tacticRounds: bonus?.tacticRounds ?? 0, unique: bonus?.unique, F: Math.floor((C(o.war) * o.war) / 100) + 9 - r(9), eq, hp: o.hp, start: o.soldiers, tp: Math.floor((o.int * 13) / 100), fx: {}, cmd: { gen: 'advance', cav: 'advance', arc: 'advance', inf: 'advance' }, formation: 0 };
     };
     this.side = { a: mk(aId, 'a'), d: mk(dId, 'd') };
     this.side.a.foe = this.side.d; this.side.d.foe = this.side.a;
@@ -225,6 +225,14 @@ export class Tactical {
     if (t.kind === 'cav') D = Math.floor(D / 2) + Math.floor(D / 4);
     if (t.kind === 'gen') D = Math.max(0, Math.floor(D / 2) - T.eq.def);
     D = troopDamage(D, u, t, ranged);
+    if (D > 0 && t.kind === 'cav' && T.unique === 'horsebow' && ranged) D = Math.max(1, Math.floor(D * 92 / 100));
+    if (D > 0 && t.kind !== 'gen') {
+      const extra = S.unique === 'assault' && u.side === 'a' && !ranged ? 5
+        : S.unique === 'river' && this.terrain === 3 && u.kind !== 'gen' && !ranged ? 5
+        : S.unique === 'cavalry' && u.kind === 'cav' && !ranged ? 5
+        : S.unique === 'horsebow' && u.special === SPECIAL_TROOPS.horsebow.sprite && ranged ? 8 : 0;
+      if (extra) D = Math.max(1, Math.floor(D * (100 + extra) / 100));
+    }
     const before = t.kind === 'gen' ? T.hp : t.hp, dealt = Math.min(before, D);
     if (t.kind === 'gen') { T.hp -= dealt; t.hp = T.hp; } else t.hp -= dealt;
     addExp(this.g, S.id, Math.floor((t.hp <= 0 && !ranged ? D : dealt) / 2));

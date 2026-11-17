@@ -11,6 +11,7 @@ import { applyRulerPassive, describeRulerPassive } from './ruler-passives.js';
 import { relationDisposition, recruitDisposition, recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
 import { EXPANDED_MAP_ID, expandMap, applyExpandedOpening } from './expanded-map.js';
 import { SOVEREIGN_SCENARIO_ID } from './visuals.js';
+import { chooseCampaignEvent, applyCampaignEvent } from './campaign-events.js';
 // 原版无主为 7；扩展剧本将无主编号放在实际势力编号之后。
 export let NONE = 7;
 export const DEAD = 3, SERVING = 2, UNAPPEARED = 1, RONIN = 0;
@@ -28,7 +29,7 @@ export async function loadData(url = 'data/game-data.json') {
   if (id === ORIGINAL_SCENARIO) return setData(base, id);
   const scenario = await loadScenario(id === EXPANDED_MAP_ID ? SOVEREIGN_SCENARIO_ID : id, base);
   let next = applyScenario(base, scenario);
-  if (id === EXPANDED_MAP_ID) next = expandMap(next);
+  if (id === EXPANDED_MAP_ID || scenario.map === 'expanded') next = expandMap(next);
   next.scenarioName = scenario.name; return setData(next, id);
 }
 export function setData(d, id = ORIGINAL_SCENARIO) { D = d; NONE = d?.factions?.length ?? 7; scenarioId = id; return D; }
@@ -59,6 +60,7 @@ export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random(
   if (D.eliteTroops) g.eliteTroops = true;
   if (D.safeAiLure) g.safeAiLure = true;
   if (D.balancedTroops) g.balancedTroops = true;
+  if (D.campaignRules) g.campaignRules = true;
   const r = rng(g);
   g.order = r(5); // 新游戏随机0–4 (5.2)
   g.cities = D.cities.map((c) => ({
@@ -122,7 +124,7 @@ export const troopsOf = (g, c) => c.officers.reduce((a, id) => a + g.officers[id
 export const books = (g, f) => D.rules.books[citiesOf(g, f).length];
 export function rulerPassive(g, f) {
   const id = g.factions[f]?.ruler, officer = id == null ? null : g.officers[id];
-  return D.rulerPassives && officer?.status === SERVING ? describeRulerPassive({ ...D.officers[id], ...officer }, g.enhancedRulerPassives === true) : null;
+  return D.rulerPassives && officer?.status === SERVING ? describeRulerPassive({ ...D.officers[id], ...officer }, g.enhancedRulerPassives === true, g.campaignRules === true) : null;
 }
 function grantRulerPassive(g, f) {
   const turn = `${g.year}:${g.month}:${f}`;
@@ -139,7 +141,10 @@ export function income(g, kind) {
     if (c.faction === NONE || isPass(c.id)) continue;
     const Dv = kind === 'gold' ? c.industry : c.land, N = kind === 'gold' ? 80 : 60;
     const q = Math.floor((c.pop * (Math.floor(Dv / A) + B)) / N);
-    const inc = Math.floor((q * GOV_C(c.gov)) / 100);
+    let inc = Math.floor((q * GOV_C(c.gov)) / 100);
+    const lord = g.factions[c.faction]?.ruler, home = lord == null ? null : officerCity(g, lord);
+    const unique = home?.faction === c.faction ? rulerPassive(g, c.faction)?.combat?.unique : null;
+    if ((kind === 'gold' && unique === 'tax') || (kind === 'rice' && unique === 'harvest')) inc += Math.min(kind === 'gold' ? 40 : 50, Math.floor(inc / 20));
     c[kind] = Math.min(9999, c[kind] + inc);
     out.push([c.id, inc]);
   }
@@ -499,6 +504,12 @@ async function rotate(g, io) {
     if (D.rulerPassives) grantRulerPassive(g, f);
     // 只在本势力新回合检查，玩家从中断战斗恢复后不会重复抽取。
     if (g.cityRaids === true && io.raid) { await io.raid(f); if (g.over) return; }
+    const development = chooseCampaignEvent(g, f, { rng, isPass });
+    if (development) {
+      const c = g.cities[development.city];
+      const choice = g.factions[f].ai ? (c.rice < 200 || (c.disaster >= 100 && c.land >= 999) ? 'rice' : 'works') : await io.campaignEvent?.(development);
+      applyCampaignEvent(g, development, choice);
+    }
     if (g.factions[f].ai) {
       await io.aiTurn(f); if (g.over) return;
       // 电脑外交可能诱走最后守将；战斗已有自己的结算检查，此处也覆盖非战斗行动。
@@ -810,6 +821,15 @@ function validRaidState(g) {
     || !table(h.factions, g.factions.length) || !table(h.cities, g.cities.length) || !table(h.checked, g.factions.length))) return false;
   return g.raidWars == null || table(g.raidWars, g.factions.length);
 }
+function validCampaignEventState(g) {
+  const h = g.campaignEventHistory;
+  if (h == null) return true;
+  const time = (v) => Number.isSafeInteger(v) && v >= 0;
+  const table = (v) => !!v && typeof v === 'object' && !Array.isArray(v) && Object.entries(v).every(([key, value]) =>
+    /^(0|[1-9]\d*)$/.test(key) && Number(key) < g.factions.length && time(value));
+  return typeof h === 'object' && !Array.isArray(h) && (h.last === null || time(h.last))
+    && (h.applied === undefined || time(h.applied)) && table(h.factions) && table(h.checked);
+}
 // 旧记录可能包含动态武将或袭城临时武将，因此只验证实际记录和引用，不要求其存在于静态武将表。
 function validRoster(g) {
   const validId = (id) => Number.isInteger(id) && id >= 0 && !!g.officers[id];
@@ -836,7 +856,8 @@ export function upgrade(g) {
     && (g.safeAiLure === undefined || typeof g.safeAiLure === 'boolean')
     && (g.balancedTroops === undefined || typeof g.balancedTroops === 'boolean')
     && (g.expandedOpeningGuard === undefined || typeof g.expandedOpeningGuard === 'boolean')
-    && Array.isArray(g.officers) && Array.isArray(g.factions) && Array.isArray(g.cities) && g.cities.length === D.cities.length && g.cities.every((c) => Array.isArray(c?.officers)) && validRoster(g) && validRaidState(g);
+    && (g.campaignRules === undefined || typeof g.campaignRules === 'boolean')
+    && Array.isArray(g.officers) && Array.isArray(g.factions) && Array.isArray(g.cities) && g.cities.length === D.cities.length && g.cities.every((c) => Array.isArray(c?.officers)) && validRoster(g) && validRaidState(g) && validCampaignEventState(g);
   return ok ? g : null;
 }
 const fromBak = new WeakSet();

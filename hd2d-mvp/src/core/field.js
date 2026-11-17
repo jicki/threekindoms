@@ -1,11 +1,12 @@
 // War map rules (6.2, 6.7, 6.8, 6.10) without rendering. One Field per war; the renderer drives it.
 // Ported: deployment blocks and AI role sub-lists, movement costs (600-troop split), shared daily
 // mobility, rice per day, 30-day limit, castle capture, commander loss, retreat thresholds, field
-// hospital/rice shop, AI roles 0–4 with their decision order. Strategies (计略) are not ported yet.
-import { data, rng, NONE, DEAD, roads, addExp, takeLevelUps, equipBlock, wearEquip, spared, sparedHp, isRuler, maxHp, rulerPassive, recruitLoyalty } from './game.js';
+// hospital/rice shop, AI roles 0–4 and battlefield strategies.
+import { data, rng, NONE, DEAD, roads, addExp, takeLevelUps, equipBlock, wearEquip, spared, sparedHp, isRuler, isPass, maxHp, rulerPassive, recruitLoyalty } from './game.js';
 import { Tactical } from './tactical.js';
 import { roll100, realChance } from './origrng.js';
-import { recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
+import { relationDisposition, recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
+import { passiveRiceUse } from './ruler-passives.js';
 
 const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0]]; // 上下左右
 export const W = 32, H = 19, FOREST = 0, SAND = 1, PLAIN = 2, RIVER = 3, MOUNT = 4, CASTLE = 5;
@@ -39,13 +40,17 @@ export const STRAT_INFO = [
   { does: '困敌于石阵：数日不能移动，诸葛亮在场时每日折兵', where: '目标不在河上和城中' },
 ];
 // 新版本的技能只使用受校验的固定效果，原版计略及其编号保持不变。
-export function configureStrategies() {
+export function configureStrategies(g) {
   STRATS.length = 16; STRAT_INFO.length = 16;
   for (const skill of data()?.customSkills ?? []) {
     STRATS.push({ ...skill, ai: skill.cost, custom: true });
     const effects = [skill.soldiers ? `损兵 ${skill.soldiers}` : '', skill.hp ? `体力减少 ${skill.hp}` : '',
       skill.stop ? `限制移动 ${skill.stop} 日` : '', skill.rice ? `损失粮草 ${skill.rice}` : ''].filter(Boolean);
-    STRAT_INFO.push({ does: `${effects.join('，')}${skill.maxUses ? `，每场最多${skill.maxUses}次` : ''}`, where: '5格内敌军' });
+    const conditional = g?.campaignRules === true ? {
+      fortress: '施术者在城中时额外损兵25', frontier: '目标距己方总大将两格内时额外限制移动1日',
+      interdict: '目标兵力至少400时额外损米30',
+    }[skill.effectProfile] : null;
+    STRAT_INFO.push({ does: `${effects.join('，')}${conditional ? `；${conditional}` : ''}${skill.maxUses ? `，每场最多${skill.maxUses}次` : ''}`, where: '5格内敌军' });
   }
 }
 const SPECIAL = [ // unlock by level for named strategists (6.3 §1)
@@ -72,7 +77,7 @@ const SUBLIST = { def: [1, 4, 6, 10], att: [1, 6, 11, 14] };
 export class Field {
   constructor(g, war, humanSide) {
     const D = data();
-    configureStrategies();
+    configureStrategies(g);
     this.g = g; this.war = war; this.human = humanSide; // 'att' | 'def' | null
     takeLevelUps(g); // level-ups from fights the player did not see (AI wars, a test 白兵) are not told in this one
     this.map = D.maps[war.city];
@@ -108,7 +113,7 @@ export class Field {
   // drawn and no role is reassigned, so the battle goes on exactly where it stood. `resumed` tells the war view to skip 布阵.
   static restore(g, war, snap) {
     const D = data(), f = Object.create(Field.prototype), s = structuredClone(snap);
-    configureStrategies();
+    configureStrategies(g);
     f.g = g; f.war = war; f.human = s.human;
     f.map = D.maps[war.city]; f.r = rng(g);
     f.dep = D.deploy[war.city][war.from] || Object.values(D.deploy[war.city])[0];
@@ -130,8 +135,14 @@ export class Field {
   combatPassive(s) {
     const faction = this.faction(s), ruler = this.g.factions[faction]?.ruler;
     const deployed = this.units.find((u) => u.side === s && u.id === ruler);
-    if (deployed?.gone) return null;
-    return rulerPassive(this.g, faction)?.combat ?? null;
+    let passive = deployed?.gone ? null : rulerPassive(this.g, faction)?.combat ?? null;
+    if (passive?.unique === 'bonds' && this.side(s).filter((u) => u.id !== ruler && relationDisposition(data(), this.g, ruler, u.id) > 0).length >= 2) {
+      passive = { ...passive, strategy: passive.strategy + 2 };
+    }
+    if (passive?.unique === 'garrison' && s === 'def') passive = { ...passive, war: passive.war + 1 };
+    // 关隘的守方获得轻微地形优势，与君主是否参战无关。
+    return this.g.campaignRules === true && s === 'def' && isPass(this.war.city)
+      ? { int: 0, strategy: 0, mobility: 0, tacticRounds: 0, ...passive, war: (passive?.war ?? 0) + 1 } : passive;
   }
 
   assignRoles(side, ids) {
@@ -150,11 +161,15 @@ export class Field {
   }
 
   troops(s) { return this.side(s).reduce((a, u) => a + this.O(u.id).soldiers, 0); }
+  mobilityBonus(s) {
+    const passive = this.combatPassive(s);
+    return (passive?.mobility ?? 0) + (passive?.unique === 'muster' && this.side(s).length >= 4 ? 1 : 0);
+  }
   recover() {
     const D = data();
     for (const s of ['att', 'def']) {
       const q = Math.min(9, Math.floor(this.troops(s) / 1000));
-      const bonus = this.combatPassive(s)?.mobility ?? 0;
+      const bonus = this.mobilityBonus(s);
       this.pool[s] = Math.min(this.pool[s] + D.rules.mobility_recover[q] + bonus, D.rules.mobility_cap[q] + bonus);
     }
   }
@@ -189,7 +204,7 @@ export class Field {
   poolWhenNext(side) {
     if (side === this.turn || side === 'def') return this.pool[side];
     const D = data(), q = Math.min(9, Math.floor(this.troops(side) / 1000));
-    const bonus = this.combatPassive(side)?.mobility ?? 0;
+    const bonus = this.mobilityBonus(side);
     return Math.min(this.pool[side] + D.rules.mobility_recover[q] + bonus, D.rules.mobility_cap[q] + bonus);
   }
   // The cells a side's generals could strike when it next acts: every cell beside one a general can walk to with the pool
@@ -414,6 +429,15 @@ export class Field {
       && !(STRATS[id].custom && STRATS[id].maxUses && (u.skillUses?.[id] ?? 0) >= STRATS[id].maxUses)
       && this.strategies(u).some((s) => s.id === id) && (id === 11 ? this.legal(u, 11) : this.legal(u, id, t));
   }
+  conditionalSkill(skill, caster, target) {
+    if (this.g.campaignRules !== true) return { soldiers: 0, stop: 0, rice: 0 };
+    const commander = this.side(caster.side).find((unit) => unit.commander);
+    return {
+      soldiers: skill.effectProfile === 'fortress' && this.terr(caster.x, caster.y) === CASTLE ? 25 : 0,
+      stop: skill.effectProfile === 'frontier' && commander && Math.abs(commander.x - target.x) + Math.abs(commander.y - target.y) <= 2 ? 1 : 0,
+      rice: skill.effectProfile === 'interdict' && this.O(target.id).soldiers >= 400 ? 30 : 0,
+    };
+  }
   cast(u, id, t, ai = false) {
     const S = STRATS[id], r = this.r, a = this.O(u.id), U = (n) => r(n), lines = [], hits = [];
     if (S.custom && S.maxUses && (u.skillUses?.[id] ?? 0) >= S.maxUses) return { ok: false, hit: false, name: S.name, lines: ['本场使用次数已用完'], hits };
@@ -443,18 +467,19 @@ export class Field {
     const p = id === 8 ? this.lureChance(u, t) : this.hitChance(u, t);
     if (roll100(r) >= p) return { ok: true, hit: false, name: S.name, lines: [`${S.name}失败`], hits };
     if (S.custom) {
-      if (S.soldiers) loss(t, S.soldiers);
+      const extra = this.conditionalSkill(S, u, t), stop = Math.min(10, S.stop + extra.stop);
+      if (S.soldiers || extra.soldiers) loss(t, S.soldiers + extra.soldiers);
       if (S.hp) hp(t, S.hp);
-      if (S.stop && !t.gone) {
-        if (S.stop > this.stopTurnsWhenNext(t)) {
-          t.stop = S.stop; t.stopBy = S.name;
+      if (stop && !t.gone) {
+        if (stop > this.stopTurnsWhenNext(t)) {
+          t.stop = stop; t.stopBy = S.name;
           // 守方施放后立即换日，但目标尚未行动，首次换日不消耗限制天数。
           if (u.side === 'def') t.stopSkipTick = true; else delete t.stopSkipTick;
-          lines.push(`${nm(t)} 无法移动 ${S.stop} 日`);
+          lines.push(`${nm(t)} 无法移动 ${stop} 日`);
         } else lines.push(`${nm(t)} 保持原有移动限制`);
       }
-      if (S.rice) {
-        const ch = this.chest(t.side), amount = Math.min(ch.rice, S.rice);
+      if (S.rice || extra.rice) {
+        const ch = this.chest(t.side), amount = Math.min(ch.rice, S.rice + extra.rice);
         ch.rice -= amount; hits.push({ u: t, rice: -amount }); lines.push(`烧毁敌军米 ${amount}`);
       }
       this.checkCommanders();
@@ -503,7 +528,7 @@ export class Field {
     this.recover(); this.day++; this.turn = 'att';
     if (this.day > MAX_DAY) return this.end('att', 'timeout');
     for (const s of ['att', 'def']) {
-      const ch = this.chest(s), use = Math.floor((this.troops(s) * 4) / 1000);
+      const ch = this.chest(s), use = passiveRiceUse(Math.floor((this.troops(s) * 4) / 1000), { combat: this.combatPassive(s) });
       ch.rice = Math.max(0, ch.rice - use);
       if (ch.rice <= 0) return this.end(s, 'rice'); // a zero balance runs out even when the day's use is 0
     }
@@ -634,12 +659,17 @@ export class Field {
     for (const skill of this.strategies(u).filter((item) => item.custom)) {
       if (this.pool[s] < skill.cost || (skill.maxUses && (u.skillUses?.[skill.id] ?? 0) >= skill.maxUses)) continue;
       for (const target of this.side(foe).filter((e) => this.legal(u, skill.id, e))) {
-        const o = this.O(target.id), value = Math.min(skill.soldiers, o.soldiers) + 20 * Math.min(skill.hp, o.hp)
-          + 40 * Math.max(0, skill.stop - this.stopTurnsWhenNext(target)) + Math.min(skill.rice, this.chest(target.side).rice) / 5;
+        const o = this.O(target.id), extra = this.conditionalSkill(skill, u, target);
+        const value = Math.min(skill.soldiers + extra.soldiers, o.soldiers) + 20 * Math.min(skill.hp, o.hp)
+          + 40 * Math.max(0, Math.min(10, skill.stop + extra.stop) - this.stopTurnsWhenNext(target)) + Math.min(skill.rice + extra.rice, this.chest(target.side).rice) / 5;
         const score = value * realChance(this.hitChance(u, target)) * (target.commander ? 1.2 : 1);
         if (score > (custom?.score ?? 0)) custom = { skill, target, score };
       }
     }
+    // 敌总大将近身且已明显虚弱时，优先尝试白兵，避免先耗尽全军机动力。
+    const vulnerableCommander = this.g.campaignRules === true && this.pool[s] >= ATTACK_COST && o.soldiers > 0
+      ? adj.find((e) => e.commander && (this.O(e.id).hp <= 20 || this.O(e.id).soldiers <= 150)) : null;
+    if (vulnerableCommander) return this.doAttack(u, [vulnerableCommander]);
     if (custom) return this.doCast(u, custom.skill.id, custom.target);
     const special = this.aiStrategy(u, true);
     if (special) return special;
@@ -717,6 +747,23 @@ export class Field {
     const big = [[3, 5, 5], [4, 4, 4], [2, 3, 3], [5, 6, 3], [5, 3, 6], [6, 6, 6]], small = [[2, 3, 3], [3, 3, 3], [1, 2, 2], [3, 5, 2], [3, 2, 4], [4, 4, 4]];
     return ((o.soldiers & 255) <= 2 ? small : big)[t][ARMY_IDX[o.army]];
   }
+  // 新规则只在原有直行受阻时寻找可达绕路；使用真实移动消耗，并且每次仍只走一格。
+  detour(u, target) {
+    if (this.g.campaignRules !== true) return null;
+    const reach = this.reach(u), start = Math.abs(target.x - u.x) + Math.abs(target.y - u.y);
+    let best = null;
+    for (const [key, cost] of reach.dist) {
+      const [x, y] = key.split(',').map(Number), distance = Math.abs(target.x - x) + Math.abs(target.y - y);
+      if (distance >= start || (best && (distance > best.distance || (distance === best.distance && cost >= best.cost)))) continue;
+      best = { x, y, cost, distance };
+    }
+    if (!best) return null;
+    const path = this.path(reach, best.x, best.y), step = path[0];
+    if (!step) return null;
+    const cost = this.cost(u, ...step);
+    this.move(u, ...step, cost);
+    return { type: 'move', u, path: [step], cost };
+  }
   approach(u, target) {
     if (!target || this.pool[u.side] <= 0 || u.stop || u.qimen) return null;
     const dx = target.x - u.x, dy = target.y - u.y;
@@ -729,9 +776,9 @@ export class Field {
     cands = cands.map(([sx, sy]) => [u.x + sx, u.y + sy]).filter(([x, y]) => this.inside(x, y))
       .map(([x, y]) => ({ x, y, c: this.aiEstimate(u, x, y) })).sort((a, b) => a.c - b.c);
     let first = cands.find((c) => c.c <= this.pool[u.side]);
-    if (!first) return null;
+    if (!first) return this.detour(u, target);
     const occ = this.unitAt(first.x, first.y);
-    if (occ && occ.side !== u.side) return u.role === 1 && this.pool[u.side] >= ATTACK_COST ? this.doAttack(u, [occ]) : null;
+    if (occ && occ.side !== u.side) return u.role === 1 && this.pool[u.side] >= ATTACK_COST ? this.doAttack(u, [occ]) : this.detour(u, target);
     // Remake deviation (player feedback N07): A60C waits when its own officer holds the first step, so two
     // officers queued on one axis (each walking toward the other) stood still until the day-31 timeout.
     // Here the other axis is tried instead; still one greedy step, no path-finding.
@@ -740,7 +787,7 @@ export class Field {
       if (!dx || !dy) cands = [[u.x + (dx ? 0 : 1), u.y + (dy ? 0 : 1)], [u.x - (dx ? 0 : 1), u.y - (dy ? 0 : 1)]]
         .filter(([x, y]) => this.inside(x, y)).map(([x, y]) => ({ x, y, c: this.aiEstimate(u, x, y) })).sort((a, b) => a.c - b.c);
       first = cands.find((c) => c !== first && c.c <= this.pool[u.side] && !this.unitAt(c.x, c.y));
-      if (!first) return null;
+      if (!first) return this.detour(u, target);
     }
     this.move(u, first.x, first.y, first.c);
     return { type: 'move', u, path: [[first.x, first.y]], cost: first.c };

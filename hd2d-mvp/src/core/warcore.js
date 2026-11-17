@@ -3,6 +3,8 @@
 import { data, rng, NONE, DEAD, SERVING, RONIN, roads, officerCity, capturedLoyalty, recruitLoyalty, addExp, citiesOf, holdingsOf, kill, isRuler, isPass, sparedHp, rulerPassive } from './game.js';
 import { DUEL_SKILLS } from './duel-skills.js';
 import { makeSquads, officerSpecialty, officerSquadLimit } from './troop-specialties.js';
+import { passiveRiceUse } from './ruler-passives.js';
+import { relationDisposition } from './relationships.js';
 
 // Remove the expedition from its source city and empty the target into the defender's war chest.
 export function setupWar(g, { from, to, ids, commander, gold, rice }) {
@@ -236,11 +238,48 @@ export function fight(g, war) {
   const troops = war.phantom ? { att: 0, def: 0 } : {
     att: troopStrength(war.att.ids, war.def.ids, baseA), def: troopStrength(war.def.ids, war.att.ids, baseD),
   };
-  const sa = baseA + bonus.att + troops.att, sd = baseD + bonus.def + troops.def;
+  const equipment = (ids, enemies, base) => {
+    if (g.campaignRules !== true || !enemies.length) return 0;
+    const D = data(), value = ids.reduce((sum, id) => {
+      const o = O(id);
+      if (!o || o.hp <= 0 || o.soldiers <= 0) return sum;
+      return sum + (D.equipment[o.weapon]?.atk ?? 0) + (D.equipment[24 + o.armor]?.dfn ?? 0);
+    }, 0);
+    return Math.min(6, Math.floor(base / 40), Math.floor(value / 12));
+  };
+  const gear = war.phantom ? { att: 0, def: 0 } : {
+    att: equipment(war.att.ids, war.def.ids, baseA), def: equipment(war.def.ids, war.att.ids, baseD),
+  };
+  const gate = !war.phantom && g.campaignRules === true && war.def.ids.length && isPass(war.city) ? Math.min(3, Math.floor(baseD / 50)) : 0;
+  // 自动结算没有逐格地形与白兵行动，用有上限的近似值体现可判断的专属战斗效果。
+  const lordBonus = (ids, enemies, faction, side, base) => {
+    if (g.campaignRules !== true || !enemies.length || !ids.some((id) => O(id)?.soldiers > 0)) return 0;
+    const unique = rulerPassive(g, faction)?.combat?.unique, ruler = g.factions[faction]?.ruler;
+    const active = ids.filter((id) => O(id)?.hp > 0 && O(id)?.soldiers > 0), D = data();
+    const hasCavalry = (id) => {
+      const o = O(id), band = o.war >= 80 ? '80-99' : o.war >= 50 ? '50-79' : '0-49';
+      const comp = D.composition.find((c) => c.level === o.level && c.war === band) || { inf: 5, arc: 3, cav: 2 };
+      const special = officerSpecialty(D, g, id);
+      return makeSquads(comp, Math.min(10, Math.ceil(o.soldiers / 100)), false, special, officerSquadLimit(D, g, id, special),
+        g.balancedTroops === true && o.level < 3).some((squad) => squad.kind === 'cav');
+    };
+    const applies = unique === 'assault' && side === 'att'
+      || unique === 'muster' && active.length >= 4
+      || unique === 'river' && D.maps[war.city]?.some((row) => row.includes(3))
+      || unique === 'bonds' && active.filter((id) => id !== ruler && relationDisposition(D, g, ruler, id) > 0).length >= 2
+      || (unique === 'cavalry' || unique === 'horsebow') && active.some(hasCavalry)
+      || unique === 'garrison' && side === 'def';
+    return applies ? Math.min(2, Math.floor(base / 80)) : 0;
+  };
+  const lord = war.phantom ? { att: 0, def: 0 } : {
+    att: lordBonus(war.att.ids, war.def.ids, war.attacker, 'att', baseA),
+    def: lordBonus(war.def.ids, war.att.ids, war.defender, 'def', baseD),
+  };
+  const sa = baseA + bonus.att + troops.att + gear.att + lord.att, sd = baseD + bonus.def + troops.def + gear.def + gate + lord.def;
   const q = Math.floor((100 * sa) / Math.max(1, sa + sd));
   const days = 30 - Math.abs(Math.floor(q / 2) - 25);
-  const proj = (ids) => Math.floor((Math.floor(ids.reduce((a, id) => a + O(id).soldiers, 0) / 100) * (days * 4)) / 10);
-  const attWins = !war.def.ids.length || war.def.rice < proj(war.def.ids) || r(100) < q;
+  const proj = (ids, faction) => passiveRiceUse(Math.floor((Math.floor(ids.reduce((a, id) => a + O(id).soldiers, 0) / 100) * (days * 4)) / 10), rulerPassive(g, faction));
+  const attWins = !war.def.ids.length || war.def.rice < proj(war.def.ids, war.defender) || r(100) < q;
   war.day = days;
   // Troop loss by current HP, deaths, experience.
   const loss = { att: 0, def: 0 }, deadN = { att: 0, def: 0 }, dead = [];
@@ -276,16 +315,18 @@ export function fight(g, war) {
     return true;
   });
   return { r, attWins, days, proj, surv, dead, captured, loseSide, winSide, ...(sparedRulers.length ? { sparedRulers } : {}),
-    ...(bonus.att || bonus.def ? { autoSkillBonus: bonus } : {}), ...(troops.att || troops.def ? { autoTroopBonus: troops } : {}) };
+    ...(bonus.att || bonus.def ? { autoSkillBonus: bonus } : {}), ...(troops.att || troops.def ? { autoTroopBonus: troops } : {}),
+    ...(gear.att || gear.def ? { autoGearBonus: gear } : {}), ...(gate ? { autoGateBonus: gate } : {}),
+    ...(lord.att || lord.def ? { autoRulerBonus: lord } : {}) };
 }
 
 export function autoBattle(g, war) {
-  const { r, attWins, days, proj, surv, dead, captured, loseSide, sparedRulers, autoSkillBonus: skillBonus, autoTroopBonus: troopBonus } = fight(g, war);
+  const { r, attWins, days, proj, surv, dead, captured, loseSide, sparedRulers, autoSkillBonus: skillBonus, autoTroopBonus: troopBonus, autoGearBonus: gearBonus, autoGateBonus: gateBonus, autoRulerBonus: lordBonus } = fight(g, war);
   // Rice: projected use, then defender rice/gold shrink by the byte-indexed table.
   const shrink = (v) => v - Math.floor((v * (v < 500 ? 50 : v < 1000 ? 0 : v < 3000 ? 60 : v < 5000 ? 0 : 70)) / 100);
   const chests = {
-    att: { gold: war.att.gold, rice: Math.max(0, war.att.rice - (attWins ? proj(surv.att) : 0)) },
-    def: { gold: shrink(war.def.gold), rice: shrink(Math.max(0, war.def.rice - proj(surv.def))) },
+    att: { gold: war.att.gold, rice: Math.max(0, war.att.rice - (attWins ? proj(surv.att, war.attacker) : 0)) },
+    def: { gold: shrink(war.def.gold), rice: shrink(Math.max(0, war.def.rice - proj(surv.def, war.defender))) },
   };
   // City damage when the attacker wins (11:CD68) replaces the field-battle occupation formula.
   if (attWins && !isPass(war.city)) {
@@ -295,7 +336,8 @@ export function autoBattle(g, war) {
   }
   const res = resolveWar(g, war, { loser: loseSide, survivors: surv, dead, captured, retreated: [], chests, skipCut: true, ...(sparedRulers?.length ? { sparedRulers } : {}) });
   for (const id of dead) kill(g, id);
-  return { ...res, attWins, days, dead, captured: [...captured.byAtt, ...captured.byDef], ...(skillBonus ? { autoSkillBonus: skillBonus } : {}), ...(troopBonus ? { autoTroopBonus: troopBonus } : {}) };
+  return { ...res, attWins, days, dead, captured: [...captured.byAtt, ...captured.byDef], ...(skillBonus ? { autoSkillBonus: skillBonus } : {}), ...(troopBonus ? { autoTroopBonus: troopBonus } : {}),
+    ...(gearBonus ? { autoGearBonus: gearBonus } : {}), ...(gateBonus ? { autoGateBonus: gateBonus } : {}), ...(lordBonus ? { autoRulerBonus: lordBonus } : {}) };
 }
 
 // Officers that can still be placed anywhere for a faction (used for fall checks).

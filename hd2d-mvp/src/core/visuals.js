@@ -54,7 +54,9 @@ export const WARLORD_SCENARIO_NAME = '群英新篇·十方诸侯';
 export const SOVEREIGN_SCENARIO_ID = 'builtin-sovereigns';
 export const SOVEREIGN_SCENARIO_NAME = '群英新篇·君主列传';
 export const MOODS = ['calm', 'joy', 'angry', 'grief'];
-const BUILTIN = /^b-(sun|zhen|diao|cai|wang|chen|gao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong|v2-(?:sun|zhen|diao|cai|wang|chen|gao|dao|xin|gongsun|yuanshu|liubiao|guanjing|tiankai|yanxiang|zhangxun|caimao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong))-(portrait|calm|joy|angry|grief|motion)$/;
+const BUILTIN = /^b-(sun|zhen|diao|cai|wang|chen|gao|gongsun|yuanshu|liubiao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong|v2-(?:sun|zhen|diao|cai|wang|chen|gao|dao|xin|gongsun|yuanshu|liubiao|guanjing|tiankai|yanxiang|zhangxun|caimao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong))-(portrait|calm|joy|angry|grief|motion)$/;
+const MOTION_ONLY = new Set(['gongsun', 'yuanshu', 'liubiao']);
+const builtinAllowed = (match) => !(match[2] === 'motion' && match[1].startsWith('v2-')) && (!MOTION_ONLY.has(match[1]) || match[2] === 'motion');
 const UPLOAD = /^a-[a-f0-9]{64}$/;
 const OFFICER = /^o-(0|[1-9]\d*)$/;
 
@@ -62,22 +64,22 @@ export function validVisualRef(ref, kind, baseCount) {
   if (typeof ref !== 'string') return false;
   if (UPLOAD.test(ref)) return true;
   const built = BUILTIN.exec(ref);
-  if (built) return built[2] === kind && !(kind === 'motion' && built[1].startsWith('v2-'));
+  if (built) return built[2] === kind && builtinAllowed(built);
   const officer = kind === 'motion' && OFFICER.exec(ref);
   return !!officer && Number.isSafeInteger(Number(officer[1])) && Number(officer[1]) < baseCount;
 }
 export function visualUrl(ref) {
   if (UPLOAD.test(ref ?? '')) return `/api/assets/${ref}`;
   const built = BUILTIN.exec(ref ?? '');
-  return built && !(built[2] === 'motion' && built[1].startsWith('v2-')) ? `assets/characters/${built[1]}/${built[2]}.${built[2] === 'motion' ? 'png' : 'webp'}` : null;
+  return built && builtinAllowed(built) ? `assets/characters/${built[1]}/${built[2]}.${built[2] === 'motion' ? 'png' : 'webp'}` : null;
 }
 export function visualRefs(visual) {
   if (!visual) return [];
   return [visual.portrait, visual.motion, ...MOODS.map((m) => visual.faces?.[m])].filter(Boolean);
 }
 export function presetVisual(key) {
-  // 本次只更新立绘和表情，仍使用已有动作；新角色对应原先的动作选择。
-  const oldMotion = { dao: 'gao', xin: 'cai', gongsun: 'gao', yuanshu: 'gao', liubiao: 'chen', guanjing: 'chen', tiankai: 'gao', yanxiang: 'chen', zhangxun: 'gao', caimao: 'gao' };
+  // 三位君主使用专属动作，其余未配置独立动作的角色沿用既有素材。
+  const oldMotion = { dao: 'gao', xin: 'cai', guanjing: 'chen', tiankai: 'gao', yanxiang: 'chen', zhangxun: 'gao', caimao: 'gao' };
   const raw = key.startsWith('v2-') ? key.slice(3) : key;
   const motion = key.startsWith('v2-') ? oldMotion[raw] ?? raw : key;
   return { portrait: `b-${key}-portrait`, faces: Object.fromEntries(MOODS.map((m) => [m, `b-${key}-${m}`])), motion: `b-${motion}-motion` };

@@ -14,7 +14,7 @@ import { autoSkillBonus, fight, setupWar, autoBattle } from '../src/core/warcore
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
 const scenario = await loadScenario(SOVEREIGN_SCENARIO_ID, base);
 function setup() {
-  const data = applyScenario(base, scenario); data.relationships = [];
+  const data = applyScenario(base, scenario); data.relationships = []; data.campaignRelationships = [];
   G.setData(data, SOVEREIGN_SCENARIO_ID);
   return { data, g: G.newGame(7, 1, 1) };
 }

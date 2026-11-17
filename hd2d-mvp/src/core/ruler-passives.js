@@ -24,9 +24,22 @@ const COMBAT = {
   刘璋: [1, 2, 2, 1], 马腾: [4, 0, 1, 0], 公孙瓒: [3, 1, 2, 1], 袁术: [2, 1, 2, 1], 刘表: [1, 2, 3, 1],
 };
 const DEFAULT_COMBAT = { war: [3, 0, 1, 0], int: [1, 2, 3, 1], virtue: [2, 1, 2, 1] };
+// 新规则使用固定、有限的专属效果；旧记录即使启用增强被动也保留原有数值。
+const UNIQUE = {
+  董卓: ['assault', '进攻白兵时，近战对兵队伤害＋5%'],
+  袁绍: ['muster', '战场己方至少4将时，每日机动力恢复和上限额外＋1'],
+  曹操: ['supply', '战场每日粮耗减少约10%（不足10时减少1，最低消耗1）'],
+  孙策: ['river', '河地白兵中，近战兵队对兵队伤害＋5%'],
+  刘备: ['bonds', '战场至少有2名与君主亲近的己方武将时，计策成功率额外最多＋2个百分点'],
+  刘璋: ['harvest', '十月己方各城收米额外＋5%，每城最多50米'],
+  马腾: ['cavalry', '骑兵白兵近战对兵队伤害＋5%'],
+  公孙瓒: ['horsebow', '己方骑兵受到远射伤害−8%，骑射兵远射对兵队伤害＋8%'],
+  袁术: ['tax', '四月己方各城税金额外＋5%，每城最多40金'],
+  刘表: ['garrison', '守方战斗武力额外＋1'],
+};
 const LABELS = { gold: '金', rice: '米', reserve: '后备兵', land: '土地', gov: '统治（至80）', soldiers: '最低兵数武将的兵数', loyalty: '最低忠诚部将的忠诚（至90）' };
 
-export function describeRulerPassive(officer, enhanced = false) {
+export function describeRulerPassive(officer, enhanced = false, campaign = false) {
   if (!officer) return null;
   const stat = (key) => Math.max(0, Math.min(99, Math.floor(Number(officer[key]) || 0)));
   const strongest = ['war', 'int', 'virtue'].reduce((a, b) => stat(b) > stat(a) ? b : a);
@@ -35,8 +48,14 @@ export function describeRulerPassive(officer, enhanced = false) {
     * (enhanced ? (kind === 'gold' || kind === 'rice' ? 4 : kind === 'reserve' || kind === 'soldiers' ? 5 : 1) : 1) }));
   const [war, intelligence, strategy, tacticRounds] = named ? COMBAT[officer.name] : DEFAULT_COMBAT[strongest];
   const combat = enhanced ? { war, int: intelligence, strategy, mobility: 1, tacticRounds } : null;
+  const unique = enhanced && campaign && named ? UNIQUE[officer.name] : null;
+  if (unique) combat.unique = unique[0];
   const battleText = combat ? `；全军战斗武力＋${war}${intelligence ? `、战术智力＋${intelligence}` : ''}，计策成功率最多＋${strategy}个百分点，战场每日机动力恢复和上限＋1${tacticRounds ? '，强弩、火矢和士气向上持续回合＋1' : ''}` : '';
-  return { name: named ? name : `${officer.name || '君主'}·${name}`, effects, ...(combat ? { combat } : {}), text: `每月君主所在城：${effects.map(({ kind, value }) => `${LABELS[kind]}＋${value}`).join('，')}${battleText}` };
+  return { name: named ? name : `${officer.name || '君主'}·${name}`, effects, ...(combat ? { combat } : {}), text: `每月君主所在城：${effects.map(({ kind, value }) => `${LABELS[kind]}＋${value}`).join('，')}${battleText}${unique ? `；专属：${unique[1]}` : ''}` };
+}
+
+export function passiveRiceUse(amount, passive) {
+  return passive?.combat?.unique === 'supply' && amount > 0 ? Math.max(1, amount - Math.max(1, Math.floor(amount / 10))) : amount;
 }
 
 export function applyRulerPassive(g, faction, passive, atPass = false) {

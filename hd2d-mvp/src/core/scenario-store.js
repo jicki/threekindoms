@@ -17,14 +17,14 @@ const HERO_STRATEGIES = {
   xin: { name: '宪英明鉴', cost: 9, soldiers: 50, hp: 0, stop: 1, rice: 30, maxUses: 2 },
   gongsun: { name: '幽骑冲阵', cost: 10, soldiers: 100, hp: 0, stop: 1, rice: 0, maxUses: 2 },
   yuanshu: { name: '淮南筹策', cost: 10, soldiers: 80, hp: 0, stop: 0, rice: 45, maxUses: 2 },
-  liubiao: { name: '荆襄固阵', cost: 9, soldiers: 60, hp: 0, stop: 1, rice: 0, maxUses: 2 },
+  liubiao: { name: '荆襄固阵', cost: 9, soldiers: 60, hp: 0, stop: 1, rice: 0, maxUses: 2, effectProfile: 'fortress' },
   guanjing: { name: '长史守谋', cost: 9, soldiers: 60, hp: 1, stop: 1, rice: 0, maxUses: 2 },
   yanxiang: { name: '阎象明策', cost: 9, soldiers: 60, hp: 0, stop: 1, rice: 20, maxUses: 2 },
   kuaiyue: { name: '异度奇谋', cost: 9, soldiers: 70, hp: 0, stop: 1, rice: 0, maxUses: 2 },
-  tianyu: { name: '北疆守御', cost: 9, soldiers: 60, hp: 0, stop: 1, rice: 0, maxUses: 2, visualEffect: 'tianyu' },
+  tianyu: { name: '北疆守御', cost: 9, soldiers: 60, hp: 0, stop: 1, rice: 0, maxUses: 2, visualEffect: 'tianyu', effectProfile: 'frontier' },
   huangzu: { name: '江汉守备', cost: 10, soldiers: 70, hp: 0, stop: 0, rice: 25, maxUses: 2, visualEffect: 'huangzu' },
   xunyou: { name: '公达奇策', cost: 10, soldiers: 90, hp: 0, stop: 1, rice: 0, maxUses: 2, visualEffect: 'xunyou' },
-  qianzhao: { name: '牵招镇边', cost: 9, soldiers: 60, hp: 0, stop: 1, rice: 0, maxUses: 2, visualEffect: 'qianzhao' },
+  qianzhao: { name: '牵招镇边', cost: 9, soldiers: 60, hp: 0, stop: 1, rice: 0, maxUses: 2, visualEffect: 'qianzhao', effectProfile: 'interdict' },
   huangshi: { name: '黄氏巧思', cost: 9, soldiers: 50, hp: 0, stop: 1, rice: 20, maxUses: 2, visualEffect: 'huangshi' },
 };
 const PRESET_DUEL_SKILLS = { sun: 'gongyao', wang: 'shoucheng', gao: 'xianzhen', dao: 'baier', gongsun: 'baima', qiaorui: 'qiaorui', zhurong: 'zhurong' };
@@ -41,10 +41,13 @@ export function addPresetAbilities(draft, preset, officer) {
 }
 
 export function selectedScenario() {
-  try { return sessionStorage.getItem(SESSION) || ORIGINAL_SCENARIO; }
+  try {
+    const id = sessionStorage.getItem(SESSION) || ORIGINAL_SCENARIO;
+    return [FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID].includes(id) ? EXPANDED_MAP_ID : id;
+  }
   catch { return ORIGINAL_SCENARIO; }
 }
-// 旧版本的动态武将编号可能与合并版的新角色冲突，记录必须留在原版本中继续。
+// 旧版本的动态武将编号可能与合并版冲突；保留检测能力，不在标题中提供旧版入口。
 export function hasLegacyRecords(id = FEMALE_SCENARIO_ID) {
   try {
     const storage = globalThis.localStorage, save = `haou-hd2d-save:scenario:${id}`;
@@ -54,7 +57,7 @@ export function hasLegacyRecords(id = FEMALE_SCENARIO_ID) {
       if (key === save || key?.startsWith(`${save}:`) || key === suspend) return true;
     }
     return globalThis.sessionStorage?.getItem(`haou-hd2d-load:scenario:${id}`) != null;
-  } catch { return true; } // 无法检查时仍保留入口，避免隐藏用户的旧记录。
+  } catch { return true; } // 无法检查时按可能存在记录处理，不修改浏览器数据。
 }
 export function selectScenario(id) {
   if (id !== ORIGINAL_SCENARIO && id !== FEMALE_SCENARIO_ID && id !== HERO_SCENARIO_ID && id !== ROSTER_SCENARIO_ID && id !== WARLORD_SCENARIO_ID && id !== SOVEREIGN_SCENARIO_ID && id !== EXPANDED_MAP_ID && !/^v-[a-f0-9]{32}$/.test(id)) throw new Error('版本编号无效');
@@ -88,7 +91,7 @@ export async function loadScenario(id, base) {
     const scenario = await loadScenario(WARLORD_SCENARIO_ID, base);
     scenario.id = id; scenario.name = SOVEREIGN_SCENARIO_NAME; scenario.rulerPassives = true; scenario.enhancedRulerPassives = true; scenario.fixedAiRecruitment = true; scenario.enhancedDisasters = true;
     scenario.relationshipEffects = true; scenario.autoBattleSkills = true; scenario.safeAiLure = true; scenario.balancedTroops = true;
-    scenario.smartAiReinforcement = true; scenario.cityRaids = true;
+    scenario.smartAiReinforcement = true; scenario.cityRaids = true; scenario.campaignRules = true;
     // 单城势力需要兼顾补兵和行军；仅改变新开局，不覆盖存档中的城市资源。
     for (const [i, amount] of [900, 450, 1200].entries()) scenario.factions[i].opening = { gold: amount, rice: amount };
     const first = base.officers.length + FEMALE_PRESETS.length + EXTRA_PRESETS.length + ROSTER_PRESETS.length + WARLORD_PRESETS.length;
@@ -102,6 +105,11 @@ export async function loadScenario(id, base) {
     for (const [i, ruler] of rulers.entries()) scenario.relations.push({ from: ruler, to: first + i, kind: '君臣' });
     scenario.relations.push({ from: rulers[2], to: first + 3, kind: '父子' });
     scenario.relations.push({ from: 109, to: first + 6, kind: '夫妻' }, { from: 200, to: first + 7, kind: '夫妻' });
+    // 新关系仅对启用新版规则的新局生效，避免改变既有记录中的招募与继位。
+    scenario.campaignRelations = [
+      { from: 222, to: 38, kind: '结义' }, { from: 222, to: 153, kind: '结义' }, { from: 38, to: 153, kind: '结义' },
+      { from: 222, to: 109, kind: '君臣' }, { from: 131, to: 30, kind: '亲属' }, { from: 138, to: 93, kind: '朋友' },
+    ];
     for (const preset of [...FEMALE_PRESETS, ...EXTRA_PRESETS, ...ROSTER_PRESETS, ...WARLORD_PRESETS, ...SOVEREIGN_PRESETS]) {
       const officer = scenario.officers.find((o) => o.name === preset.name);
       if (officer) officer.visual = presetVisual(`v2-${preset.key}`);

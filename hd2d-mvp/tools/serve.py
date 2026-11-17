@@ -133,6 +133,21 @@ def fonts_css():
     return ''.join(re.sub(r",\s*url\([^)]*\.woff\) format\('woff'\)", '', (mods / '@fontsource' / pkg / f'{w}.css').read_text()) + '\n'
                    for pkg, weights in FACES for w in weights)
 
+
+def asset_availability():
+    """只检查清单中的游戏素材，不接受客户端提供的文件路径。"""
+    game = root / 'hd2d-mvp'
+    manifest = json.loads((game / 'assets/manifest.json').read_text(encoding='utf-8'))
+    found = {}
+    for group in ('portraits', 'sprites', 'audio'):
+        for value in manifest.get(group, {}).values():
+            for url in value if isinstance(value, list) else [value]:
+                if not isinstance(url, str) or not re.fullmatch(r'assets/[A-Za-z0-9_./-]+', url) or '..' in url.split('/'):
+                    continue
+                file = game / url
+                found[url] = file.is_file() and os.access(file, os.R_OK)
+    return found
+
 class GameHTTPServer(ThreadingHTTPServer):
     # 浏览器启动时并发请求大量模块，默认队列可能导致连接重置。
     request_queue_size = 128
@@ -171,6 +186,12 @@ class NoCache(SimpleHTTPRequestHandler):
     def do_GET(self):
         self._immutable_asset = False
         path = urlsplit(self.path).path
+        if path == '/api/asset-availability':
+            try: self.json_response(200, asset_availability())
+            except (OSError, ValueError, TypeError, AttributeError) as error:
+                print(f'读取素材清单失败：{error}', file=sys.stderr)
+                self.json_response(503, {'error': '素材清单不可用'})
+            return
         asset = re.fullmatch(r'/api/assets/(a-[a-f0-9]{64})', path)
         if asset:
             try:

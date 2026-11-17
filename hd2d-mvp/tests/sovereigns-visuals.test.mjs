@@ -7,6 +7,43 @@ before(async () => { game = await startGame(); });
 after(() => game?.close());
 const setup = (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns'));
 
+test('三位新增君主使用不同动作图，每格可解码并能转换为战场与单挑帧', { timeout: 120000 }, async () => {
+  const page = await game.open('&flat', { setup });
+  try {
+    const result = await page.evaluate(async () => {
+      const { visualUrl, validVisualRef } = await import('./src/core/visuals.js'), { loadGridMotion } = await import('./src/assets.js');
+      const out = [];
+      for (const [key, name] of [['gongsun', '公孙瓒'], ['yuanshu', '袁术'], ['liubiao', '刘表']]) {
+        const o = window.__game.G.data().officers.find((item) => item.name === name);
+        if (o.visual.motion !== `b-${key}-motion`) throw Error(`${name} 动作没有接入`);
+        const url = visualUrl(o.visual.motion), blob = await (await fetch(url)).blob(), img = await createImageBitmap(blob);
+        const canvas = document.createElement('canvas'); canvas.width = canvas.height = 512;
+        const context = canvas.getContext('2d'); context.drawImage(img, 0, 0, 512, 512); img.close();
+        const pixels = context.getImageData(0, 0, 512, 512).data, cells = Array.from({ length: 16 }, () => ({ visible: 0, clear: 0 }));
+        for (let y = 0; y < 512; y++) for (let x = 0; x < 512; x++) {
+          const cell = cells[Math.floor(y / 128) * 4 + Math.floor(x / 128)], a = pixels[(y * 512 + x) * 4 + 3];
+          if (a > 127) cell.visible++; else if (a === 0) cell.clear++;
+        }
+        let uploadRejected = false;
+        try { await loadGridMotion(url); } catch { uploadRejected = true; }
+        const motion = await loadGridMotion(url, { builtinSize: true });
+        out.push({ key, hash: [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))].join(','), cells,
+          uploadRejected, march: motion.march.meta.frames.length, strike: motion.duel.meta.frames.includes('strike'),
+          valid: validVisualRef(o.visual.motion, 'motion', window.__game.G.data().officers.length), invalidPortrait: validVisualRef(`b-${key}-portrait`, 'portrait', 1000) });
+        motion.march.tex.dispose(); motion.duel.tex.dispose(); motion.duel.turn.tex.dispose();
+      }
+      return out;
+    });
+    assert.equal(new Set(result.map((item) => item.hash)).size, 3);
+    for (const item of result) {
+      assert.ok(item.cells.every((cell) => cell.visible > 100 && cell.clear > 100), item.key);
+      assert.equal(item.uploadRejected, true); assert.equal(item.valid, true); assert.equal(item.invalidPortrait, false);
+      assert.equal(item.march, 15); assert.equal(item.strike, true);
+    }
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
 test('君主列传的新增人物均使用可解码且互不相同的新风格立绘与表情', { timeout: 120000 }, async () => {
   const page = await game.open('&flat', { setup });
   try {

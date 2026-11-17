@@ -6,25 +6,33 @@ import { equipmentIconUrl } from './core/equipment.js';
 
 // One HEAD per URL: the music sets below ask again for the BGM and phrases the audio list already looked for.
 const seen = new Map();
-function exists(url) {
+function exists(url, availability) {
+  if (typeof availability?.[url] === 'boolean') return Promise.resolve(availability[url]);
   if (!seen.has(url)) seen.set(url, fetch(url, { method: 'HEAD' }).then((r) => r.ok, () => false));
   return seen.get(url);
 }
 
 export async function loadManifest() {
+  // 自带服务器一次返回可用素材；静态托管或旧服务器无接口时仍逐项检查。
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 2000);
+  const index = /^https?:$/.test(location.protocol)
+    ? fetch('/api/asset-availability', { signal: controller.signal, cache: 'no-store' })
+      .then((r) => r.ok ? r.json() : null).catch(() => null).finally(() => clearTimeout(timer))
+    : Promise.resolve(null).finally(() => clearTimeout(timer));
   const m = await (await fetch('assets/manifest.json')).json();
+  const availability = await index;
   const found = { portraits: {}, sprites: {}, audio: {}, music: {} };
   const jobs = [];
   // A list means "first existing wins": generated asset, then the local original-game placeholder.
   for (const group of ['portraits', 'sprites', 'audio']) for (const [k, urls] of Object.entries(m[group] || {})) {
     jobs.push((async () => {
-      for (const url of [urls].flat()) if (await exists(url)) { found[group][k] = url; return; }
+      for (const url of [urls].flat()) if (await exists(url, availability)) { found[group][k] = url; return; }
     })());
   }
   // Every BGM and phrase that exists, so the player can switch between the available music sets.
   for (const [k, urls] of Object.entries(m.audio || {})) if (k.startsWith('bgm-') || k.startsWith('cue-')) {
     jobs.push((async () => {
-      const ok = await Promise.all([urls].flat().map(exists));
+      const ok = await Promise.all([urls].flat().map((url) => exists(url, availability)));
       found.music[k] = [urls].flat().filter((_, i) => ok[i]);
     })());
   }
@@ -64,13 +72,17 @@ export function spriteFrame(tex, meta, index) {
 }
 
 // 上传动作使用固定 4×4 帧表，转成游戏已有的命名帧；无第三张特写图时沿用现有简化落马演出。
-export async function loadGridMotion(url) {
+export async function loadGridMotion(url, { builtinSize = false } = {}) {
   const source = await loadPixelTexture(url), image = source.image;
-  if (image.width !== 512 || image.height !== 512) { source.dispose(); throw new Error('动作图须为 512×512'); }
+  const standard = image.width === 512 && image.height === 512;
+  const built = builtinSize && image.width >= 512 && image.height >= 512 && image.width <= 2048 && image.height <= 2048
+    && Math.abs(image.width - image.height) <= Math.max(image.width, image.height) * 0.02;
+  if (!standard && !built) { source.dispose(); throw new Error('动作图须为 512×512'); }
   try {
     const cell = 128, input = document.createElement('canvas'); input.width = input.height = 512;
     const read = input.getContext('2d', { willReadFrequently: true }); if (!read) throw new Error('无法处理动作图');
-    read.drawImage(image, 0, 0);
+    read.imageSmoothingEnabled = false;
+    read.drawImage(image, 0, 0, 512, 512);
     const pixels = read.getImageData(0, 0, 512, 512).data, bounds = [];
     for (let index = 0; index < 16; index++) {
       let top = cell, bottom = -1;
@@ -90,7 +102,7 @@ export async function loadGridMotion(url) {
       indices.forEach((index, i) => {
         const shift = groundShift(index);
         ctx.save(); ctx.beginPath(); ctx.rect(i * cell, 0, cell, cell); ctx.clip();
-        ctx.drawImage(image, (index % 4) * cell, Math.floor(index / 4) * cell, cell, cell, i * cell, shift, cell, cell);
+        ctx.drawImage(input, (index % 4) * cell, Math.floor(index / 4) * cell, cell, cell, i * cell, shift, cell, cell);
         ctx.restore();
       });
       const tex = new THREE.CanvasTexture(canvas); tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestMipmapNearestFilter; tex.colorSpace = THREE.SRGBColorSpace;
