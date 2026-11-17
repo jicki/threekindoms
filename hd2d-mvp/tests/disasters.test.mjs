@@ -109,6 +109,37 @@ test('增强规则不额外抽取随机数，避免改变其他事件的随机�
   } finally { G.setData(base); }
 });
 
+test('相邻月份连续受灾时额外损失减半，保底和旧记录兼容', () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage'), records = new Map();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (k) => records.get(k) ?? null, setItem: (k, v) => records.set(k, String(v)), removeItem: (k) => records.delete(k),
+  } });
+  try {
+    for (const kind of ['drought', 'flood']) {
+      const { g } = fixture(kind, 0, true);
+      g.year = 190; g.month = 4; g.seed = 7;
+      const [[, , first]] = G.disaster(g, kind);
+      assert.ok(first.gold >= 50 && first.rice >= 50 && first.land >= 5 && first.industry >= 5);
+      assert.equal(G.save(g, 1), true); assert.equal(G.saveQuick(g), true);
+      const saved = G.load(1), quick = G.loadQuick(); assert.ok(saved && quick);
+      assert.deepEqual(quick.disasterHistory, saved.disasterHistory);
+      const unprotected = structuredClone(saved); delete unprotected.disasterHistory;
+      for (const state of [saved, unprotected]) { state.month = 5; state.seed = 7; }
+      const [[, , reduced]] = G.disaster(saved, kind), [[, , full]] = G.disaster(unprotected, kind);
+      for (const key of ['gold', 'rice', 'land', 'industry']) assert.ok(reduced[key] >= (key === 'gold' || key === 'rice' ? 50 : 5));
+      assert.ok(reduced.pop < full.pop);
+      if (kind === 'flood') { assert.ok(reduced.rice < full.rice); assert.ok(reduced.industry < full.industry); }
+      else { assert.ok(reduced.land < full.land); assert.ok(reduced.soldiers < full.soldiers); }
+      // 间隔一个月后恢复正常额外损失；没有历史的旧记录也可以读取。
+      const gap = structuredClone(g); gap.month = 6; gap.seed = 7;
+      const old = structuredClone(gap); delete old.disasterHistory; assert.ok(G.upgrade(old));
+      assert.deepEqual(G.disaster(gap, kind), G.disaster(old, kind));
+    }
+  } finally {
+    G.setData(base); if (previous) Object.defineProperty(globalThis, 'localStorage', previous); else delete globalThis.localStorage;
+  }
+});
+
 test('旧记录缺少增强标记时沿用旧灾害，新开局和新记录保存规则', async () => {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage'), records = new Map();
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {

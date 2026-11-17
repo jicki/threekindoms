@@ -138,10 +138,14 @@ function disasterK(c, r) {
 }
 const qLoss = (v, k) => (k === 0 ? Math.floor(v / 4) : Math.floor((Math.floor(v / 4) * k) / 10));
 const hLoss = (v, k) => (k === 0 ? Math.floor(v / 2) : Math.floor((Math.floor(v / 2) * k) / 10));
-function enhancedDisaster(g, c, kind, defense) {
+const eventMonth = (g) => g.year * 12 + g.month;
+function enhancedDisaster(g, c, kind, defense, consecutive = false) {
   const severity = 100 - Math.max(0, Math.min(99, defense));
   // 金米最低各损失 50，土地和产业最低各损失 5；库存不足时只扣除现有量。
-  const rate = 2 + Math.ceil(severity / 20), fraction = (value, divisor) => Math.floor(Math.floor(value / divisor) * severity / 100);
+  const rate = 2 + Math.ceil(severity / 20), fraction = (value, divisor) => {
+    const loss = Math.floor(Math.floor(value / divisor) * severity / 100);
+    return consecutive ? Math.floor(loss / 2) : loss;
+  };
   const cost = (value, minimum, extra = 0) => Math.min(Math.max(0, value), Math.max(minimum, Math.floor(value * rate / 100)) + extra);
   const losses = {
     gold: cost(c.gold, 50), rice: cost(c.rice, 50, kind === 'flood' ? fraction(c.rice, 2) : 0),
@@ -162,7 +166,11 @@ export function disaster(g, kind) {
     const c = g.cities[cid];
     if (c.faction === NONE) continue;
     const defense = c.disaster, k = disasterK(c, r);
-    if (g.enhancedDisasters === true) { hit.push([cid, k, enhancedDisaster(g, c, kind, defense)]); continue; }
+    // 时间随游戏记录，旧记录无此字段时从首次受灾开始计算。
+    const now = eventMonth(g), previous = g.disasterHistory?.[cid];
+    if (g.enhancedDisasters === true || g.cityRaids === true) (g.disasterHistory ??= {})[cid] = now;
+    if (g.cityRaids === true) (g.disasterFactions ??= {})[c.faction] = now;
+    if (g.enhancedDisasters === true) { hit.push([cid, k, enhancedDisaster(g, c, kind, defense, previous === now - 1)]); continue; }
     if (k === 10) { hit.push([cid, 0]); continue; }
     c.pop -= qLoss(c.pop, k);
     if (kind === 'drought') { c.land -= qLoss(c.land, k); for (const id of c.officers) g.officers[id].soldiers -= qLoss(g.officers[id].soldiers, k); }
@@ -185,6 +193,7 @@ export function riots(g) {
     if (type === 1) c.pop = cut(c.pop, k[0]);
     else if (type === 2) { c.gold = cut(c.gold, k[1]); c.rice = cut(c.rice, k[1]); }
     else { c.land = cut(c.land, k[1]); c.industry = cut(c.industry, k[1]); }
+    if (g.cityRaids === true) (g.raidRiots ??= {})[c.id] = eventMonth(g);
     out.push([c.id, type]);
   }
   return out;
@@ -743,12 +752,17 @@ export function currentSlot(g, slot, token = slotToken(slot)) {
   return token !== undefined && g?.slot === slot && saved?.slot === slot && saved.token === token;
 }
 export const loadedSlotToken = (g) => slotStates.get(g)?.token;
-// 袭扰冷却来自存档；拒绝损坏的状态，避免读档后在回合中途报错或重置冷却。
+// 灾害及袭扰时间来自存档；拒绝损坏状态，避免读档后在回合中途报错或重置冷却。
 function validRaidState(g) {
-  if (g.cityRaids !== true) return true;
+  const raids = g.cityRaids === true;
+  if (!raids && g.enhancedDisasters !== true) return true;
   const time = (v) => Number.isSafeInteger(v) && v >= 0;
   const table = (v, limit) => !!v && typeof v === 'object' && !Array.isArray(v) && Object.entries(v).every(([key, value]) =>
     /^(0|[1-9]\d*)$/.test(key) && Number(key) < limit && time(value));
+  if (g.disasterHistory != null && !table(g.disasterHistory, g.cities.length)) return false;
+  if (!raids) return true;
+  if (g.disasterFactions != null && !table(g.disasterFactions, g.factions.length)) return false;
+  if (g.raidRiots != null && !table(g.raidRiots, g.cities.length)) return false;
   const h = g.raidHistory;
   if (h != null && (typeof h !== 'object' || Array.isArray(h) || !(h.last === null || time(h.last))
     || !table(h.factions, g.factions.length) || !table(h.cities, g.cities.length) || !table(h.checked, g.factions.length))) return false;

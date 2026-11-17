@@ -916,8 +916,8 @@ function help() {
   return modal('说明', () => h('div', { class: 'help' },
     h('h4', {}, '操作'), controls({ input: pad.active ? 'pad' : 'keys', family: pad.family, east: pad.confirm === 'east', label: padKey }),
     h('h4', {}, '战略'), h('p', {}, '一个势力行动一轮为一个月。每月按占城数发放命令书（1–3城3张……28–30城13张），点击己方城市，在下方菜单下令；命令书用完即结束本月。4月收税金，10月收米；统治度低于50易生暴乱；5–6月洪水、8–9月旱灾，防灾可减损。'),
-    g?.enhancedDisasters ? h('p', {}, '本局的旱灾与洪水至少损失金、米各50及土地、产业各5；不足时最多扣除现有数量。防灾越高，资源和建设损失越少。') : null,
-    g?.cityRaids ? h('p', {}, '本局可能遭遇山贼或近海海贼守城战，首年不会发生；同一势力与城市至少间隔18个月。普通守将受到致命伤或被擒后下野，君主阵亡则游戏失败；开启不战死时君主仍受保护。') : null,
+    g?.enhancedDisasters ? h('p', {}, '本局的旱灾与洪水至少损失金、米各50及土地、产业各5；不足时最多扣除现有数量。防灾越高，资源和建设损失越少；相邻月份连续受灾时，第二次的额外损失减半。') : null,
+    g?.cityRaids ? h('p', {}, '本局可能遭遇山贼或近海海贼守城战，内陆暴乱也可能引来山贼；首年及势力受灾当月不会发生，城市粮草需足够约20日，同一势力与城市至少间隔18个月。普通守将受到致命伤或被擒后下野，君主阵亡则游戏失败；开启不战死时君主仍受保护。') : null,
     h('p', {}, '武将到史实卒年后一年比一年易病逝；开局或「☰ 系统」可选「武将不老」，「武将不战死」（体力归零改为被俘，体力回复至30；君主不超过体力上限，无法安置时下野），「三顾模式」（同一位人才在该城至多搜索3次必定出仕），「武将不能读书」（敌我都不能入学问所提高智力），以及「免费记录」（存档不消耗命令书）。进度不会自动保存：城市菜单「城 → 记录」或「☰ 系统 → 记录进度」存入八个记录位置之一（消耗一张命令书，免费记录除外），「☰ 系统 → 读取记录」或标题画面读取。战争中可「☰ 系统 → 中断战斗」回到标题，之后从标题「继续战斗」接着打（不占记录位置，只能继续一次）。'),
     h('p', {}, `快捷存档（${quickSaveKey}）另有一个位置，不占八个普通记录；与普通记录一样，默认消耗一张命令书，开启免费记录后不消耗。己方回合的战略地图可存档，F8 快捷读档；在我军回合的战场读取会放弃当前战斗。快捷记录可以反复读取，不是只能继续一次的战场中断。`),
     h('p', {}, '武将不会自然回复体力、也不会自然增加忠诚，需靠病院与赏赐。每将最多带1000兵，征兵每百人20金，再用「分兵」分配。'),
@@ -3047,7 +3047,7 @@ async function showEvent(e) {
     case 'riot': for (const [cid] of e.list) addLog(`${cityName(cid)}发生暴乱${mineCity(cid) ? '！' : ''}`); if (e.list.some(([cid]) => mineCity(cid))) { audio.cue('cue-disaster'); const hit = e.list.filter(([cid]) => mineCity(cid)); await message('暴乱', `${hit.map(([cid]) => cityName(cid)).join('、')}发生暴乱，城市受损。统治度低于50的城市容易发生暴乱。`, g.cities[hit[0][0]].officers[0] ?? null, 'grief'); } break; // the governor, 忧 (bank 25 $AC77)
     case 'raid': {
       const { plan, result } = e, kind = plan.kind === 'pirate' ? '海贼' : '山贼';
-      addLog(`${cityName(plan.city)}遭${kind}袭扰，${result.breached ? '城中受损' : '守军击退敌人'}${result.ronin == null ? '' : `，${name(result.ronin)}下野`}`);
+      addLog(`${cityName(plan.city)}${plan.cause === 'riot' ? '暴乱引来' : '遭'}${kind}袭扰，${result.breached ? '城中受损' : '守军击退敌人'}${result.ronin == null ? '' : `，${name(result.ronin)}下野`}`);
       break;
     }
     case 'disaster': {
@@ -3163,7 +3163,8 @@ const io = {
     }
     strategy.refresh(g); strategy.select(plan.city); strategy.focusCity(plan.city);
     audio.cue('cue-sortie');
-    await message(`${kind}来袭`, `${kind}袭击${cityName(plan.city)}！敌军约${plan.troops}人，请率守军迎战。<br>守将受致命伤或被擒后下野；${g.noWarDeath ? '君主受不战死保护' : '君主阵亡则游戏失败'}。`, g.cities[plan.city].officers[0], 'grief');
+    const attack = plan.cause === 'riot' ? `暴乱引来${kind}袭击${cityName(plan.city)}！` : `${kind}袭击${cityName(plan.city)}！`;
+    await message(`${kind}来袭`, `${attack}敌军约${plan.troops}人，请率守军迎战。<br>守将受致命伤或被擒后下野；${g.noWarDeath ? '君主受不战死保护' : '君主阵亡则游戏失败'}。`, g.cities[plan.city].officers[0], 'grief');
     const w = startRaid(g, plan);
     await fieldWar(w, 'def', { after: { kind: 'raid' } });
   },

@@ -14,19 +14,24 @@ export function chooseRaid(g, faction) {
   if (history.checked[faction] === now) return null;
   history.checked[faction] = now;
   if (history.last === now || now - (history.factions[faction] ?? -Infinity) < RAID_COOLDOWN || now - (g.raidWars?.[faction] ?? -Infinity) < 2) return null;
+  // 先让整个受灾势力处理灾情，避免同月在任何城市被迫进入守城。
+  if (g.disasterFactions?.[faction] === now || g.cities.some((c) => c.faction === faction && g.disasterHistory?.[c.id] === now)) return null;
   const cities = g.cities.filter((c) => {
-    // 暴乱刚发生及其后的冷却初期不再叠加袭扰；不必等整段暴乱冷却结束。
-    if (c.faction !== faction || !c.officers.length || c.riot >= 5 || now - (history.cities[c.id] ?? -Infinity) < RAID_COOLDOWN) return false;
+    if (c.faction !== faction || !c.officers.length || now - (history.cities[c.id] ?? -Infinity) < RAID_COOLDOWN) return false;
     const troops = c.officers.reduce((sum, id) => sum + g.officers[id].soldiers, 0);
-    return troops >= 100 && g.officers[c.officers[0]].hp >= 20 && c.rice >= Math.max(50, Math.ceil(troops * 4 / 1000) * 8);
+    return troops >= 100 && g.officers[c.officers[0]].hp >= 20 && c.rice >= Math.max(50, Math.ceil(troops * 4 / 1000) * 20);
   });
-  if (!cities.length) return null;
+  // 仅内陆本月新发生的暴乱可引来山贼；其余暴乱冷却初期仍不叠加随机袭扰。
+  const riots = cities.filter((c) => c.riot >= 5 && g.raidRiots?.[c.id] === now && !COASTAL_CITIES.includes(c.id));
+  const candidates = riots.length ? riots : cities.filter((c) => !(c.riot >= 5));
+  if (!candidates.length) return null;
   const r = rng(g), human = !g.factions[faction].ai;
   if (r(100) >= (human ? 5 : 1)) return null;
-  const c = cities[r(cities.length)], troops = c.officers.reduce((sum, id) => sum + g.officers[id].soldiers, 0);
+  const c = candidates[r(candidates.length)], troops = c.officers.reduce((sum, id) => sum + g.officers[id].soldiers, 0);
   const kind = COASTAL_CITIES.includes(c.id) ? 'pirate' : 'bandit';
   history.last = now; history.factions[faction] = now; history.cities[c.id] = now;
-  return { city: c.id, faction, kind, troops: Math.max(1, Math.min(2000, Math.floor(troops * (human ? 0.4 : 0.2)))) };
+  const cause = riots.length ? 'riot' : null, ratio = cause ? (human ? 0.3 : 0.15) : (human ? 0.4 : 0.2);
+  return { city: c.id, faction, kind, troops: Math.max(1, Math.min(2000, Math.floor(troops * ratio))), ...(cause ? { cause } : {}) };
 }
 
 // 中断记录只允许尾部连续的临时敌将，避免覆盖真实人物或旧版动态武将。
@@ -66,13 +71,15 @@ export function startRaid(g, plan) {
     || [first, first + 1].some((id) => D.officers[id] && !D.officers[id].clone)) throw new Error('无法准备守城战斗');
   const count = Math.max(1, Math.ceil(plan.troops / 1000)), ids = [];
   for (let i = 0, left = plan.troops; i < count; i++) {
-    const id = first + i, soldiers = Math.min(1000, Math.ceil(left / (count - i))); left -= soldiers; ids.push(id);
+    // 先补足主将，再分配副将，避免越过 1000 人时主将兵力突然减半。
+    const id = first + i, soldiers = Math.min(1000, left); left -= soldiers; ids.push(id);
     g.officers.push({ id, hp: 70, maxHp: 70, war: i ? 45 : 55, int: 28, virtue: 30, loyalty: 100,
       exp: 0, level: 1, soldiers, weapon: 8, armor: 0, army: plan.kind === 'pirate' ? '水' : '山', status: SERVING, loc: null, raidEnemy: true });
   }
   g.raidBattle = { kind: plan.kind, first, count };
   const war = { city: c.id, from: D.cities[c.id].roads[0] ?? c.id, attacker: NONE, defender: c.faction, day: 1,
-    raid: { kind: plan.kind, defenders: [...c.officers] }, att: { ids, gold: 0, rice: Math.max(300, Math.ceil(plan.troops * 4 / 1000) * 31) },
+    raid: { kind: plan.kind, defenders: [...c.officers], ...(plan.cause === 'riot' ? { cause: 'riot' } : {}) },
+    att: { ids, gold: 0, rice: Math.max(300, Math.ceil(plan.troops * 4 / 1000) * 31) },
     def: { ids: [...c.officers], gold: c.gold, rice: c.rice } };
   if (!registerRaidTemplates(g, war)) { g.officers.length = first; delete g.raidBattle; throw new Error('临时敌军资料无效'); }
   c.officers = []; c.gold = 0; c.rice = 0;
@@ -122,7 +129,8 @@ export function finishRaid(g, war) {
 // 电脑遭遇的袭扰较弱，败北仅少量受损；至少留一名守将，贼军永不占城。
 export function resolveAiRaid(g, plan) {
   const c = g.cities[plan.city], r = rng(g), ruler = g.factions[plan.faction].ruler;
-  const breached = r(100) < 20, percent = breached ? 8 : 3;
+  // 暴乱已经损害城市，随之而来的袭扰也应比普通袭扰更弱。
+  const riot = plan.cause === 'riot', breached = r(100) < (riot ? 15 : 20), percent = breached ? (riot ? 6 : 8) : (riot ? 2 : 3);
   for (const id of c.officers) g.officers[id].soldiers -= Math.floor(g.officers[id].soldiers * percent / 100);
   let ronin = null;
   const candidates = c.officers.filter((id) => id !== ruler);

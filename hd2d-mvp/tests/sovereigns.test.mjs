@@ -220,6 +220,32 @@ test('新开局补兵优先考虑实际可补人数，旧存档保留原有同�
   } finally { G.setData(base); }
 });
 
+test('电脑优先为兵力危急的前线君主补兵，旧排序与资源守恒不变', async () => {
+  try {
+    const d = applyScenario(base, scenario);
+    for (const row of d.rules.ai_dispatch) row.weights = [0, 16, 0];
+    d.rules.ai_domestic.faction_development_threshold_out_of_80.fill(0);
+    d.cities[29].roads = []; // 隔离后方城，避免其他调动影响补兵选择。
+    for (const city of d.cities) {
+      city.facilities = { weapons: false, school: false, market: false, hospital: false };
+      city.ai_shop = []; d.search_table[String(city.id)] = [];
+    }
+    G.setData(d, SOVEREIGN_SCENARIO_ID);
+    for (const smart of [false, true]) {
+      const g = G.newGame(4, 1, 1), front = g.cities[0], rear = g.cities[29], lord = g.factions[7].ruler;
+      if (!smart) delete g.smartAiReinforcement;
+      const other = front.officers.find((id) => id !== lord);
+      front.officers = front.officers.filter((id) => id !== other); rear.faction = 7; rear.officers = [other];
+      Object.assign(front, { gold: 0, reserve: 800 }); Object.assign(rear, { gold: 0, reserve: 1000 });
+      for (const c of [front, rear]) for (const id of c.officers) Object.assign(g.officers[id], { soldiers: 1000, loyalty: 100, int: 49 });
+      g.officers[lord].soldiers = 200; g.officers[other].soldiers = 0;
+      await aiTurn(g, 7, { event: async () => {}, war: async () => {}, allianceOffer: async () => false });
+      assert.deepEqual([g.officers[lord].soldiers, front.reserve, g.officers[other].soldiers, rear.reserve],
+        smart ? [1000, 0, 0, 1000] : [200, 800, 1000, 0]);
+    }
+  } finally { G.setData(base); }
+});
+
 test('出阵整备在后备兵恰好足够时不多征兵，旧规则仍维持原样', async () => {
   try {
     for (const [fixed, expected] of [[true, [1000, 0, 1000]], [false, [980, 100, 1000]]]) {

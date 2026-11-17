@@ -101,6 +101,157 @@ test('玩家和电脑分别按 5% 与 1% 抽取，暴乱初期不会叠加袭扰
   } finally { G.setData(base); }
 });
 
+test('受灾势力当月不会受袭，粮草至少够守城二十日', () => {
+  try {
+    for (const enhanced of [false, true]) {
+      const g = fixture(); g.year = 190; g.month = 4;
+      if (!enhanced) delete g.enhancedDisasters;
+      // 同势力还有一座未受灾的城市，也不能绕过保护。
+      g.cities[1].faction = 7; g.seed = 7;
+      assert.ok(G.disaster(g, 'flood').some(([id]) => id === 0));
+      g.seed = 7; assert.equal(chooseRaid(g, 7), null);
+      g.month++; g.seed = 7; assert.ok(chooseRaid(g, 7));
+    }
+    for (const [rice, expected] of [[80, false], [199, false], [200, true]]) {
+      const g = fixture(), c = g.cities[0];
+      c.officers.forEach((id, i) => { g.officers[id].soldiers = i < 2 ? 1000 : i === 2 ? 500 : 0; });
+      c.rice = rice; g.seed = 7;
+      assert.equal(G.troopsOf(g, c), 2500);
+      assert.equal(!!chooseRaid(g, 7), expected, `米 ${rice}`);
+    }
+  } finally { G.setData(base); }
+});
+
+test('灾后城市易主或失去驻军时，原势力当月仍受保护', () => {
+  try {
+    const g = fixture(), hit = g.cities[0], other = g.cities[1];
+    g.year = 190; g.month = 4; g.seed = 7;
+    assert.ok(G.disaster(g, 'flood').some(([id]) => id === hit.id));
+    other.faction = 7; other.rice = 9999;
+    other.officers.push(...hit.officers); hit.officers = []; hit.faction = G.NONE;
+    g.seed = 35; assert.equal(chooseRaid(g, 7), null);
+    g.month++; g.seed = 35; assert.ok(chooseRaid(g, 7));
+  } finally { G.setData(base); }
+});
+
+test('真实月轮转先结算洪水，受灾玩家同月不会遇袭', async () => {
+  try {
+    const g = fixture(); Object.assign(g, { year: 190, month: 3, turnIdx: g.factions.length - 1, current: null, books: 0, ageless: true, seed: 7 });
+    G.data().rules.flood_cities = [0];
+    for (const c of g.cities) c.gov = 99;
+    g.cities[0].rice = 1000;
+    let flooded = false, checked = false;
+    const io = {
+      event: async (event) => { if (event.type === 'disaster' && event.kind === 'flood') flooded = event.list.some(([id]) => id === 0); },
+      raid: async (f) => { if (f === g.player) { checked = true; g.seed = 35; assert.equal(chooseRaid(g, f), null); } },
+      aiTurn: async () => {}, playerTurn: async () => { g.over = { type: 'test' }; },
+    };
+    await G.run(g, io);
+    assert.equal(flooded, true); assert.equal(checked, true); assert.equal(g.month, 4);
+    assert.equal(g.disasterFactions[7], 190 * 12 + 4);
+    assert.ok(g.cities[0].rice >= 200, '粮草本身不能成为跳过袭扰的原因');
+  } finally { G.setData(base); }
+});
+
+test('内陆暴乱可引来较弱山贼并共用冷却，近海暴乱不生成山贼', () => {
+  try {
+    for (const player of [8, 7]) {
+      const g = fixture(player), c = g.cities[13];
+      for (const city of g.cities) city.gov = 99;
+      c.gov = 0; g.seed = 7;
+      assert.deepEqual(G.riots(g), [[13, 1]]);
+      g.seed = 35; const incident = chooseRaid(g, 8); // 抽签为 0，玩家和电脑都命中。
+      assert.equal(incident?.city, 13); assert.equal(incident.kind, 'bandit'); assert.equal(incident.cause, 'riot');
+      assert.equal(incident.troops, Math.floor(G.troopsOf(g, c) * (player === 8 ? 0.3 : 0.15)));
+      assert.equal(chooseRaid(g, 8), null, '同月不能重复触发');
+      g.month = 1; c.riot = 0; g.seed = 7; assert.equal(chooseRaid(g, 8), null, '共用势力冷却');
+    }
+    const coastal = fixture();
+    for (const c of coastal.cities) c.gov = 99;
+    coastal.cities[0].gov = 0; coastal.seed = 7; assert.deepEqual(G.riots(coastal), [[0, 1]]);
+    coastal.seed = 7; assert.equal(chooseRaid(coastal, 7), null);
+    const stale = fixture(8); stale.raidRiots = { 13: 190 * 12 }; stale.cities[13].riot = 0; stale.seed = 35;
+    const ordinary = chooseRaid(stale, 8); assert.ok(ordinary);
+    assert.equal(ordinary.cause, undefined, '没有正在发生的暴乱不能仅凭时间记录触发暴乱守城');
+  } finally { G.setData(base); }
+});
+
+test('电脑暴乱袭扰的受损概率和损兵低于普通袭扰，城市始终保留', () => {
+  try {
+    for (const draw of [0, 17, 99]) {
+      let seed = 1;
+      for (; seed < 10000; seed++) { const r = G.rng({ seed }); if (r(100) === draw && r(100) >= 20) break; }
+      assert.ok(seed < 10000);
+      for (const riot of [false, true]) {
+        const g = fixture(7), c = g.cities[13], owner = c.faction, before = c.officers.map((id) => g.officers[id].soldiers);
+        g.seed = seed;
+        const result = resolveAiRaid(g, { ...plan(g, 13, 'bandit'), ...(riot ? { cause: 'riot' } : {}) });
+        const breached = draw < (riot ? 15 : 20), percent = breached ? (riot ? 6 : 8) : (riot ? 2 : 3);
+        assert.equal(result.breached, breached);
+        assert.equal(c.faction, owner); assert.ok(c.officers.length);
+        assert.equal(G.troopsOf(g, c), before.reduce((sum, troops) => sum + troops - Math.floor(troops * percent / 100), 0));
+      }
+    }
+  } finally { G.setData(base); }
+});
+
+test('真实月轮转能由内陆暴乱触发山贼，并保留该月普通事件顺序', async () => {
+  try {
+    G.setData(applyScenario(base, scenario), SOVEREIGN_SCENARIO_ID);
+    let found = null;
+    for (let seed = 1; seed <= 3000 && !found; seed++) {
+      const g = G.newGame(8, 1, seed); Object.assign(g, { year: 190, month: 0, turnIdx: g.factions.length - 1, current: null, books: 0, ageless: true, seed });
+      for (const city of g.cities) city.gov = 99;
+      g.cities[13].gov = 0;
+      const events = [];
+      const io = {
+        event: async (event) => { if (event.type === 'riot' && event.list.some(([id]) => id === 13)) events.push('riot'); },
+        raid: async (f) => {
+          const incident = chooseRaid(g, f); if (!incident) return;
+          if (f === g.player) { if (incident.cause === 'riot') { events.push('raid'); found = incident; } }
+          else resolveAiRaid(g, incident);
+        },
+        aiTurn: async () => {}, playerTurn: async () => { g.over = { type: 'test' }; },
+      };
+      await G.run(g, io);
+      if (found) { assert.deepEqual(events, ['riot', 'raid']); assert.equal(g.month, 1); }
+    }
+    assert.equal(found?.city, 13); assert.equal(found?.kind, 'bandit'); assert.equal(found?.cause, 'riot');
+  } finally { G.setData(base); }
+});
+
+test('新暴乱遇到同月灾害时保护优先，冷却记录随存档保留', () => {
+  try {
+    const g = fixture(8), c = g.cities[13];
+    G.data().rules.drought_cities = [13];
+    for (const city of g.cities) city.gov = 99;
+    c.gov = 0; g.year = 190; g.month = 7; g.seed = 7;
+    assert.deepEqual(G.riots(g), [[13, 1]]);
+    g.seed = 7; assert.ok(G.disaster(g, 'drought').some(([id]) => id === 13));
+    const loaded = G.upgrade(JSON.parse(JSON.stringify(g))); assert.ok(loaded);
+    loaded.seed = 7; assert.equal(chooseRaid(loaded, 8), null);
+    for (const key of ['raidRiots', 'disasterHistory', 'disasterFactions']) {
+      const bad = structuredClone(g); bad[key] = { 999: 1 }; assert.ok(G.upgrade(bad) === null, `${key} 无效时应拒绝读取`);
+    }
+    const old = structuredClone(g); delete old.cityRaids; delete old.enhancedDisasters;
+    old.raidRiots = []; old.disasterHistory = []; old.disasterFactions = []; assert.ok(G.upgrade(old));
+  } finally { G.setData(base); }
+});
+
+test('敌军跨过分队阈值时总人数守恒且总大将兵力不倒退', () => {
+  try {
+    let previous = 0;
+    for (const troops of [999, 1000, 1001, 1100, 1500, 1999, 2000]) {
+      const g = fixture(), war = startRaid(g, { ...plan(g), troops });
+      const armies = war.att.ids.map((id) => g.officers[id].soldiers);
+      assert.equal(armies.reduce((a, b) => a + b, 0), troops);
+      assert.ok(armies.every((n) => n > 0 && n <= 1000));
+      assert.ok(armies[0] >= previous, `总兵 ${troops}，主将 ${armies[0]} < ${previous}`);
+      previous = armies[0]; finishRaid(g, war);
+    }
+  } finally { G.setData(base); }
+});
+
 test('守城事件有限频率，同一势力至少间隔 18 个月', () => {
   try {
     let total = 0;
@@ -271,6 +422,28 @@ test('中断恢复临时敌军且不覆盖旧动态武将，战后不留临时�
     assert.equal(rec.g.officers.length, clone + 1); assert.deepEqual(rec.g.clones, [clone]); assert.equal(G.name(clone), G.name(0));
     const bad = structuredClone(rec.g); bad.raidBattle = { kind: 'pirate', first: 0, count: 1 };
     assert.equal(validRaidRecord(bad, rec.war), false);
+  } finally {
+    G.setData(base); if (previous) Object.defineProperty(globalThis, 'localStorage', previous); else delete globalThis.localStorage;
+  }
+});
+
+test('暴乱守城中断后保留起因、冷却和守军，并可正常结算', () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage'), records = new Map();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (k) => records.get(k) ?? null, setItem: (k, v) => records.set(k, String(v)), removeItem: (k) => records.delete(k) } });
+  try {
+    const g = fixture(8), city = g.cities[13], defenders = [...city.officers], count = g.officers.length;
+    for (const c of g.cities) c.gov = 99;
+    city.gov = 0; g.seed = 7; assert.deepEqual(G.riots(g), [[13, 1]]);
+    g.seed = 35; const incident = chooseRaid(g, 8); assert.equal(incident?.cause, 'riot');
+    const war = startRaid(g, incident), field = new Field(g, war, 'def');
+    const start = Object.fromEntries([...war.att.ids, ...war.def.ids].map((id) => [id, g.officers[id].soldiers]));
+    assert.equal(suspend(g, war, field, { side: 'def', start, after: { kind: 'raid' } }), true);
+    const rec = takeSuspend(); assert.equal(rec.war.raid.cause, 'riot');
+    assert.equal(rec.g.raidRiots[13], 190 * 12); assert.equal(chooseRaid(rec.g, 8), null);
+    const resumed = Field.restore(rec.g, rec.war, rec.field); resumed.end('att', 'commander');
+    resolveRaid(rec.g, rec.war, resumed.result()); finishRaid(rec.g, rec.war);
+    assert.deepEqual(rec.g.cities[13].officers, defenders); assert.equal(rec.g.officers.length, count);
+    rec.g.month++; rec.g.cities[13].riot = 0; rec.g.seed = 35; assert.equal(chooseRaid(rec.g, 8), null);
   } finally {
     G.setData(base); if (previous) Object.defineProperty(globalThis, 'localStorage', previous); else delete globalThis.localStorage;
   }

@@ -97,3 +97,38 @@ test('3D 山贼守城中玩家君主阵亡后显示败北并进入游戏失败',
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });
+
+test('手机内陆暴乱说明引来山贼，并能完成守城', { timeout: 180000 }, async () => {
+  const page = await game.open('&flat&phone', { setup });
+  try {
+    await page.setViewportSize({ width: 812, height: 375 });
+    await page.evaluate(async () => { (await import('./src/pace.js')).setPace(4); (await import('./src/vignette.js')).setVignettes(false); });
+    await newCampaign(page, '袁术');
+    const before = await page.evaluate(() => {
+      const { g, G, io } = window.__game, city = g.cities[13];
+      g.year = 190; g.month = 1; delete g.raidHistory; delete g.disasterHistory;
+      for (const c of g.cities) c.gov = 99;
+      Object.assign(city, { gov: 0, riot: 0, rice: 9999 });
+      g.seed = 7; const riots = G.riots(g); g.seed = 35;
+      void io.raid(g.player);
+      return { riots, officers: [...city.officers], length: g.officers.length };
+    });
+    assert.deepEqual(before.riots, [[13, 1]]);
+    await page.locator('.panel.msg', { hasText: '山贼来袭' }).waitFor({ timeout: 60000 });
+    await page.waitForFunction(() => document.querySelector('.panel.msg')?.textContent.includes('暴乱引来山贼'), null, { timeout: 15000 });
+    await page.evaluate(() => { const m = document.querySelector('.panel.msg'); if (m.querySelector('.more')?.hidden) m.click(); m.click(); });
+    const stop = closeMessages(page);
+    try {
+      await page.waitForFunction(() => window.__game.war?.st.deploying === true, null, { timeout: 60000 });
+      assert.equal(await page.evaluate(() => window.__game.war.field.war.raid.cause), 'riot');
+      await page.evaluate(() => window.__game.war.finishDeploy());
+      await page.waitForFunction(() => { const w = window.__game.war; return w?.field?.turn === 'def' && !w.st.busy && !w.st.deploying && !document.querySelector('.banner,.panel.msg,.shade,#fade.on'); }, null, { timeout: 90000 });
+      await page.evaluate(() => { const w = window.__game.war; w.field.end('att', 'commander'); w.endTurn(); });
+      await page.locator('.shade', { hasText: '胜' }).waitFor({ timeout: 60000 });
+      await page.locator('.shade .btn', { hasText: '返回大地图' }).click();
+      await page.waitForFunction(() => document.body.dataset.screen === 'strategy' && !window.__game.g?.raidBattle, null, { timeout: 60000 });
+    } finally { stop(); }
+    const after = await page.evaluate(() => ({ officers: window.__game.g.cities[13].officers, length: window.__game.g.officers.length }));
+    assert.deepEqual(after.officers, before.officers); assert.equal(after.length, before.length); assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});

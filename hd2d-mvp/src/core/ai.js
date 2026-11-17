@@ -381,7 +381,7 @@ function reinforce(g, f, spend) {
     if (fixed ? c.reserve <= 0 && c.gold < 20 : (c.gold & 255) * 256 < 300) continue;
     c.officers.forEach((id, i) => {
       if (g.officers[id].soldiers >= 1000) return;
-      const priority = (i === 0 ? 100 : g.officers[id].war) + (smart && isFront(g, f, c) ? 20 : 0) + (smart && c === home ? 15 : 0);
+      const priority = (i === 0 ? 100 : g.officers[id].war) + (smart && isFront(g, f, c) ? 45 : 0) + (smart && c === home ? 30 : 0);
       // 先考虑本次实际可补人数，再兼顾前线、君主城和太守；旧记录仍用原有排序。
       const available = smart ? Math.min(1000 - g.officers[id].soldiers, c.reserve + 100 * Math.max(0, Math.floor(c.gold / 20))) : 1;
       const s = smart ? available * (100 + priority) : priority;
