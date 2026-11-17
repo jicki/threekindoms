@@ -160,6 +160,11 @@ test('编辑器可启用或关闭君主被动，发布后玩家按所选设置�
     assert.equal(await content.getByLabel('增强灾害影响').isChecked(), true);
     await content.getByLabel('增强灾害影响').uncheck(); assert.equal(await admin.evaluate(() => window.__admin.draft.enhancedDisasters), undefined);
     await content.getByLabel('增强灾害影响').check(); assert.equal(await admin.evaluate(() => window.__admin.draft.enhancedDisasters), true);
+    for (const [label, key] of [['优化电脑补兵优先级', 'smartAiReinforcement'], ['启用山贼海贼守城', 'cityRaids']]) {
+      assert.equal(await content.getByLabel(label).isChecked(), true);
+      await content.getByLabel(label).uncheck(); assert.equal(await admin.evaluate((k) => window.__admin.draft[k], key), undefined);
+      await content.getByLabel(label).check(); assert.equal(await admin.evaluate((k) => window.__admin.draft[k], key), true);
+    }
     await content.getByLabel('公孙瓒开局金币').fill('800');
     await content.getByLabel('公孙瓒开局金币').locator('xpath=ancestor::form').getByRole('button', { name: '应用开局资源' }).click();
     assert.equal(await admin.evaluate(() => window.__admin.draft.factions[0].opening.gold), 800);
@@ -170,9 +175,9 @@ test('编辑器可启用或关闭君主被动，发布后玩家按所选设置�
     try {
       const result = await player.evaluate(() => {
         const { G } = window.__game, g = G.newGame(7, 1, 2);
-        return [G.data().rulerPassives, G.data().officers[254].name, G.rulerPassive(g, 7).name, G.data().fixedAiRecruitment, g.cities[0].gold, g.enhancedDisasters];
+        return [G.data().rulerPassives, G.data().officers[254].name, G.rulerPassive(g, 7).name, G.data().fixedAiRecruitment, g.cities[0].gold, g.enhancedDisasters, g.smartAiReinforcement, g.cityRaids];
       });
-      assert.deepEqual(result, [true, '田豫', '白马备战', true, 800, true]); assert.deepEqual(player.errors, []);
+      assert.deepEqual(result, [true, '田豫', '白马备战', true, 800, true, true, true]); assert.deepEqual(player.errors, []);
     } finally { await player.context().close(); }
     assert.deepEqual(admin.errors, []);
   } finally { await admin.context().close(); }

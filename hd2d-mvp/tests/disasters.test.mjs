@@ -53,6 +53,20 @@ test('增强灾害保证金米及土地产业损失，并随防灾提升减轻',
   } finally { G.setData(base); }
 });
 
+test('增强灾害金米最低损失 50、土地产业最低损失 5，库存不足时不透支', () => {
+  try {
+    for (const kind of ['drought', 'flood']) {
+      const { g, city } = fixture(kind, 99, true, { gold: 100, rice: 100, land: 100, industry: 100, pop: 0 });
+      const [[, , loss]] = G.disaster(g, kind);
+      assert.deepEqual([loss.gold, loss.rice, loss.land, loss.industry], [50, 50, 5, 5]);
+      assert.deepEqual([city.gold, city.rice, city.land, city.industry], [50, 50, 95, 95]);
+      const poor = fixture(kind, 99, true, { gold: 49, rice: 7, land: 4, industry: 2, pop: 0 });
+      G.disaster(poor.g, kind);
+      assert.deepEqual([poor.city.gold, poor.city.rice, poor.city.land, poor.city.industry], [0, 0, 0, 0]);
+    }
+  } finally { G.setData(base); }
+});
+
 test('不同灾种的损失有明确数值，玩家和电脑城市采用同一规则', () => {
   try {
     for (const [kind, expected] of [

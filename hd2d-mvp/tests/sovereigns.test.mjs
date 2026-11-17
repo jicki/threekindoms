@@ -195,6 +195,31 @@ test('修正电脑补兵按实际资金和后备兵结算，允许有资源时�
   } finally { G.setData(base); }
 });
 
+test('新开局补兵优先考虑实际可补人数，旧存档保留原有同分顺序', async () => {
+  try {
+    const d = applyScenario(base, scenario);
+    for (const row of d.rules.ai_dispatch) row.weights = [0, 16, 0];
+    d.rules.ai_domestic.faction_development_threshold_out_of_80.fill(0);
+    for (const city of d.cities) {
+      city.facilities = { weapons: false, school: false, market: false, hospital: false };
+      city.ai_shop = []; d.search_table[String(city.id)] = [];
+    }
+    G.setData(d, SOVEREIGN_SCENARIO_ID);
+    for (const smart of [false, true]) {
+      const g = G.newGame(4, 1, 1); if (!smart) delete g.smartAiReinforcement;
+      for (const c of G.citiesOf(g, 2)) {
+        c.reserve = 0; c.gold = 0;
+        for (const id of c.officers) Object.assign(g.officers[id], { soldiers: 1000, loyalty: 100, int: 49 });
+      }
+      const rich = g.cities[11], poor = g.cities[14]; rich.gold = 200; poor.reserve = 1;
+      g.officers[rich.officers[0]].soldiers = 0; g.officers[poor.officers[0]].soldiers = 0;
+      await aiTurn(g, 2, { event: async () => {}, war: async () => {}, allianceOffer: async () => false });
+      assert.deepEqual([g.officers[rich.officers[0]].soldiers, g.officers[poor.officers[0]].soldiers, rich.gold, poor.reserve],
+        smart ? [1000, 0, 0, 1] : [0, 1, 200, 0]);
+    }
+  } finally { G.setData(base); }
+});
+
 test('出阵整备在后备兵恰好足够时不多征兵，旧规则仍维持原样', async () => {
   try {
     for (const [fixed, expected] of [[true, [1000, 0, 1000]], [false, [980, 100, 1000]]]) {

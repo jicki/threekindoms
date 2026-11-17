@@ -442,6 +442,16 @@ if (base) {
       if (!abandonForm()) { enhancedDisasters.checked = !!draft.enhancedDisasters; return; }
       update((d) => { if (enhancedDisasters.checked) d.enhancedDisasters = true; else delete d.enhancedDisasters; }, '增强灾害设置已应用到草稿');
     });
+    const smartReinforcement = el('input', { type: 'checkbox', checked: !!draft.smartAiReinforcement });
+    smartReinforcement.addEventListener('change', () => {
+      if (!abandonForm()) { smartReinforcement.checked = !!draft.smartAiReinforcement; return; }
+      update((d) => { if (smartReinforcement.checked) d.smartAiReinforcement = true; else delete d.smartAiReinforcement; }, '电脑补兵优先级已应用到草稿');
+    });
+    const cityRaids = el('input', { type: 'checkbox', checked: !!draft.cityRaids });
+    cityRaids.addEventListener('change', () => {
+      if (!abandonForm()) { cityRaids.checked = !!draft.cityRaids; return; }
+      update((d) => { if (cityRaids.checked) d.cityRaids = true; else delete d.cityRaids; }, '守城事件设置已应用到草稿');
+    });
     const openingForms = (draft.factions ?? []).map((f, index) => {
       const opening = el('form'), city = data.cities[f.city];
       opening.append(el('h3', {}, `${f.name} · ${city.name}开局资源`), el('div', { class: 'form-grid' },
@@ -474,7 +484,9 @@ if (base) {
       el('button', { type: 'button', onclick: () => { if (abandonForm()) update((d) => d.rulers.splice(i, 1), '君主候选已移除'); } }, '移除')));
     return panel('detail', el('h2', {}, '君主候选'), field('启用君主被动技能', passive), el('p', { class: 'intro' }, '启用后君主每月按当前属性为所在城提供固定增益；继位者按自身属性获得被动，玩家和电脑规则相同。'),
       field('修正电脑补兵', fixedRecruitment), el('p', { class: 'intro' }, '启用后电脑按实际金币和后备兵补兵，金币不足时只能补充可负担的人数。'),
+      field('优化电脑补兵优先级', smartReinforcement), el('p', { class: 'intro' }, '新开局在启用修正电脑补兵时，兼顾可补人数、前线和君主所在城；已有存档保留原有排序。'),
       field('增强灾害影响', enhancedDisasters), el('p', { class: 'intro' }, '新开局启用后，旱灾和洪水会损失金、米、土地与产业；防灾越高损失越小，资源不足时最多损失现有数量。已有存档保留开局时的灾害规则。'),
+      field('启用山贼海贼守城', cityRaids), el('p', { class: 'intro' }, '新开局在首年之后可能遭遇守城战；近海为海贼、其他城市为山贼，同一势力和城市至少间隔18个月。电脑遭遇强度较低，敌人不会占领城市。'),
       ...(openingForms.length ? [el('p', { class: 'intro' }, '开局资源只作用于新游戏，已有存档中的城市资源不会重置。'), ...openingForms] : []),
       el('p', { class: 'intro' }, '本版本各势力的君主始终可选。可将本势力的开局武将增加为候选；玩家选中后由该武将统领原势力，原君主留在该势力。候选不会创建新势力。'),
       el('p', { class: 'intro' }, `原有君主：${data.factions.map((f) => data.officers[f.ruler].name).join('、')}`), form,

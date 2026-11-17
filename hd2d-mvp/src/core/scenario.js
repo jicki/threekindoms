@@ -78,7 +78,7 @@ export function newScenarioId() {
 // 只接受已知结构；读取时也要验证，不能假定本地存储或导入文件可信。
 export function validateScenario(s, base, { draft = false } = {}) {
   obj(s, '版本');
-  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'fixedAiRecruitment', 'enhancedDisasters'], '版本');
+  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids'], '版本');
   if (s.format !== SCENARIO_FORMAT) fail('不支持的版本文件格式');
   if (!(draft && s.id === null) && s.id !== FEMALE_SCENARIO_ID && s.id !== HERO_SCENARIO_ID && s.id !== ROSTER_SCENARIO_ID && s.id !== WARLORD_SCENARIO_ID && s.id !== SOVEREIGN_SCENARIO_ID && (typeof s.id !== 'string' || !ID.test(s.id))) fail('版本编号无效');
   text(s.name, '版本名称', 40);
@@ -89,6 +89,8 @@ export function validateScenario(s, base, { draft = false } = {}) {
   if (s.rulerPassives !== undefined && typeof s.rulerPassives !== 'boolean') fail('君主被动设置无效');
   if (s.fixedAiRecruitment !== undefined && typeof s.fixedAiRecruitment !== 'boolean') fail('电脑补兵设置无效');
   if (s.enhancedDisasters !== undefined && typeof s.enhancedDisasters !== 'boolean') fail('增强灾害设置无效');
+  if (s.smartAiReinforcement !== undefined && typeof s.smartAiReinforcement !== 'boolean') fail('电脑补兵优先级设置无效');
+  if (s.cityRaids !== undefined && typeof s.cityRaids !== 'boolean') fail('守城事件设置无效');
   if (s.rulers !== undefined) array(s.rulers, '君主候选', base.officers.length + 100);
   const maxOfficer = base.officers.length + s.officers.filter((o) => Number.isInteger(o?.id) && o.id >= base.officers.length).length - 1;
   const factions = s.factions === undefined ? [] : s.factions;
@@ -258,6 +260,8 @@ export function applyScenario(base, scenario, { draft = false } = {}) {
   d.rulerPassives = scenario.rulerPassives === true;
   d.fixedAiRecruitment = scenario.fixedAiRecruitment === true;
   d.enhancedDisasters = scenario.enhancedDisasters === true;
+  d.smartAiReinforcement = scenario.smartAiReinforcement === true;
+  d.cityRaids = scenario.cityRaids === true;
   d.relationships = clone(scenario.relations);
   d.rulerCandidates = clone(scenario.rulers ?? []);
   const equipment = [...scenario.weapons.map((item) => ({ item, kind: 'weapon' })), ...(scenario.armors ?? []).map((item) => ({ item, kind: 'armor' }))];

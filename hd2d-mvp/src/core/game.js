@@ -46,6 +46,8 @@ export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random(
   if (scenarioId !== ORIGINAL_SCENARIO) g.scenarioId = scenarioId;
   // 新规则随新开局存入记录；旧记录缺少标记时继续使用原结算。
   if (D.enhancedDisasters) g.enhancedDisasters = true;
+  if (D.smartAiReinforcement) g.smartAiReinforcement = true;
+  if (D.cityRaids) g.cityRaids = true;
   const r = rng(g);
   g.order = r(5); // 新游戏随机0–4 (5.2)
   g.cities = D.cities.map((c) => ({
@@ -138,13 +140,13 @@ const qLoss = (v, k) => (k === 0 ? Math.floor(v / 4) : Math.floor((Math.floor(v 
 const hLoss = (v, k) => (k === 0 ? Math.floor(v / 2) : Math.floor((Math.floor(v / 2) * k) / 10));
 function enhancedDisaster(g, c, kind, defense) {
   const severity = 100 - Math.max(0, Math.min(99, defense));
-  // 金米最低各损失 10，土地和产业最低各损失 1；库存不足时只扣除现有量。
+  // 金米最低各损失 50，土地和产业最低各损失 5；库存不足时只扣除现有量。
   const rate = 2 + Math.ceil(severity / 20), fraction = (value, divisor) => Math.floor(Math.floor(value / divisor) * severity / 100);
   const cost = (value, minimum, extra = 0) => Math.min(Math.max(0, value), Math.max(minimum, Math.floor(value * rate / 100)) + extra);
   const losses = {
-    gold: cost(c.gold, 10), rice: cost(c.rice, 10, kind === 'flood' ? fraction(c.rice, 2) : 0),
-    land: cost(c.land, 1, kind === 'drought' ? fraction(c.land, 4) : 0),
-    industry: cost(c.industry, 1, kind === 'flood' ? fraction(c.industry, 4) : 0),
+    gold: cost(c.gold, 50), rice: cost(c.rice, 50, kind === 'flood' ? fraction(c.rice, 2) : 0),
+    land: cost(c.land, 5, kind === 'drought' ? fraction(c.land, 4) : 0),
+    industry: cost(c.industry, 5, kind === 'flood' ? fraction(c.industry, 4) : 0),
     pop: fraction(c.pop, 4), soldiers: 0, disaster: defense - c.disaster,
   };
   for (const key of ['gold', 'rice', 'land', 'industry', 'pop']) c[key] -= losses[key];
@@ -462,6 +464,8 @@ async function rotate(g, io) {
     if (g.officers[oldRuler].status === DEAD && !(await succession(g, io, f, oldRuler))) continue;
     // 君主继位后按新君主的当前属性生效；已开始的回合和中断战斗恢复不会重复领取。
     if (D.rulerPassives) grantRulerPassive(g, f);
+    // 只在本势力新回合检查，玩家从中断战斗恢复后不会重复抽取。
+    if (g.cityRaids === true && io.raid) { await io.raid(f); if (g.over) return; }
     if (g.factions[f].ai) { await io.aiTurn(f); if (g.over) return; g.books = 0; continue; }
     return; // player's turn begins
   }
@@ -739,12 +743,23 @@ export function currentSlot(g, slot, token = slotToken(slot)) {
   return token !== undefined && g?.slot === slot && saved?.slot === slot && saved.token === token;
 }
 export const loadedSlotToken = (g) => slotStates.get(g)?.token;
+// 袭扰冷却来自存档；拒绝损坏的状态，避免读档后在回合中途报错或重置冷却。
+function validRaidState(g) {
+  if (g.cityRaids !== true) return true;
+  const time = (v) => Number.isSafeInteger(v) && v >= 0;
+  const table = (v, limit) => !!v && typeof v === 'object' && !Array.isArray(v) && Object.entries(v).every(([key, value]) =>
+    /^(0|[1-9]\d*)$/.test(key) && Number(key) < limit && time(value));
+  const h = g.raidHistory;
+  if (h != null && (typeof h !== 'object' || Array.isArray(h) || !(h.last === null || time(h.last))
+    || !table(h.factions, g.factions.length) || !table(h.cities, g.cities.length) || !table(h.checked, g.factions.length))) return false;
+  return g.raidWars == null || table(g.raidWars, g.factions.length);
+}
 export function upgrade(g) {
   if (!g || typeof g !== 'object') return null;
   if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return null;
   try { g.version ??= 1; while (g.version < SAVE_VERSION) MIGRATIONS[g.version++](g); } catch { return null; }
   const ok = g.version === SAVE_VERSION && Number.isInteger(g.year) && Number.isInteger(g.month) && Number.isInteger(g.player)
-    && Array.isArray(g.officers) && Array.isArray(g.factions) && Array.isArray(g.cities) && g.cities.length === 30 && g.cities.every((c) => Array.isArray(c?.officers));
+    && Array.isArray(g.officers) && Array.isArray(g.factions) && Array.isArray(g.cities) && g.cities.length === 30 && g.cities.every((c) => Array.isArray(c?.officers)) && validRaidState(g);
   return ok ? g : null;
 }
 const fromBak = new WeakSet();

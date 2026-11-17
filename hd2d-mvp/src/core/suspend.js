@@ -6,6 +6,7 @@
 // The record: { version, savedAt, g, war, side, start, after, yaw, field } (yaw: which way the war map faced). `after` says what follows the settled war: the
 // player's own turn ({ kind: 'att' }), or the rest of the attacking AI's turn ({ kind: 'def', faction, pts }: ai.js aiDomestic).
 import { upgrade, registerClones, SAVE_VERSION, scenarioKey } from './game.js';
+import { validRaidRecord, registerRaidTemplates } from './raids.js';
 
 export const SUSPEND_KEY = 'haou-hd2d-suspend';
 export const SUSPEND_VERSION = 1;
@@ -62,6 +63,7 @@ const parse = (s) => { try { return s ? JSON.parse(s) : null; } catch { return n
 function valid(rec) {
   if (!rec || typeof rec !== 'object' || rec.version !== SUSPEND_VERSION) return null;
   if (!rec.war || !rec.field || !Array.isArray(rec.field.units) || !['att', 'def'].includes(rec.side) || !rec.after) return null;
+  if (rec.war.raid ? !validRaidRecord(rec.g, rec.war) || rec.side !== 'def' || rec.after.kind !== 'raid' : !!rec.g?.raidBattle) return null;
   return upgrade(rec.g) ? rec : null;
 }
 
@@ -81,7 +83,7 @@ export function peekSuspend() { try { return valid(parse(localStorage.getItem(sc
 export function takeSuspend() {
   const rec = peekSuspend();
   dropSuspend();
-  if (rec) registerClones(rec.g);
+  if (rec) { registerClones(rec.g); if (rec.war.raid) registerRaidTemplates(rec.g, rec.war); }
   return rec;
 }
 export function dropSuspend() { try { localStorage.removeItem(scenarioKey(SUSPEND_KEY)); } catch {} }

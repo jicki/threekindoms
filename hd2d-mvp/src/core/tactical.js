@@ -345,7 +345,10 @@ export class Tactical {
 
   // 体力归零时结束白兵；不战死时被俘，否则阵亡。
   fell(s) {
-    const S = this.side[s], gu = this.gen(s), how = spared(this.g) || 'dead';
+    const S = this.side[s], gu = this.gen(s);
+    // 守城袭扰中非君主只会受擒并在战后下野；君主仍遵守不战死选项。
+    const raidSpared = this.g.raidBattle && !this.g.officers[S.id].raidEnemy && !isRuler(this.g, S.id);
+    const how = raidSpared ? 'captured' : spared(this.g) || 'dead';
     gu.dead = true;
     S.fate = how; S.spared = how !== 'dead';
     this.over = { why: how === 'dead' ? 'dead' : 'capture', side: s };

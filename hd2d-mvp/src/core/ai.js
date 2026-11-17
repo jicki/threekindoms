@@ -252,6 +252,8 @@ async function attackBranch(g, f, r, io, spend) {
   for (const c of citiesOf(g, f)) for (const n of roads(c.id)) {
     const t = g.cities[n];
     if (t.faction === NONE || t.faction === f || g.factions[f].alliance[t.faction] > 0) continue;
+    // 刚遭袭扰的势力本月不再成为电脑战争目标，避免连续被迫作战。
+    if (g.cityRaids === true && g.raidHistory?.factions?.[t.faction] === g.year * 12 + g.month) continue;
     if (target == null || t.officers.length < g.cities[target].officers.length || (t.officers.length === g.cities[target].officers.length && n !== target)) { target = n; source = c.id; }
     else if (n === target && c.officers.length >= g.cities[source].officers.length) source = c.id;
   }
@@ -373,12 +375,16 @@ function redeploy(g, f, spend) {
 // uses the legacy low-byte gate and ignored failed payment unless this scenario opts into corrected recruitment.
 function reinforce(g, f, spend) {
   const fixed = data().fixedAiRecruitment;
+  const smart = fixed && g.smartAiReinforcement === true, home = smart ? capitalOf(g, f) : null;
   let best = null, top = 0;
   for (const c of citiesOf(g, f)) {
     if (fixed ? c.reserve <= 0 && c.gold < 20 : (c.gold & 255) * 256 < 300) continue;
     c.officers.forEach((id, i) => {
       if (g.officers[id].soldiers >= 1000) return;
-      const s = i === 0 ? 100 : g.officers[id].war;
+      const priority = (i === 0 ? 100 : g.officers[id].war) + (smart && isFront(g, f, c) ? 20 : 0) + (smart && c === home ? 15 : 0);
+      // 先考虑本次实际可补人数，再兼顾前线、君主城和太守；旧记录仍用原有排序。
+      const available = smart ? Math.min(1000 - g.officers[id].soldiers, c.reserve + 100 * Math.max(0, Math.floor(c.gold / 20))) : 1;
+      const s = smart ? available * (100 + priority) : priority;
       if (s >= top) { top = s; best = { c, o: g.officers[id] }; }
     });
   }

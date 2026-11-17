@@ -29,7 +29,7 @@ export function makeInteract(wv) {
   };
   // the step ours is on, as ui.warUnit is told it (line 666's chain, unchanged)
   const stepOf = () => (st.strike ? 'strike' : st.atkList ? 'attacks' : st.confirm ? 'confirm' : st.cast != null ? 'targets' : st.menu ? 'strats' : 'cmds');
-  const sideLabel = (s) => `${factionName(field.g, field.faction(s))}军`;
+  const sideLabel = (s) => field.war.raid && s === 'att' ? (field.war.raid.kind === 'pirate' ? '海贼' : '山贼') : `${factionName(field.g, field.faction(s))}军`;
   function hud() {
     const mine = human || 'att', foe = mine === 'att' ? 'def' : 'att';
     ui.warHud({

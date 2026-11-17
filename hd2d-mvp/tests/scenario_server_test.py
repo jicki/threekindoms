@@ -93,11 +93,17 @@ const s = await loadScenario('builtin-sovereigns', base); s.id = 'v-' + 'b'.repe
         empty_opening = copy.deepcopy(scenario); empty_opening['factions'][0]['opening'] = {}
         no_disasters = copy.deepcopy(scenario); del no_disasters['enhancedDisasters']
         disabled_disasters = copy.deepcopy(scenario); disabled_disasters['enhancedDisasters'] = False
-        cases = [scenario, disabled, omitted, no_fix, no_opening, empty_opening, no_disasters, disabled_disasters]
+        no_priority = copy.deepcopy(scenario); del no_priority['smartAiReinforcement']
+        disabled_priority = copy.deepcopy(scenario); disabled_priority['smartAiReinforcement'] = False
+        no_raids = copy.deepcopy(scenario); del no_raids['cityRaids']
+        disabled_raids = copy.deepcopy(scenario); disabled_raids['cityRaids'] = False
+        cases = [scenario, disabled, omitted, no_fix, no_opening, empty_opening, no_disasters, disabled_disasters, no_priority, disabled_priority, no_raids, disabled_raids]
         for value in (None, 0, 1, 'true', [], {}):
             bad = copy.deepcopy(scenario); bad['rulerPassives'] = value; cases.append(bad)
             bad = copy.deepcopy(scenario); bad['fixedAiRecruitment'] = value; cases.append(bad)
             bad = copy.deepcopy(scenario); bad['enhancedDisasters'] = value; cases.append(bad)
+            bad = copy.deepcopy(scenario); bad['smartAiReinforcement'] = value; cases.append(bad)
+            bad = copy.deepcopy(scenario); bad['cityRaids'] = value; cases.append(bad)
         for value in (None, [], '100', -1, 10000, True, 1.5):
             bad = copy.deepcopy(scenario); bad['factions'][0]['opening'] = {'gold': value}; cases.append(bad)
         bad = copy.deepcopy(scenario); bad['factions'][0]['opening'] = {'unknown': 10}; cases.append(bad)
@@ -111,7 +117,7 @@ console.log(JSON.stringify(cases.map(s=>{try {validateScenario(s,base); return t
         for item in cases:
             try: validate(item, BASE); server.append(True)
             except ScenarioError: server.append(False)
-        self.assertEqual(server, [True] * 8 + [False] * (len(cases) - 8))
+        self.assertEqual(server, [True] * 12 + [False] * (len(cases) - 12))
         self.assertEqual(browser, server)
 
     def test_new_factions_match_browser_and_reject_inconsistent_rosters(self):

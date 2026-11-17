@@ -130,7 +130,7 @@ export class Field {
   assignRoles(side, ids) {
     const n = ids.length;
     if (n < 2) return [0];
-    const faction = this.faction(side), f = data().factions[faction]?.aiProfile ?? faction;
+    const faction = this.faction(side), f = this.war.raid && side === 'att' ? 0 : data().factions[faction]?.aiProfile ?? faction;
     const row = ROLE_TABLE[side].find(([, fs]) => fs.includes(f))[0].split(' ')[n - 2];
     const counts = [...row].map(Number);
     // sort non-commanders by war descending (bubble with swap on ≥, kept as an approximation)
@@ -258,6 +258,7 @@ export class Field {
   // at once (`$BC2A`), so units that already left for a city during this war count against its 10-officer room.
   // AI (`AF0D`): the attacker's source city is not checked for room; an overflow is settled after the war.
   retreatTargets(u) {
+    if (this.war.raid && u.side === 'att') return []; // 临时敌军不能退入、占领任何城市。
     const g = this.g, f = this.faction(u.side);
     const room = (c) => this.headcount(c) < 10;
     const ok = (c) => (g.cities[c].faction === f || g.cities[c].faction === NONE) && room(c);
@@ -330,6 +331,7 @@ export class Field {
   }
   // Terrain/adjacency gate `$AD80` plus distance <6; target null for 十面埋伏.
   legal(u, id, t) {
+    if (this.war.raid && id === 8) return false; // 特殊守城的临时敌军不会收编或被收编。
     const T = (v) => this.terr(v.x, v.y);
     if (id === 11) return T(u) === FOREST && this.O(u.id).soldiers >= 100 && !this.ambush?.[u.side];
     if (!t || t.gone || t.side === u.side || this.dist(u, t) >= 6) return false;
@@ -354,6 +356,7 @@ export class Field {
   // place (十面埋伏, 落石, 连弩), else no foe within reach that meets the 计略's condition.
   whyNot(u, id) {
     const S = STRATS[id], T = this.terr(u.x, u.y), o = this.O(u.id);
+    if (this.war.raid && id === 8) return '守城袭扰中不能收编敌军';
     if (S.custom && S.maxUses && (u.skillUses?.[id] ?? 0) >= S.maxUses) return '本场使用次数已用完';
     if (this.pool[u.side] < S.cost) return `机动力不足（需 ${S.cost}，剩 ${this.pool[u.side]}）`;
     if (id === 11) return T !== FOREST ? '需自己位于森林' : o.soldiers < 100 ? '兵数不足100' : this.ambush?.[u.side] ? '我军已设下伏兵' : this.legal(u, 11) ? null : '现在无法施展';
@@ -409,7 +412,8 @@ export class Field {
     // 不战死保护的被俘结果记录在单位上，战斗中切换选项或中断后仍然有效。
     const fall = (v) => {
       const o = this.O(v.id);
-      if (!spared(this.g)) { o.status = DEAD; v.gone = true; v.fate = 'dead'; lines.push(`${nm(v)} 阵亡`); return; }
+      const raidSpared = this.war.raid && v.side === 'def' && !isRuler(this.g, v.id);
+      if (!spared(this.g) && !raidSpared) { o.status = DEAD; v.gone = true; v.fate = 'dead'; lines.push(`${nm(v)} 阵亡`); return; }
       o.hp = sparedHp(this.g, v.id); v.gone = true; v.fate = 'captured'; v.capturedBy = u.side; if (isRuler(this.g, v.id)) v.spared = true; lines.push(`${nm(v)} 被擒`);
     };
     const nm = (v) => data().officers[v.id].name;
@@ -594,7 +598,7 @@ export class Field {
     }
   }
   aiDecide(u) {
-    const o = this.O(u.id), s = u.side, foe = s === 'att' ? 'def' : 'att', isRuler = this.g.factions[this.faction(s)].ruler === u.id;
+    const o = this.O(u.id), s = u.side, foe = s === 'att' ? 'def' : 'att', isRuler = this.g.factions[this.faction(s)]?.ruler === u.id;
     // Retreat check (first matching identity only).
     let flee = false;
     if (isRuler) flee = o.soldiers < 301 && o.hp < 51;

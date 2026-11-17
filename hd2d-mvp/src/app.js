@@ -36,6 +36,7 @@ import { aiTurn, aiDomestic } from './core/ai.js';
 import { suspend, peekSuspend, takeSuspend, dropSuspend, withSuspendLock } from './core/suspend.js';
 import { warFate } from './warreport.js';
 import { setupWar, occupyEmpty, resolveWar, loserQueue, winnerQueue, retreatOptions } from './core/warcore.js';
+import { chooseRaid, startRaid, resolveRaid, finishRaid, resolveAiRaid } from './core/raids.js';
 import { Field, STRAT_INFO } from './core/field.js';
 import { $, $$, keyName, h, pressable, clear, root, layer, modal, message, toast, banner, officerRow, officerTable, pickOfficers, sliders, confirmBox, face, avatar, figure, setHalfbody, setPortraits, setFaces, blocking } from './ui.js';
 import { MONTH_NAMES, SEASON_OF, WEATHER_OF } from './seasons.js';
@@ -915,6 +916,8 @@ function help() {
   return modal('说明', () => h('div', { class: 'help' },
     h('h4', {}, '操作'), controls({ input: pad.active ? 'pad' : 'keys', family: pad.family, east: pad.confirm === 'east', label: padKey }),
     h('h4', {}, '战略'), h('p', {}, '一个势力行动一轮为一个月。每月按占城数发放命令书（1–3城3张……28–30城13张），点击己方城市，在下方菜单下令；命令书用完即结束本月。4月收税金，10月收米；统治度低于50易生暴乱；5–6月洪水、8–9月旱灾，防灾可减损。'),
+    g?.enhancedDisasters ? h('p', {}, '本局的旱灾与洪水至少损失金、米各50及土地、产业各5；不足时最多扣除现有数量。防灾越高，资源和建设损失越少。') : null,
+    g?.cityRaids ? h('p', {}, '本局可能遭遇山贼或近海海贼守城战，首年不会发生；同一势力与城市至少间隔18个月。普通守将受到致命伤或被擒后下野，君主阵亡则游戏失败；开启不战死时君主仍受保护。') : null,
     h('p', {}, '武将到史实卒年后一年比一年易病逝；开局或「☰ 系统」可选「武将不老」，「武将不战死」（体力归零改为被俘，体力回复至30；君主不超过体力上限，无法安置时下野），「三顾模式」（同一位人才在该城至多搜索3次必定出仕），「武将不能读书」（敌我都不能入学问所提高智力），以及「免费记录」（存档不消耗命令书）。进度不会自动保存：城市菜单「城 → 记录」或「☰ 系统 → 记录进度」存入八个记录位置之一（消耗一张命令书，免费记录除外），「☰ 系统 → 读取记录」或标题画面读取。战争中可「☰ 系统 → 中断战斗」回到标题，之后从标题「继续战斗」接着打（不占记录位置，只能继续一次）。'),
     h('p', {}, `快捷存档（${quickSaveKey}）另有一个位置，不占八个普通记录；与普通记录一样，默认消耗一张命令书，开启免费记录后不消耗。己方回合的战略地图可存档，F8 快捷读档；在我军回合的战场读取会放弃当前战斗。快捷记录可以反复读取，不是只能继续一次的战场中断。`),
     h('p', {}, '武将不会自然回复体力、也不会自然增加忠诚，需靠病院与赏赐。每将最多带1000兵，征兵每百人20金，再用「分兵」分配。'),
@@ -1727,7 +1730,7 @@ function officerSheet(id, { live = null, foot = null } = {}) {
       live ? h('h4', { class: 'ocard-name' }, name(id)) : null,
       h('div', { class: 'ocard-tags' },
         live?.side ? h('span', { class: `tagc ocard-side ${live.mine ? 'me' : 'foe'}` }, `${live.mine ? '我军' : '敌军'} · ${live.side === 'a' ? '攻方' : '守方'}`) : null,
-        o.status === G.SERVING ? h('span', { class: 'owner', style: { background: colorOf(f) } }, factionName(f)) : h('span', { class: 'owner' }, { [G.RONIN]: '在野', [G.UNAPPEARED]: '未登场', [G.DEAD]: '已故' }[o.status]),
+        o.status === G.SERVING ? h('span', { class: 'owner', style: { background: colorOf(f) } }, o.raidEnemy ? (g.raidBattle?.kind === 'pirate' ? '海贼' : '山贼') : factionName(f)) : h('span', { class: 'owner' }, { [G.RONIN]: '在野', [G.UNAPPEARED]: '未登场', [G.DEAD]: '已故' }[o.status]),
         G.isRuler(g, id) ? h('span', { class: 'tagc' }, '君主') : null, h('span', { class: 'tagc' }, `${o.army}军`), h('span', { class: 'tagc' }, `等级 ${o.level}`)),
       meter('体力', hp, G.maxHp(o, id), hp < G.maxHp(o, id) / 2 ? 'low' : ''), meter('武力', o.war, 100, 'war'), meter('智力', o.int, 100, 'int'), meter('人德', o.virtue, 100, 'vir'), meter('忠诚', o.loyalty, 100, o.loyalty < 60 ? 'low' : 'loy'),
       h('div', { class: 'stats ocard-gear' },
@@ -2426,7 +2429,7 @@ async function resumeWar(rec) {
   await fieldWar(rec.war, rec.side, { field: rec.field, start: rec.start, after: rec.after, yaw: rec.yaw });
   if (g.over || G.citiesOf(g, g.player).length === 30) return;
   if (rec.after.kind === 'def') { aiDomestic(g, rec.after.faction, rec.after.pts); g.books = 0; strategy.refresh(g); hud(); }
-  else if (g.books <= 0) await banner('命令书用尽　本月行动结束', colorOf(g.player));
+  else if (rec.after.kind !== 'raid' && g.books <= 0) await banner('命令书用尽　本月行动结束', colorOf(g.player));
 }
 // Before a new game or a record replaces it: a suspended war is given up only when the player says so.
 async function leaveSuspend() {
@@ -2462,7 +2465,9 @@ async function fieldWar(w, humanSide, { after = { kind: humanSide === 'att' ? 'a
   threatPinned = false; threatHeld = false; threatView();
   setMode(war); audio.playBgm('bgm-battle');
   await fade(false);
-  await banner(snap ? `${cityName(w.city)}之战　第${field.day}日` : `${cityName(w.city)}之战`, colorOf(w.attacker));
+  const battleName = w.raid ? `${cityName(w.city)}守卫战` : `${cityName(w.city)}之战`;
+  const sideName = (side) => w.raid && side === 'att' ? (w.raid.kind === 'pirate' ? '海贼' : '山贼') : `${factionName(side === 'att' ? w.attacker : w.defender)}军`;
+  await banner(snap ? `${battleName}　第${field.day}日` : battleName, colorOf(w.attacker));
   // The first war of this browser says where the controls are told (feedback R11, 2026-11-02).
   // The first flat war of a run says why it is flat, after the controls notice if both are due (one toast shows at a time).
   let helpFirst = false;
@@ -2472,27 +2477,28 @@ async function fieldWar(w, humanSide, { after = { kind: humanSide === 'att' ? 'a
   warCtx = null; // settled from here on: nothing left to break off
   const res = field.result();
   const before = { att: [...w.att.ids], def: [...w.def.ids] };
-  res.placement = await settleMenu(w, res, humanSide); res.placementSide = humanSide;
-  const out = resolveWar(g, w, res);
+  if (!w.raid) { res.placement = await settleMenu(w, res, humanSide); res.placementSide = humanSide; }
+  const out = w.raid ? resolveRaid(g, w, res) : resolveWar(g, w, res);
   const win = (over.loser === 'att' ? 'def' : 'att') === humanSide;
   audio.sfx(win ? 'sfx-victory' : 'sfx-horn'); audio.playBgm('bgm-result');
   const ledger = (side) => h('div', { class: `ledger ${side === humanSide ? 'me' : 'foe'}` },
-    h('h4', {}, h('i', { class: 'dot', style: { background: colorOf(side === 'att' ? w.attacker : w.defender) } }), `${factionName(side === 'att' ? w.attacker : w.defender)}军`, h('small', {}, side === humanSide ? '我军' : '敌军')),
+    h('h4', {}, h('i', { class: 'dot', style: { background: colorOf(side === 'att' ? w.attacker : w.defender) } }), sideName(side), h('small', {}, side === humanSide ? '我军' : '敌军')),
     ...before[side].map((id) => { const [t, cls, dead] = warFate(g, w, res, id), now = dead ? 0 : g.officers[id].soldiers, lost = start[id] - now;
       return h('div', { class: 'lrow' }, avatar(id, side === over.loser ? 'grief' : 'joy'), h('span', { class: 'nm' }, `${id === before[side][0] ? '★' : ''}${name(id)}`),
         h('span', { class: 'tr' }, `${start[id]} → ${now}`, lost > 0 ? h('em', {}, ` −${lost}`) : null), h('span', { class: `fate ${cls}` }, t)); }));
   await modal('', (close) => [
-    h('div', { class: `result ${win ? 'win' : 'lose'}` }, h('h2', {}, win ? '胜　利' : '败　北'), h('p', {}, `${cityName(w.city)}之战　第${field.day}日　${WHY[over.why]}`)),
+    h('div', { class: `result ${win ? 'win' : 'lose'}` }, h('h2', {}, win ? '胜　利' : '败　北'), h('p', {}, `${battleName}　第${field.day}日　${WHY[over.why]}`)),
     h('div', { class: 'ledgers' }, ledger(humanSide), ledger(humanSide === 'att' ? 'def' : 'att')),
     h('p', { class: 'hint', style: { textAlign: 'center' } }, `${cityName(w.city)}归属：${factionName(g.cities[w.city].faction)}`),
     h('div', { class: 'foot' }, h('button', { class: 'btn primary', onclick: () => close(true) }, '返回大地图'))], { wide: true, label: win ? '胜利' : '败北' });
   await fade(true);
   warNav?.dispose(); warNav = null; war?.dispose?.(); war = null; document.body.dataset.screen = 'strategy'; setMode(strategy);
+  if (w.raid) finishRaid(g, w);
   strategy.refresh(g); sel = w.city; strategy.select(w.city); strategy.focusCity(w.city); audio.playBgm('bgm-strategy'); hud();
   await fade(false);
-  await G.checkFactions(g, io);
+  if (!w.raid || !g.over) await G.checkFactions(g, io);
   strategy.refresh(g); hud();
-  addLog(`${cityName(w.city)}之战：${win ? '<strong>我军胜利</strong>' : '<em>我军败北</em>'}`);
+  addLog(`${battleName}：${win ? '<strong>我军胜利</strong>' : '<em>我军败北</em>'}`);
   void out;
 }
 
@@ -3039,6 +3045,11 @@ async function showEvent(e) {
       break;
     }
     case 'riot': for (const [cid] of e.list) addLog(`${cityName(cid)}发生暴乱${mineCity(cid) ? '！' : ''}`); if (e.list.some(([cid]) => mineCity(cid))) { audio.cue('cue-disaster'); const hit = e.list.filter(([cid]) => mineCity(cid)); await message('暴乱', `${hit.map(([cid]) => cityName(cid)).join('、')}发生暴乱，城市受损。统治度低于50的城市容易发生暴乱。`, g.cities[hit[0][0]].officers[0] ?? null, 'grief'); } break; // the governor, 忧 (bank 25 $AC77)
+    case 'raid': {
+      const { plan, result } = e, kind = plan.kind === 'pirate' ? '海贼' : '山贼';
+      addLog(`${cityName(plan.city)}遭${kind}袭扰，${result.breached ? '城中受损' : '守军击退敌人'}${result.ronin == null ? '' : `，${name(result.ronin)}下野`}`);
+      break;
+    }
     case 'disaster': {
       const mine = e.list.filter(([cid]) => mineCity(cid)), what = e.kind === 'drought' ? '旱灾' : '洪水';
       addLog(`${what}：${e.list.map(([cid]) => cityName(cid)).join('、') || '无'}`);
@@ -3141,6 +3152,20 @@ const io = {
     const left = aiShown === Infinity ? 0 : ORIGINAL.aiTurn - (performance.now() - t0 - aiShown) * paceSpeed();
     if (left > 0 && !g.over) await hold(left, { el: plaque });
     plaque.classList.remove('in'); setTimeout(() => plaque.remove(), 200);
+  },
+  async raid(f) {
+    const plan = chooseRaid(g, f); if (!plan) return;
+    const kind = plan.kind === 'pirate' ? '海贼' : '山贼';
+    if (g.factions[f].ai) {
+      const result = resolveAiRaid(g, plan);
+      await io.event({ type: 'raid', plan, result });
+      return;
+    }
+    strategy.refresh(g); strategy.select(plan.city); strategy.focusCity(plan.city);
+    audio.cue('cue-sortie');
+    await message(`${kind}来袭`, `${kind}袭击${cityName(plan.city)}！敌军约${plan.troops}人，请率守军迎战。<br>守将受致命伤或被擒后下野；${g.noWarDeath ? '君主受不战死保护' : '君主阵亡则游戏失败'}。`, g.cities[plan.city].officers[0], 'grief');
+    const w = startRaid(g, plan);
+    await fieldWar(w, 'def', { after: { kind: 'raid' } });
   },
   async war(w, budget) {
     // the war screen takes over; no 战略中 hold after it. Every plaque goes: the last faction's may still be fading out.

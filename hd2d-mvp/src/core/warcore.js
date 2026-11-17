@@ -6,6 +6,11 @@ import { data, rng, NONE, DEAD, SERVING, RONIN, roads, officerCity, capturedLoya
 export function setupWar(g, { from, to, ids, commander, gold, rice }) {
   const src = g.cities[from], dst = g.cities[to];
   const attacker = src.faction, defender = dst.faction;
+  // 新规则避免势力刚经历战争又立刻遇袭；旧记录不增加状态。
+  if (g.cityRaids === true) {
+    const now = g.year * 12 + g.month, wars = (g.raidWars ??= {});
+    wars[attacker] = now; wars[defender] = now;
+  }
   src.officers = src.officers.filter((x) => !ids.includes(x));
   src.gold -= gold; src.rice -= rice;
   if (!src.officers.length) src.faction = NONE;
