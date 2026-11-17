@@ -21,6 +21,7 @@ hd2d-mvp/assets/**/*.bin
 hd2d-mvp/assets/**/*.mp3
 !hd2d-mvp/assets/characters/**/*.webp
 !hd2d-mvp/assets/characters/**/*.png
+!hd2d-mvp/assets/ai/vignettes/v2/skill-*/story.webp
 !hd2d-mvp/assets/equipment/*.webp
 # 已收录的原版和 PS 复刻版背景音乐。
 !hd2d-mvp/assets/audio/sfx-blast.mp3

@@ -19,7 +19,7 @@ MAX_PORTRAIT_BYTES = 64 * 1024
 MAX_PORTRAIT_SIDE = 384
 MAX_ASSET_BYTES = 1024 * 1024
 ASSET_ID = re.compile(r'^a-[a-f0-9]{64}$')
-BUILTIN_VISUAL = re.compile(r'^b-(sun|zhen|diao|cai|wang|chen|gao)-(portrait|calm|joy|angry|grief|motion)$')
+BUILTIN_VISUAL = re.compile(r'^b-(sun|zhen|diao|cai|wang|chen|gao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong)-(portrait|calm|joy|angry|grief|motion)$')
 MOODS = ('calm', 'joy', 'angry', 'grief')
 
 
@@ -184,12 +184,16 @@ def image_info(data):
 
 
 def validate(s, base):
-    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions'])
+    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'fixedAiRecruitment'])
     if type(s.get('format')) is not int or s['format'] != 1:
         fail('不支持的版本文件格式')
     if not isinstance(s.get('id'), str) or not ID.fullmatch(s['id']):
         fail('版本编号无效')
     text(s.get('name'), '版本名称', 40)
+    if 'rulerPassives' in s and type(s['rulerPassives']) is not bool:
+        fail('君主被动设置无效')
+    if 'fixedAiRecruitment' in s and type(s['fixedAiRecruitment']) is not bool:
+        fail('电脑补兵设置无效')
     if s.get('base') != base_signature(base):
         fail('版本所需的基础数据与当前游戏不一致')
     officers, weapons, skills, relations = (s.get(k) for k in ('officers', 'weapons', 'skills', 'relations'))
@@ -206,13 +210,17 @@ def validate(s, base):
     factions = s.get('factions', []); array(factions, '新势力', 3)
     homes, faction_rulers = set(), {f['ruler'] for f in base['factions']}
     for i, faction in enumerate(factions):
-        obj(faction, '新势力', ['id', 'name', 'ruler', 'city', 'aiProfile'])
+        obj(faction, '新势力', ['id', 'name', 'ruler', 'city', 'aiProfile', 'opening'])
         if type(faction.get('id')) is not int or faction['id'] != len(base['factions']) + i:
             fail('新势力编号不连续')
         text(faction.get('name'), '势力名称')
         integer(faction.get('ruler'), '势力君主', 0, max_officer)
         integer(faction.get('city'), '势力开局城市', 0, len(base['cities']) - 1)
         integer(faction.get('aiProfile'), '势力电脑策略', 0, len(base['factions']) - 1)
+        if 'opening' in faction:
+            opening = faction['opening']; obj(opening, '开局资源', ['gold', 'rice', 'reserve'])
+            for key in ('gold', 'rice', 'reserve'):
+                if key in opening: integer(opening[key], '开局资源', 0, 9999)
         city = base['cities'][faction['city']]
         if city['faction'] != len(base['factions']) or city['officers'] or faction['city'] in homes:
             fail('新势力须占用不同的原版无主空城')
@@ -280,7 +288,7 @@ def validate(s, base):
             integer(a.get(key), label, 0, maximum)
         check_icon(a.get('icon'), 'armor'); check_shops(a); check_requirements(a)
     for i, skill in enumerate(skills):
-        obj(skill, '技能', ['id', 'name', 'cost', 'soldiers', 'hp', 'stop', 'rice', 'maxUses'])
+        obj(skill, '技能', ['id', 'name', 'cost', 'soldiers', 'hp', 'stop', 'rice', 'maxUses', 'visualEffect'])
         if type(skill.get('id')) is not int or skill['id'] != 16 + i:
             fail('新技能编号不连续')
         text(skill.get('name'), '技能名称')
@@ -288,6 +296,8 @@ def validate(s, base):
             integer(skill.get(key), label, minimum, maximum)
         if 'maxUses' in skill:
             integer(skill['maxUses'], '每场使用次数', 1, 3)
+        if 'visualEffect' in skill and (not isinstance(skill['visualEffect'], str) or skill['visualEffect'] not in ('tianyu', 'huangzu', 'xunyou', 'qianzhao', 'huangshi')):
+            fail('技能演出无效')
         if not any(skill[key] for key in ('soldiers', 'hp', 'stop', 'rice')):
             fail('技能至少需要一种效果')
     seen, rosters = set(), [list(c['officers']) for c in base['cities']]
@@ -358,7 +368,7 @@ def validate(s, base):
             integer(sid, '技能编号', 16, 15 + len(skills))
         if len(set(selected)) != len(selected):
             fail('武将技能重复')
-        if 'duelSkill' in o and (not isinstance(o['duelSkill'], str) or o['duelSkill'] not in ('qinglong', 'longdan', 'yanren', 'gongyao', 'shoucheng', 'xianzhen', 'fangtian', 'xiaoyao', 'huchi', 'laojiang', 'baier', 'baima', 'sanjian', 'zhenjiang')):
+        if 'duelSkill' in o and (not isinstance(o['duelSkill'], str) or o['duelSkill'] not in ('qinglong', 'longdan', 'yanren', 'gongyao', 'shoucheng', 'xianzhen', 'fangtian', 'xiaoyao', 'huchi', 'laojiang', 'baier', 'baima', 'sanjian', 'zhenjiang', 'qiaorui', 'zhurong')):
             fail('单挑技无效')
         prior = base['officers'][oid] if oid < nbase else None
         if prior is None or any(prior[k] != o[k] for k in ('appear', 'city', 'faction')):

@@ -7,6 +7,7 @@ import { roll100 } from './origrng.js';
 import { withRecordLock } from './record-lock.js';
 import { applyScenario, ORIGINAL_SCENARIO } from './scenario.js';
 import { loadScenario, selectedScenario } from './scenario-store.js';
+import { applyRulerPassive, describeRulerPassive } from './ruler-passives.js';
 // 原版无主为 7；扩展剧本将无主编号放在实际势力编号之后。
 export let NONE = 7;
 export const DEAD = 3, SERVING = 2, UNAPPEARED = 1, RONIN = 0;
@@ -97,6 +98,15 @@ export const factionName = (g, f) => {
 };
 export const troopsOf = (g, c) => c.officers.reduce((a, id) => a + g.officers[id].soldiers, 0);
 export const books = (g, f) => D.rules.books[citiesOf(g, f).length];
+export function rulerPassive(g, f) {
+  const id = g.factions[f]?.ruler, officer = id == null ? null : g.officers[id];
+  return D.rulerPassives && officer?.status === SERVING ? describeRulerPassive({ ...D.officers[id], ...officer }) : null;
+}
+function grantRulerPassive(g, f) {
+  const turn = `${g.year}:${g.month}:${f}`;
+  if (g.rulerPassiveTurn === turn) return;
+  if (applyRulerPassive(g, f, rulerPassive(g, f))) g.rulerPassiveTurn = turn;
+}
 
 // ---------- Income (5.2): every city, ID 29→0, regardless of owner ----------
 const GOV_C = (t) => (t <= 50 ? 50 : t <= 70 ? 60 : t <= 80 ? 70 : t <= 90 ? 80 : t <= 99 ? 90 : 100);
@@ -365,6 +375,8 @@ export async function run(g, io) {
     // roll into next month's deaths and successions first (the original checks at the command entry).
     if (citiesOf(g, g.player).length === 30) { g.over = { type: 'unify', score: unificationScore(g) }; await io.event({ type: 'unify', score: g.over.score }); return; }
     if (g.current == null || g.books <= 0 || g.endTurn) { g.endTurn = false; await rotate(g, io); continue; }
+    // 若页面在回合初始化途中恢复，补发尚未领取的被动；已领取的回合不会重复。
+    if (D.rulerPassives) grantRulerPassive(g, g.current);
     await io.playerTurn(g.current);
   }
 }
@@ -428,6 +440,8 @@ async function rotate(g, io) {
     const dead = naturalDeaths(g, f);
     if (dead.length) await io.event({ type: 'death', faction: f, list: dead });
     if (g.officers[oldRuler].status === DEAD && !(await succession(g, io, f, oldRuler))) continue;
+    // 君主继位后按新君主的当前属性生效；已开始的回合和中断战斗恢复不会重复领取。
+    if (D.rulerPassives) grantRulerPassive(g, f);
     if (g.factions[f].ai) { await io.aiTurn(f); if (g.over) return; g.books = 0; continue; }
     return; // player's turn begins
   }

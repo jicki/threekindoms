@@ -14,4 +14,6 @@ export const DUEL_SKILLS = {
   baima: { name: '白马突击', hit: 5, damage: 110 },
   sanjian: { name: '三尖奋击', hit: -5, damage: 115 },
   zhenjiang: { name: '镇江拒敌', hit: 5, damage: 110 },
+  qiaorui: { name: '淮军奋击', hit: 0, damage: 110 },
+  zhurong: { name: '祝融飞刀', hit: 5, damage: 110 },
 };

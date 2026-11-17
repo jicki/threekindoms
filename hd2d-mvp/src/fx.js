@@ -318,6 +318,11 @@ export function levelUp(scene, at, anim = animate) {
 const later = (ms, f) => setTimeout(f, ms);
 const burst = (s, at, n, c) => sparkBurst(s, at, n, c, animate, 0.5, glowTex);
 export const STRATEGY_FX = {
+  northGuard: (s, at) => { ring(s, at, '#95dbe9', { r: 1.8, shrink: true, ms: 700 }); later(220, () => streaks(s, at, 7, '#d7f4ff', { from: 'side', ms: 430 })); later(500, () => flare(s, at, '#9cd5ea', { size: 1.8 })); },
+  riverGuard: (s, at) => { ring(s, at, '#76c9ff', { r: 2, ms: 850 }); burst(s, at, 40, '#8bdcff'); later(250, () => { ring(s, at, '#d6f3ff', { r: 1.2, ms: 600 }); flare(s, at, '#8ddaff', { size: 1.9 }); }); },
+  cunning: (s, at) => { ring(s, at, '#d9b2ff', { r: 2, shrink: true, ms: 800 }); later(180, () => ring(s, at, '#ffe2a4', { r: 1.2, ms: 600 })); later(420, () => { flare(s, at, '#dcc5ff', { size: 2 }); embers(s, at, 25, '#eed8ff'); }); },
+  border: (s, at) => { ring(s, at, '#d7b672', { r: 2.2, shrink: true, ms: 650 }); dustPuff(s, at, 1.2); later(300, () => { slash(s, at, true, 1.6); flare(s, at, '#ffe0a2', { size: 1.7 }); }); },
+  ingenuity: (s, at) => { ring(s, at, '#9fe2b6', { r: 1.8, ms: 750 }); later(120, () => streaks(s, at, 6, '#f5d77b', { from: 'above', ms: 440 })); later(500, () => { flare(s, at, '#cef3cb', { size: 1.8 }); burst(s, at, 24, '#b5ebc1'); }); },
   fire: (s, at) => { flames(s, at, '#ffffff', { n: 7, spread: 0.55, h: 1.5, ms: 1100 }); later(100, () => flare(s, at, '#ff9a40', { size: 2.6, ms: 500 })); embers(s, at, 30, '#ff8a30'); later(380, () => embers(s, at, 24, '#ffc060', { rise: 2.8 })); },
   pit: (s, at) => { ring(s, at, '#c8a070', { r: 1.1, shrink: true, ms: 420 }); later(320, () => { dustPuff(s, at, 1.8); flare(s, at.clone().setY(at.y - 0.5), '#a08060', { size: 1.8 }); slash(s, at, false, 1.4, animate, 1.57); }); later(460, () => dustPuff(s, at, 1.2)); },
   phantom: (s, at) => { for (let i = 0; i < 4; i++) later(i * 140, () => { const a = i * Math.PI / 2 + 0.6, p = at.clone(); p.x += Math.cos(a) * 0.9; p.z += Math.sin(a) * 0.9; dustPuff(s, p, 1); flare(s, p, '#b8a8ff', { size: 1.2, ms: 420 }); }); ring(s, at, '#c8b8ff', { r: 2, shrink: true, ms: 900 }); },

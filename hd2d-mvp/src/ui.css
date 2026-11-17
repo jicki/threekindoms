@@ -133,6 +133,7 @@ body.season-turning { transition: --panel 2.5s, --lacquer 2.5s, --lacquer2 2.5s,
 .setup > :first-child { margin-top: auto; }
 .setup-foot { position: sticky; bottom: 0; margin-bottom: auto; display: flex; gap: 10px; justify-content: center; width: 100%; padding: 14px 0 18px; background: linear-gradient(transparent, #000c 40%); }
 .setup h2 { font: 44px var(--brush); letter-spacing: 6px; color: #fff3d6; text-shadow: 0 4px 0 #4a1408; margin: 0; }
+.setup-passive { margin: -12px 0; text-align: center; max-width: 100%; }
 .levels { display: flex; gap: 14px; }
 .level { position: relative; width: 214px; padding: 14px 12px; text-align: center; cursor: pointer; }
 .level b { font-size: 15px; display: block; color: var(--gold); letter-spacing: 3px; }

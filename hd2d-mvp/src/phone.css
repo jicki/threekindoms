@@ -208,6 +208,7 @@ body.phone input, body.phone select, body.phone textarea, body.phone .modal .amo
 /* 开局: the difficulty cards were as large as on a desktop. One thin row for them, one line for the switches, the height to the rulers. */
 body.phone .setup { gap: 4px; }
 body.phone .setup h2 { font-size: 17px; letter-spacing: 2px; line-height: 1.2; }
+body.phone .setup-passive { margin: 0; font-size: 11px; line-height: 1.25; }
 body.phone .levels { gap: 6px; align-items: stretch; }
 body.phone .level { flex: 1 1 0; max-width: 230px; padding: 3px 8px; display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: 6px; text-align: left; }
 body.phone .level b { font-size: 9.5px; letter-spacing: 1px; grid-column: 1 / -1; line-height: 1.2; }

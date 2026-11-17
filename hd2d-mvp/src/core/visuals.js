@@ -27,8 +27,20 @@ export const WARLORD_PRESETS = [
   { key: 'zhangxun', name: '张勋', hp: 79, war: 78, int: 54, virtue: 50, year: 189, birthYear: null, city: 13, death: 240, army: '平', weapon: 18, armor: 2, visualKey: 'gao', soldiers: 500, faction: 8 },
   { key: 'caimao', name: '蔡瑁', hp: 78, war: 73, int: 70, virtue: 45, year: 189, birthYear: null, city: 21, death: 240, army: '水', weapon: 10, armor: 2, visualKey: 'gao', soldiers: 500, faction: 9 },
 ];
+// 新阵容使用独立版本编号，避免占用十方诸侯旧记录中的动态武将编号。
+export const SOVEREIGN_PRESETS = [
+  { key: 'tianyu', name: '田豫', hp: 80, war: 78, int: 82, virtue: 86, year: 189, birthYear: null, city: 0, death: 252, army: '平', weapon: 18, armor: 2, appear: 'initial', faction: 7, soldiers: 400 },
+  { key: 'qiaorui', name: '乔蕤', hp: 78, war: 77, int: 54, virtue: 55, year: 189, birthYear: null, city: 13, death: 197, army: '平', weapon: 18, armor: 2, appear: 'initial', faction: 8, soldiers: 500 },
+  { key: 'huangzu', name: '黄祖', hp: 80, war: 75, int: 58, virtue: 48, year: 189, birthYear: null, city: 21, death: 208, army: '水', weapon: 10, armor: 2, appear: 'initial', faction: 9, soldiers: 500 },
+  { key: 'liuqi', name: '刘琦', hp: 70, war: 45, int: 72, virtue: 75, year: 191, birthYear: null, city: 21, death: 209, army: '水', weapon: 1, armor: 1, appear: 'automatic_faction', faction: 9 },
+  { key: 'xunyou', name: '荀攸', hp: 70, war: 32, int: 94, virtue: 85, year: 192, birthYear: 157, city: 8, death: 214, army: '平', weapon: 1, armor: 0, searchPriority: true },
+  { key: 'qianzhao', name: '牵招', hp: 81, war: 79, int: 82, virtue: 87, year: 191, birthYear: null, city: 4, death: 240, army: '平', weapon: 18, armor: 2, searchPriority: true },
+  { key: 'huangshi', name: '黄夫人', hp: 70, war: 30, int: 90, virtue: 86, year: 207, birthYear: null, city: 21, death: 240, army: '平', weapon: 1, armor: 0, searchPriority: true },
+  { key: 'zhurong', name: '祝融夫人', hp: 82, war: 83, int: 65, virtue: 70, year: 225, birthYear: null, city: 28, death: 240, army: '山', weapon: 18, armor: 2, searchPriority: true },
+];
 export const CHARACTER_PRESETS = [...FEMALE_PRESETS, ...EXTRA_PRESETS];
-export const OFFICER_PRESETS = [...CHARACTER_PRESETS, ...ROSTER_PRESETS, ...WARLORD_PRESETS];
+export const VISUAL_PRESETS = [...CHARACTER_PRESETS, ...SOVEREIGN_PRESETS];
+export const OFFICER_PRESETS = [...CHARACTER_PRESETS, ...ROSTER_PRESETS, ...WARLORD_PRESETS, ...SOVEREIGN_PRESETS];
 export const FEMALE_SCENARIO_ID = 'builtin-female';
 export const FEMALE_SCENARIO_NAME = '巾帼群英';
 export const HERO_SCENARIO_ID = 'builtin-heroes';
@@ -37,8 +49,10 @@ export const ROSTER_SCENARIO_ID = 'builtin-heroes-roster';
 export const ROSTER_SCENARIO_NAME = '群英新篇·新阵容';
 export const WARLORD_SCENARIO_ID = 'builtin-warlords';
 export const WARLORD_SCENARIO_NAME = '群英新篇·十方诸侯';
+export const SOVEREIGN_SCENARIO_ID = 'builtin-sovereigns';
+export const SOVEREIGN_SCENARIO_NAME = '群英新篇·君主列传';
 export const MOODS = ['calm', 'joy', 'angry', 'grief'];
-const BUILTIN = /^b-(sun|zhen|diao|cai|wang|chen|gao)-(portrait|calm|joy|angry|grief|motion)$/;
+const BUILTIN = /^b-(sun|zhen|diao|cai|wang|chen|gao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong)-(portrait|calm|joy|angry|grief|motion)$/;
 const UPLOAD = /^a-[a-f0-9]{64}$/;
 const OFFICER = /^o-(0|[1-9]\d*)$/;
 

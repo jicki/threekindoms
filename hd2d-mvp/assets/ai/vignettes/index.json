@@ -928,5 +928,159 @@
    "blend": 0.12,
    "attempt": 2
   }
+ },
+ "skill-tianyu": {
+  "w": 640,
+  "h": 360,
+  "story": {
+   "src": "v2/skill-tianyu/story.webp",
+   "cols": 3,
+   "rows": 3,
+   "hold": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1.6
+   ],
+   "blend": 0.12,
+   "attempt": 3
+  }
+ },
+ "skill-huangzu": {
+  "w": 640,
+  "h": 360,
+  "story": {
+   "src": "v2/skill-huangzu/story.webp",
+   "cols": 3,
+   "rows": 3,
+   "hold": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1.6
+   ],
+   "blend": 0.12,
+   "attempt": 3
+  }
+ },
+ "skill-xunyou": {
+  "w": 640,
+  "h": 360,
+  "story": {
+   "src": "v2/skill-xunyou/story.webp",
+   "cols": 3,
+   "rows": 3,
+   "hold": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1.6
+   ],
+   "blend": 0.12,
+   "attempt": 3
+  }
+ },
+ "skill-qianzhao": {
+  "w": 640,
+  "h": 360,
+  "story": {
+   "src": "v2/skill-qianzhao/story.webp",
+   "cols": 3,
+   "rows": 3,
+   "hold": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1.6
+   ],
+   "blend": 0.12,
+   "attempt": 3
+  }
+ },
+ "skill-huangshi": {
+  "w": 640,
+  "h": 360,
+  "story": {
+   "src": "v2/skill-huangshi/story.webp",
+   "cols": 3,
+   "rows": 3,
+   "hold": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1.6
+   ],
+   "blend": 0.12,
+   "attempt": 3
+  }
+ },
+ "skill-qiaorui": {
+  "w": 640,
+  "h": 427,
+  "story": {
+   "src": "v2/skill-qiaorui/story.webp",
+   "cols": 3,
+   "rows": 3,
+   "hold": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1.6
+   ],
+   "blend": 0.12,
+   "attempt": 3
+  }
+ },
+ "skill-zhurong": {
+  "w": 640,
+  "h": 360,
+  "story": {
+   "src": "v2/skill-zhurong/story.webp",
+   "cols": 3,
+   "rows": 3,
+   "hold": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1.6
+   ],
+   "blend": 0.12,
+   "attempt": 3
+  }
  }
 }

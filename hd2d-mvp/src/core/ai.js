@@ -231,10 +231,10 @@ function requisition(g, f, dst, k, spend) {
 }
 const cover = (g, f, c, k, need, spend) => { while (c[k] < need) { const t = requisition(g, f, c, k, spend); if (t !== true) return t; } return true; };
 
-// A481 (and BD7A): fill one officer to 1000. Reserve strictly above the need transfers directly; otherwise buy
-// floor((need-reserve)/100)+1 hundreds at 20 gold each (an exact match still buys one extra hundred).
+// 旧规则保留 A481 的额外征兵百人；修正规则按实际缺口向上取整，现有后备兵足够时不花钱。
 function fillCost(c, o) {
   const need = 1000 - o.soldiers;
+  if (data().fixedAiRecruitment) return Math.ceil(Math.max(0, need - c.reserve) / 100) * 20;
   return c.reserve > need ? 0 : (Math.floor((need - c.reserve) / 100) + 1) * 20;
 }
 function fill(c, o, paid) {
@@ -370,12 +370,12 @@ function redeploy(g, f, spend) {
 }
 
 // BD7A: one officer below 1000 across all own cities (governor slot scores 100, others war; later wins ties)
-// is filled to 1000. The funds gate reads city bytes 1–2, i.e. 256×(gold low byte) ≥ 300 since byte 1 is
-// always 0; a failed gold deduction is ignored, so the reserve still grows and the officer is still filled.
+// uses the legacy low-byte gate and ignored failed payment unless this scenario opts into corrected recruitment.
 function reinforce(g, f, spend) {
+  const fixed = data().fixedAiRecruitment;
   let best = null, top = 0;
   for (const c of citiesOf(g, f)) {
-    if ((c.gold & 255) * 256 < 300) continue;
+    if (fixed ? c.reserve <= 0 && c.gold < 20 : (c.gold & 255) * 256 < 300) continue;
     c.officers.forEach((id, i) => {
       if (g.officers[id].soldiers >= 1000) return;
       const s = i === 0 ? 100 : g.officers[id].war;
@@ -383,7 +383,13 @@ function reinforce(g, f, spend) {
     });
   }
   if (!best) return;
-  fill(best.c, best.o, best.c.gold >= fillCost(best.c, best.o));
+  if (fixed) {
+    const { c, o } = best, need = 1000 - o.soldiers;
+    // 先使用后备兵，再按每 20 金购买 100 人；资金不足时只补充实际可负担的人数。
+    const hundreds = Math.min(Math.ceil(Math.max(0, need - c.reserve) / 100), Math.max(0, Math.floor(c.gold / 20)));
+    const available = c.reserve + 100 * hundreds, moved = Math.min(need, available);
+    c.gold -= 20 * hundreds; c.reserve = available - moved; o.soldiers += moved;
+  } else fill(best.c, best.o, best.c.gold >= fillCost(best.c, best.o));
   spend(2);
 }
 

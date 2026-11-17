@@ -1,7 +1,8 @@
 // 版本文件只包含受校验的修改，不接受可执行脚本，也不修改原始数据。
-import { FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID, MOODS, validVisualRef } from './visuals.js';
+import { FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID, SOVEREIGN_SCENARIO_ID, MOODS, validVisualRef } from './visuals.js';
 import { WEAPON_CATEGORIES, validEquipmentIcon } from './equipment.js';
 import { DUEL_SKILLS } from './duel-skills.js';
+import { SKILL_VISUALS } from './skill-visuals.js';
 export const SCENARIO_FORMAT = 1;
 export const ORIGINAL_SCENARIO = 'original';
 export const RELATION_KINDS = ['亲属', '夫妻', '朋友', '对手', '师徒', '父子', '兄弟', '姐妹', '结义', '君臣', '同僚', '姻亲', '宿敌'];
@@ -77,25 +78,31 @@ export function newScenarioId() {
 // 只接受已知结构；读取时也要验证，不能假定本地存储或导入文件可信。
 export function validateScenario(s, base, { draft = false } = {}) {
   obj(s, '版本');
-  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions'], '版本');
+  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'fixedAiRecruitment'], '版本');
   if (s.format !== SCENARIO_FORMAT) fail('不支持的版本文件格式');
-  if (!(draft && s.id === null) && s.id !== FEMALE_SCENARIO_ID && s.id !== HERO_SCENARIO_ID && s.id !== ROSTER_SCENARIO_ID && s.id !== WARLORD_SCENARIO_ID && (typeof s.id !== 'string' || !ID.test(s.id))) fail('版本编号无效');
+  if (!(draft && s.id === null) && s.id !== FEMALE_SCENARIO_ID && s.id !== HERO_SCENARIO_ID && s.id !== ROSTER_SCENARIO_ID && s.id !== WARLORD_SCENARIO_ID && s.id !== SOVEREIGN_SCENARIO_ID && (typeof s.id !== 'string' || !ID.test(s.id))) fail('版本编号无效');
   text(s.name, '版本名称', 40);
   if (s.base !== baseSignature(base)) fail('版本所需的基础数据与当前游戏不一致');
   array(s.officers, '武将', base.officers.length + 100);
   const armors = s.armors === undefined ? [] : s.armors;
   array(s.weapons, '新武器', 64); array(armors, '新防具', 64); array(s.skills, '新技能', 64); array(s.relations, '人物关系', 1000);
+  if (s.rulerPassives !== undefined && typeof s.rulerPassives !== 'boolean') fail('君主被动设置无效');
+  if (s.fixedAiRecruitment !== undefined && typeof s.fixedAiRecruitment !== 'boolean') fail('电脑补兵设置无效');
   if (s.rulers !== undefined) array(s.rulers, '君主候选', base.officers.length + 100);
   const maxOfficer = base.officers.length + s.officers.filter((o) => Number.isInteger(o?.id) && o.id >= base.officers.length).length - 1;
   const factions = s.factions === undefined ? [] : s.factions;
   array(factions, '新势力', 3);
   const homes = new Set(), factionRulers = new Set(base.factions.map((f) => f.ruler));
   for (const [i, f] of factions.entries()) {
-    obj(f, '新势力'); keys(f, ['id', 'name', 'ruler', 'city', 'aiProfile'], '新势力');
+    obj(f, '新势力'); keys(f, ['id', 'name', 'ruler', 'city', 'aiProfile', 'opening'], '新势力');
     if (f.id !== base.factions.length + i) fail('新势力编号不连续');
     text(f.name, '势力名称');
     integer(f.ruler, '势力君主', 0, maxOfficer); integer(f.city, '势力开局城市', 0, base.cities.length - 1);
     integer(f.aiProfile, '势力电脑策略', 0, base.factions.length - 1);
+    if (f.opening !== undefined) {
+      obj(f.opening, '开局资源'); keys(f.opening, ['gold', 'rice', 'reserve'], '开局资源');
+      for (const key of ['gold', 'rice', 'reserve']) if (f.opening[key] !== undefined) integer(f.opening[key], '开局资源', 0, 9999);
+    }
     if (base.cities[f.city].faction !== base.factions.length || base.cities[f.city].officers.length || homes.has(f.city)) fail('新势力须占用不同的原版无主空城');
     if (factionRulers.has(f.ruler)) fail('势力君主重复');
     homes.add(f.city); factionRulers.add(f.ruler);
@@ -149,12 +156,13 @@ export function validateScenario(s, base, { draft = false } = {}) {
   }
   for (let i = 0; i < s.skills.length; i++) {
     const skill = s.skills[i]; obj(skill, '技能');
-    keys(skill, ['id', 'name', 'cost', 'soldiers', 'hp', 'stop', 'rice', 'maxUses'], '技能');
+    keys(skill, ['id', 'name', 'cost', 'soldiers', 'hp', 'stop', 'rice', 'maxUses', 'visualEffect'], '技能');
     if (skill.id !== 16 + i) fail('新技能编号不连续');
     text(skill.name, '技能名称'); integer(skill.cost, '技能机动力', 1, 60);
     integer(skill.soldiers, '损兵', 0, 1000); integer(skill.hp, '体力伤害', 0, 99);
     integer(skill.stop, '限制移动天数', 0, 10); integer(skill.rice, '粮草损失', 0, 9999);
     if (skill.maxUses !== undefined) integer(skill.maxUses, '每场使用次数', 1, 3);
+    if (skill.visualEffect !== undefined && (typeof skill.visualEffect !== 'string' || !Object.hasOwn(SKILL_VISUALS, skill.visualEffect))) fail('技能演出无效');
     if (!skill.soldiers && !skill.hp && !skill.stop && !skill.rice) fail('技能至少需要一种效果');
   }
   for (const o of s.officers) {
@@ -236,13 +244,18 @@ export function applyScenario(base, scenario, { draft = false } = {}) {
   if (extraFactions.length) {
     const neutral = base.factions.length + extraFactions.length;
     for (const city of d.cities) if (city.faction === base.factions.length) city.faction = neutral;
-    for (const f of extraFactions) { d.factions.push({ id: f.id, name: f.name, ruler: f.ruler, aiProfile: f.aiProfile }); d.cities[f.city].faction = f.id; }
+    for (const f of extraFactions) {
+      d.factions.push({ id: f.id, name: f.name, ruler: f.ruler, aiProfile: f.aiProfile });
+      Object.assign(d.cities[f.city], f.opening ?? {}, { faction: f.id });
+    }
     d.rules.turn_orders = d.rules.turn_orders.map((order, index) => order.flatMap((id, at) => {
       const next = extraFactions.findIndex((_, n) => at === Math.floor((n + 1) * order.length / (extraFactions.length + 1)));
       return next < 0 ? [id] : [id, extraFactions[(next + index) % extraFactions.length].id];
     }));
   }
   d.customSkills = clone(scenario.skills);
+  d.rulerPassives = scenario.rulerPassives === true;
+  d.fixedAiRecruitment = scenario.fixedAiRecruitment === true;
   d.relationships = clone(scenario.relations);
   d.rulerCandidates = clone(scenario.rulers ?? []);
   const equipment = [...scenario.weapons.map((item) => ({ item, kind: 'weapon' })), ...(scenario.armors ?? []).map((item) => ({ item, kind: 'armor' }))];

@@ -1,5 +1,5 @@
 import { ORIGINAL_SCENARIO, newDraft, validateScenario } from './scenario.js';
-import { FEMALE_PRESETS, EXTRA_PRESETS, ROSTER_PRESETS, WARLORD_PRESETS, FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, ROSTER_SCENARIO_ID, ROSTER_SCENARIO_NAME, WARLORD_SCENARIO_ID, WARLORD_SCENARIO_NAME, femaleOfficer } from './visuals.js';
+import { FEMALE_PRESETS, EXTRA_PRESETS, ROSTER_PRESETS, WARLORD_PRESETS, SOVEREIGN_PRESETS, FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, ROSTER_SCENARIO_ID, ROSTER_SCENARIO_NAME, WARLORD_SCENARIO_ID, WARLORD_SCENARIO_NAME, SOVEREIGN_SCENARIO_ID, SOVEREIGN_SCENARIO_NAME, femaleOfficer } from './visuals.js';
 import { ensureFemaleGear } from './equipment.js';
 
 const SESSION = 'haou-hd2d-scenario';
@@ -19,8 +19,13 @@ const HERO_STRATEGIES = {
   guanjing: { name: '长史守谋', cost: 9, soldiers: 60, hp: 1, stop: 1, rice: 0, maxUses: 2 },
   yanxiang: { name: '阎象明策', cost: 9, soldiers: 60, hp: 0, stop: 1, rice: 20, maxUses: 2 },
   kuaiyue: { name: '异度奇谋', cost: 9, soldiers: 70, hp: 0, stop: 1, rice: 0, maxUses: 2 },
+  tianyu: { name: '北疆守御', cost: 9, soldiers: 60, hp: 0, stop: 1, rice: 0, maxUses: 2, visualEffect: 'tianyu' },
+  huangzu: { name: '江汉守备', cost: 10, soldiers: 70, hp: 0, stop: 0, rice: 25, maxUses: 2, visualEffect: 'huangzu' },
+  xunyou: { name: '公达奇策', cost: 10, soldiers: 90, hp: 0, stop: 1, rice: 0, maxUses: 2, visualEffect: 'xunyou' },
+  qianzhao: { name: '牵招镇边', cost: 9, soldiers: 60, hp: 0, stop: 1, rice: 0, maxUses: 2, visualEffect: 'qianzhao' },
+  huangshi: { name: '黄氏巧思', cost: 9, soldiers: 50, hp: 0, stop: 1, rice: 20, maxUses: 2, visualEffect: 'huangshi' },
 };
-const PRESET_DUEL_SKILLS = { sun: 'gongyao', wang: 'shoucheng', gao: 'xianzhen', dao: 'baier', gongsun: 'baima' };
+const PRESET_DUEL_SKILLS = { sun: 'gongyao', wang: 'shoucheng', gao: 'xianzhen', dao: 'baier', gongsun: 'baima', qiaorui: 'qiaorui', zhurong: 'zhurong' };
 
 // 添加模板时复用已存在的同名计略，不覆盖管理员对它的调整。
 export function addPresetAbilities(draft, preset, officer) {
@@ -50,7 +55,7 @@ export function hasLegacyRecords() {
   } catch { return true; } // 无法检查时仍保留入口，避免隐藏用户的旧记录。
 }
 export function selectScenario(id) {
-  if (id !== ORIGINAL_SCENARIO && id !== FEMALE_SCENARIO_ID && id !== HERO_SCENARIO_ID && id !== ROSTER_SCENARIO_ID && id !== WARLORD_SCENARIO_ID && !/^v-[a-f0-9]{32}$/.test(id)) throw new Error('版本编号无效');
+  if (id !== ORIGINAL_SCENARIO && id !== FEMALE_SCENARIO_ID && id !== HERO_SCENARIO_ID && id !== ROSTER_SCENARIO_ID && id !== WARLORD_SCENARIO_ID && id !== SOVEREIGN_SCENARIO_ID && !/^v-[a-f0-9]{32}$/.test(id)) throw new Error('版本编号无效');
   try { if (id === ORIGINAL_SCENARIO) sessionStorage.removeItem(SESSION); else sessionStorage.setItem(SESSION, id); }
   catch { throw new Error('无法保存当前页面的版本选择'); }
 }
@@ -77,6 +82,25 @@ async function request(url, options, includeSkipped = false) {
 }
 export async function listScenarios() { return request(api(), undefined, true); }
 export async function loadScenario(id, base) {
+  if (id === SOVEREIGN_SCENARIO_ID) {
+    const scenario = await loadScenario(WARLORD_SCENARIO_ID, base);
+    scenario.id = id; scenario.name = SOVEREIGN_SCENARIO_NAME; scenario.rulerPassives = true; scenario.fixedAiRecruitment = true;
+    // 单城势力需要兼顾补兵和行军；仅改变新开局，不覆盖存档中的城市资源。
+    for (const [i, amount] of [900, 450, 1200].entries()) scenario.factions[i].opening = { gold: amount, rice: amount };
+    const first = base.officers.length + FEMALE_PRESETS.length + EXTRA_PRESETS.length + ROSTER_PRESETS.length + WARLORD_PRESETS.length;
+    for (const [i, preset] of SOVEREIGN_PRESETS.entries()) {
+      const officer = femaleOfficer(base, preset, first + i, ensureFemaleGear(scenario, base, preset.key, { balanced: true }));
+      if (preset.appear === 'initial') Object.assign(officer, { appear: 'initial', faction: preset.faction, soldiers: preset.soldiers, loyalty: 80, level: 2, exp: 1000 });
+      else if (preset.appear === 'automatic_faction') Object.assign(officer, { appear: 'automatic_faction', city: null, faction: preset.faction });
+      addPresetAbilities(scenario, preset, officer); scenario.officers.push(officer);
+    }
+    const rulers = scenario.factions.map((f) => f.ruler);
+    for (const [i, ruler] of rulers.entries()) scenario.relations.push({ from: ruler, to: first + i, kind: '君臣' });
+    scenario.relations.push({ from: rulers[2], to: first + 3, kind: '父子' });
+    scenario.relations.push({ from: 109, to: first + 6, kind: '夫妻' }, { from: 200, to: first + 7, kind: '夫妻' });
+    validateScenario(scenario, base);
+    return scenario;
+  }
   if (id === WARLORD_SCENARIO_ID) {
     const scenario = await loadScenario(ROSTER_SCENARIO_ID, base);
     scenario.id = id; scenario.name = WARLORD_SCENARIO_NAME;
@@ -155,7 +179,7 @@ export async function loadScenario(id, base) {
 }
 export async function addScenario(scenario, base, token) {
   validateScenario(scenario, base);
-  if ([FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID].includes(scenario.id)) throw new Error('内置版本须载入为新草稿后发布');
+  if ([FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID, SOVEREIGN_SCENARIO_ID].includes(scenario.id)) throw new Error('内置版本须载入为新草稿后发布');
   if (typeof token !== 'string' || !token) throw new Error('请输入管理员令牌');
   return request(api(), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(scenario) });
 }

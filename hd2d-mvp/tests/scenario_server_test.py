@@ -57,7 +57,7 @@ class ValidationTest(unittest.TestCase):
         disabled = copy.deepcopy(scenario); disabled['officers'][0]['searchPriority'] = False
         lubu = copy.deepcopy(scenario); lubu['officers'][0]['duelSkill'] = 'fangtian'
         new_skills = []
-        for skill in ('xiaoyao', 'huchi', 'laojiang', 'baier', 'baima', 'sanjian', 'zhenjiang'):
+        for skill in ('xiaoyao', 'huchi', 'laojiang', 'baier', 'baima', 'sanjian', 'zhenjiang', 'qiaorui', 'zhurong'):
             item = copy.deepcopy(scenario); item['officers'][0]['duelSkill'] = skill; new_skills.append(item)
         cases = [version(), scenario, priority, disabled, lubu, *new_skills]
         for value in (0, 4, True, None, 1.5):
@@ -77,7 +77,38 @@ console.log(JSON.stringify(cases.map((s) => { try { validateScenario(s, base); r
         for item in cases:
             try: validate(item, BASE); server.append(True)
             except ScenarioError: server.append(False)
-        self.assertEqual(server, [True] * 12 + [False] * (len(cases) - 12))
+        self.assertEqual(server, [True] * 14 + [False] * (len(cases) - 14))
+        self.assertEqual(browser, server)
+
+    def test_ruler_passives_and_new_roster_match_browser_validation(self):
+        build = """import {readFileSync} from 'node:fs';
+import {loadScenario} from './hd2d-mvp/src/core/scenario-store.js';
+const base = JSON.parse(readFileSync('hd2d-mvp/data/game-data.json'));
+const s = await loadScenario('builtin-sovereigns', base); s.id = 'v-' + 'b'.repeat(32); console.log(JSON.stringify(s));"""
+        scenario = json.loads(subprocess.check_output(['node', '--input-type=module', '-e', build], cwd=ROOT, text=True))
+        disabled = copy.deepcopy(scenario); disabled['rulerPassives'] = False
+        omitted = copy.deepcopy(scenario); del omitted['rulerPassives']
+        no_fix = copy.deepcopy(scenario); del no_fix['fixedAiRecruitment']
+        no_opening = copy.deepcopy(scenario); del no_opening['factions'][0]['opening']
+        empty_opening = copy.deepcopy(scenario); empty_opening['factions'][0]['opening'] = {}
+        cases = [scenario, disabled, omitted, no_fix, no_opening, empty_opening]
+        for value in (None, 0, 1, 'true', [], {}):
+            bad = copy.deepcopy(scenario); bad['rulerPassives'] = value; cases.append(bad)
+            bad = copy.deepcopy(scenario); bad['fixedAiRecruitment'] = value; cases.append(bad)
+        for value in (None, [], '100', -1, 10000, True, 1.5):
+            bad = copy.deepcopy(scenario); bad['factions'][0]['opening'] = {'gold': value}; cases.append(bad)
+        bad = copy.deepcopy(scenario); bad['factions'][0]['opening'] = {'unknown': 10}; cases.append(bad)
+        for value in (None, '', '__proto__', '../unsafe', 1, []):
+            bad = copy.deepcopy(scenario); bad['skills'][-1]['visualEffect'] = value; cases.append(bad)
+        code = """import {readFileSync} from 'node:fs'; import {validateScenario} from './hd2d-mvp/src/core/scenario.js';
+const base=JSON.parse(readFileSync('hd2d-mvp/data/game-data.json')), cases=JSON.parse(readFileSync(0,'utf8'));
+console.log(JSON.stringify(cases.map(s=>{try {validateScenario(s,base); return true;} catch {return false;}})));"""
+        browser = json.loads(subprocess.check_output(['node', '--input-type=module', '-e', code], cwd=ROOT, input=json.dumps(cases), text=True))
+        server = []
+        for item in cases:
+            try: validate(item, BASE); server.append(True)
+            except ScenarioError: server.append(False)
+        self.assertEqual(server, [True] * 6 + [False] * (len(cases) - 6))
         self.assertEqual(browser, server)
 
     def test_new_factions_match_browser_and_reject_inconsistent_rosters(self):

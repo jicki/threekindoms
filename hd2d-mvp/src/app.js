@@ -29,8 +29,9 @@ import * as G from './core/game.js';
 import { NONE } from './core/game.js';
 import { hasLegacyRecords, listScenarios, selectScenario } from './core/scenario-store.js';
 import { ORIGINAL_SCENARIO } from './core/scenario.js';
-import { FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, ROSTER_SCENARIO_ID, ROSTER_SCENARIO_NAME, WARLORD_SCENARIO_ID, WARLORD_SCENARIO_NAME, visualUrl } from './core/visuals.js';
+import { FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, ROSTER_SCENARIO_ID, ROSTER_SCENARIO_NAME, WARLORD_SCENARIO_ID, WARLORD_SCENARIO_NAME, SOVEREIGN_SCENARIO_ID, SOVEREIGN_SCENARIO_NAME, visualUrl } from './core/visuals.js';
 import { DUEL_SKILLS } from './core/duel-skills.js';
+import { describeRulerPassive } from './core/ruler-passives.js';
 import { aiTurn, aiDomestic } from './core/ai.js';
 import { suspend, peekSuspend, takeSuspend, dropSuspend, withSuspendLock } from './core/suspend.js';
 import { warFate } from './warreport.js';
@@ -1067,7 +1068,7 @@ async function chooseScenario() {
   }
   if (!Array.isArray(versions)) return toast('<em>游戏版本列表无效</em>', 3500);
   const legacy = G.currentScenario() === FEMALE_SCENARIO_ID || hasLegacyRecords();
-  const options = [{ id: ORIGINAL_SCENARIO, name: '原版' }, { id: HERO_SCENARIO_ID, name: HERO_SCENARIO_NAME }, { id: ROSTER_SCENARIO_ID, name: ROSTER_SCENARIO_NAME }, { id: WARLORD_SCENARIO_ID, name: WARLORD_SCENARIO_NAME },
+  const options = [{ id: ORIGINAL_SCENARIO, name: '原版' }, { id: HERO_SCENARIO_ID, name: HERO_SCENARIO_NAME }, { id: ROSTER_SCENARIO_ID, name: ROSTER_SCENARIO_NAME }, { id: WARLORD_SCENARIO_ID, name: WARLORD_SCENARIO_NAME }, { id: SOVEREIGN_SCENARIO_ID, name: SOVEREIGN_SCENARIO_NAME },
     ...(legacy ? [{ id: FEMALE_SCENARIO_ID, name: `${FEMALE_SCENARIO_NAME}（旧存档兼容）` }] : []),
     ...versions.filter((v) => /^v-[a-f0-9]{32}$/.test(v?.id) && typeof v.name === 'string')];
   const choice = await modal('选择游戏版本', (close) => [
@@ -1329,6 +1330,7 @@ async function setup() {
   };
   addEventListener('keydown', onCode);
   const rulers = h('div', { class: 'rulers' });
+  const passiveNote = D.rulerPassives ? h('p', { class: 'hint setup-passive', 'aria-live': 'polite' }, '选择君主后查看其被动技能。') : null;
   const start = h('button', { class: 'btn primary', disabled: true, style: { fontSize: '20px', padding: '10px 40px', letterSpacing: '8px' }, onclick: () => { if (start.disabled) return; start.disabled = true; const ng = G.newGame(ruler.faction, level, undefined, { ruler: ruler.officer }); if (cheat && level === 0) G.maxRulerCity(ng); if (ageless) ng.ageless = true; if (noWarDeath) ng.noWarDeath = true; if (sangu) ng.sangu = true; if (freeSave) ng.freeSave = true; if (warlike) ng.warlike = true; if (noStudy) ng.noStudy = true; begin(ng, false); } }, '开始');
   const factionOrder = [...[4, 2, 3, 1, 6, 5, 0], ...D.factions.slice(7).map((f) => f.id)];
   const choices = factionOrder.flatMap((faction) => [D.factions[faction].ruler,
@@ -1337,14 +1339,16 @@ async function setup() {
     const fac = D.factions[f], cs = D.cities.filter((c) => c.faction === f), offs = cs.reduce((a, c) => a + c.officers.length, 0);
     const o = D.officers[officer], on = ruler?.faction === f && ruler?.officer === officer;
     return h('div', { class: `panel ruler ${on ? 'on' : ''}`, style: { '--c': colorOf(f) }, 'aria-pressed': on ? 'true' : 'false', title: on ? '再次点击开始' : `选择${name(officer)}`,
-      ...pressable(() => { if (on) return start.click(); ruler = { faction: f, officer }; start.disabled = false; start.textContent = `${name(officer)} · 出征`; keep(rulers, drawRulers); }) },
+      ...pressable(() => { if (on) return start.click(); ruler = { faction: f, officer }; start.disabled = false; start.textContent = `${name(officer)} · 出征`;
+        if (passiveNote) { const p = describeRulerPassive(o); passiveNote.textContent = `君主被动 · ${p.name}：${p.text}`; }
+        keep(rulers, drawRulers); }) },
       figure(officer), h('i', { class: 'chip' }),
       h('div', { class: 'meta' }, h('b', {}, name(officer)),
         h('div', { class: 'rstat' }, h('span', {}, '武', h('em', {}, o.war)), h('span', {}, '智', h('em', {}, o.int)), h('span', {}, '德', h('em', {}, o.virtue))),
         h('small', {}, `${cs.length}城 · ${offs}将${officer === fac.ruler ? '' : ` · ${name(fac.ruler)}势力`}`), h('small', { class: 'towns' }, cs.map((c) => c.name).join(' · '))));
   }));
   drawRulers();
-  root().append(sysButtons(), files.titleArt ? h('div', { class: 'title-art', style: { backgroundImage: `url(${files.titleArt})`, position: 'fixed', filter: 'blur(3px) brightness(.55)' } }) : null, h('div', { class: 'setup' }, h('h2', {}, '选择难度'), levels, h('div', { class: 'setup-opts' }, agelessBtn, noDeathBtn, sanguBtn, warlikeBtn, noStudyBtn, freeSaveBtn), optNote, h('h2', {}, '选择君主'), rulers,
+  root().append(sysButtons(), files.titleArt ? h('div', { class: 'title-art', style: { backgroundImage: `url(${files.titleArt})`, position: 'fixed', filter: 'blur(3px) brightness(.55)' } }) : null, h('div', { class: 'setup' }, h('h2', {}, '选择难度'), levels, h('div', { class: 'setup-opts' }, agelessBtn, noDeathBtn, sanguBtn, warlikeBtn, noStudyBtn, freeSaveBtn), optNote, h('h2', {}, '选择君主'), passiveNote, rulers,
     h('div', { class: 'setup-foot' }, h('button', { class: 'btn', onclick: title }, '返回'), start)));
 }
 
@@ -1714,6 +1718,8 @@ function officerSheet(id, { live = null, foot = null } = {}) {
   const hp = live?.hp ?? o.hp, soldiers = live?.soldiers ?? o.soldiers;
   const strategies = (d.skills ?? []).map((skillId) => D.customSkills?.find((skill) => skill.id === skillId)?.name).filter(Boolean);
   const duelSkill = Object.hasOwn(DUEL_SKILLS, d.duelSkill) ? DUEL_SKILLS[d.duelSkill].name : null;
+  const rulerFaction = g.factions.find((fac) => fac.ruler === id)?.id;
+  const passive = rulerFaction == null ? null : G.rulerPassive(g, rulerFaction);
   const meter = (k, v, max = 100, cls = '') => h('div', { class: `meter ${cls}` }, h('span', {}, k), h('div', { class: 'track' }, h('i', { style: { width: `${Math.max(0, Math.min(100, (100 * v) / max))}%` } })), h('b', {}, max === 100 ? v : `${v}/${max}`));
   return h('div', { class: 'ocard' },
     face(id),
@@ -1730,6 +1736,7 @@ function officerSheet(id, { live = null, foot = null } = {}) {
         h('div', {}, h('span', {}, '防具'), h('b', {}, a ? h('img', { class: 'eqi', src: equipIcon(24 + o.armor), alt: '' }) : null, `${a?.name ?? '—'}`, a ? h('small', {}, ` 防${a.dfn}`) : null))),
       live ? null : h('p', { class: 'hint' }, d.birthYear != null ? `${d.birthYear}年出生　·　` : '', d.birthCity != null ? `出生于${cityName(d.birthCity)}　·　` : '', `${d.year}年登场`, debutShown(id) ? `　·　${debutText(id)}` : '', o.status === G.UNAPPEARED && talentMode === 'all' ? `　·　${waitText(id)[0]}` : ''),
       strategies.length || duelSkill ? h('p', { class: 'hint' }, strategies.length ? `战场计略：${strategies.join('、')}` : '', strategies.length && duelSkill ? '　·　' : '', duelSkill ? `单挑技：${duelSkill}` : '') : null,
+      passive ? h('p', { class: 'hint' }, `君主被动：${passive.name} · ${passive.text}`) : null,
       live || !D.relationships?.some((r) => r.from === id || r.to === id) ? null : h('p', { class: 'hint' }, '人物关系：',
         D.relationships.filter((r) => r.from === id || r.to === id).map((r) => `${r.kind} ${name(r.from === id ? r.to : r.from)}`).join('　·　')),
       foot));

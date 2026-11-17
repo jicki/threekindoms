@@ -7,6 +7,10 @@ import { COMMANDS, TACTICS, FORMATIONS, KINDS } from './core/tactical.js';
 import { ORIGINAL, paceSpeed } from './pace.js';
 import { realChance } from './core/origrng.js';
 import { stage as markStage, fresh, GUARD } from './commitguard.js'; // `stage` is runTactical's 单挑 stage below
+import { data } from './core/game.js';
+import { DUEL_VISUALS } from './core/skill-visuals.js';
+import { playVignette } from './vignette.js';
+import { paced } from './pace.js';
 
 // The formation each of the player's generals deployed last, and the army's last (D32 §7): the picker starts on it, so a player
 // who keeps to one formation deploys with one press, as before. For this game only (app.js begin clears it).
@@ -392,6 +396,10 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
       const after = { [hs]: duel.side[hs].hp, [es]: duel.side[es].hp };
       const shown = { ...before };
       const reveal = (id, dmg) => { const s = sideOf(id); shown[s] = Math.max(after[s], shown[s] - dmg); cards[s].show(shown[s]); if (dmg > 0) cards[s].hit(); };
+      if (act.cmd === 'special') {
+        const skill = data().officers[act.by]?.duelSkill;
+        if (typeof skill === 'string' && Object.hasOwn(DUEL_VISUALS, skill)) await playVignette({ scene: DUEL_VISUALS[skill], caption: `${name(act.by)}的${act.name}……`, duration: paced(ORIGINAL.strategyShow), part: act.hit ? undefined : 'attempt' });
+      }
       await stage.view.act(act.cmd === 'special' ? { ...act, cmd: 'attack' } : act, { hp: { [duel.side[hs].id]: after[hs], [duel.side[es].id]: after[es] }, onHit: reveal, onSelf: reveal });
       cards[hs].show(after[hs]); cards[es].show(after[es]);
       say(act);
