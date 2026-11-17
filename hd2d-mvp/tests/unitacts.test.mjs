@@ -43,7 +43,7 @@ const coverage = (p) => p.evaluate(() => {
     const c = v.screenOf(m.x, m.y);
     if (c.x < 0 || c.y < 0 || c.x >= innerWidth || c.y >= innerHeight) return [];
     // The flat board has its band to itself; on the 3D map the camera slides the cells out from under the cards, so only the bar counts.
-    const by = document.elementFromPoint(c.x, c.y)?.closest(v.flat ? '.unitacts, .unitpanel, .actpanel' : '.unitacts, .actpanel');
+    const by = document.elementFromPoint(c.x, c.y)?.closest(v.flat ? '.unitacts, .unitpanel, .actpanel, .war-rosterbtn' : '.unitacts, .actpanel, .war-rosterbtn');
     return by ? [{ x: m.x, y: m.y, by: by.className }] : [];
   });
   const buttons = [...document.querySelectorAll('.unitpanel:not(.compare) .acts button')].filter((b) => b.checkVisibility({ visibilityProperty: true })).map((b) => b.textContent);

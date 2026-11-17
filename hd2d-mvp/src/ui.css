@@ -331,6 +331,11 @@ body.picking #ui > :is(.endturn, .dock, .sysbtns, .citypanel) { opacity: .45; fi
 .modal h3 { font: 26px var(--brush); letter-spacing: 3px; margin-bottom: 10px; color: #fff3d6; }
 .modal .row { display: flex; gap: 10px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
 .modal .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.war-roster { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.war-roster .btn { min-width: 0; min-height: 48px; text-align: left; overflow-wrap: anywhere; }
+.war-roster .btn.on { border-color: #ffd890; background: linear-gradient(var(--btn-on), var(--btn-hi-b)); }
+.war-roster .btn b, .war-roster .btn small { display: block; }
+.war-roster .btn small { color: var(--dim); font-size: 12px; }
 .slots { display: flex; flex-direction: column; gap: 6px; min-width: min(460px, 86vw); }
 /* Keep 取消 visible when the ninth (quick) record makes the list taller than a small window. */
 .modal:has(> .slots) { display: flex; flex-direction: column; overflow: hidden; }
@@ -438,6 +443,7 @@ body.picking #ui > :is(.endturn, .dock, .sysbtns, .citypanel) { opacity: .45; fi
   html body .unitpanel.compare .head { grid-column: 1 / -1; } html body .unitpanel.compare h3 { font-size: 20px; line-height: 1; }
   html body .unitpanel.compare .gear { border: 0; padding: 0; font-size: 13px; } html body .unitpanel.compare .gear .eqi { width: 16px; height: 16px; vertical-align: -3px; } html body .unitpanel.compare .chips { justify-content: flex-end; } }
 .wardock { bottom: 12px; right: 12px; padding: 8px; display: flex; gap: 6px; }
+.wardock .day-short { display: none; }
 /* War-map tag: a small name plate over one troops bar in the side's colour, edged in that colour. The 体 bar
    and the numbers show only for the selected or hovered general, or while Alt is held, so the tags stay
    lighter than the figures they name and neighbours' tags do not stack into each other (N09, A2). */
@@ -1020,7 +1026,8 @@ body.flat2d .unitpanel .acts { grid-column: 2; max-width: none; gap: 4px; justif
 body.flat2d .wardock { bottom: 8px; right: 12px; padding: 6px; }
 .wardock .turnpair { bottom: calc(100% + 6px); right: 0; padding: 6px; display: flex; gap: 6px; }
 .wardock .turnbtn { padding: 5px 7px; }
-body.flat2d .wardock .turnpair { display: none; } /* the flat map has no turn */
+body.flat2d .wardock .turnpair :is(.turnbtn, .threatbtn) { display: none; } /* 平面地图保留选将入口，不显示旋转或威胁按钮 */
+body.flat2d:not(.phone) .wardock .turnpair:not(:has(.war-rosterbtn)) { display: none; }
 .wardock .terrainbtn[aria-pressed=true] { border-color: #ffd890; color: #fff4d8; background: linear-gradient(#5a3a1c, #2c1e12); }
 /* The 攻击 prompt beside a peeked enemy (app.js besideUnit). */
 .unitacts { position: fixed; z-index: 4; display: flex; flex-direction: column; gap: 6px; padding: 6px; animation: actsIn .16s ease-out both; }
@@ -1070,6 +1077,7 @@ body.cine .unitacts, body.cine .actpanel { display: none; }
 @media (max-width: 1200px) { .actpanel { padding: 6px 8px 8px; gap: 4px; } .actpanel .ap-body .btn { font-size: 14px; padding: 4px 8px; } .actpanel .ap-sum p { font-size: 12.5px; line-height: 1.4; } .actpanel .ap-sum .ap-does { display: none; } }
 /* The log sits above the dock (its width, the last few lines) wherever there is no 300px gap between the foe's card and the dock; with that gap it stands beside the cards. */
 body.flat2d .logbox { top: auto; bottom: 64px; left: auto; right: 12px; width: 372px; height: 64px; max-height: none; font-size: 12px; padding: 3px 10px; line-height: 1.4; }
+@media (max-width: 1663px) { body.flat2d:not(.phone) .logbox { right: 90px; width: 300px; } }
 body.flat2d .logbox p { margin: 1px 0; padding-bottom: 1px; }
 @media (min-width: 1664px) { body.flat2d .logbox { bottom: 8px; left: calc(var(--cardw) * 2 + 36px); right: 396px; width: auto; height: 88px; } }
 body.flat2d .deploybtn { top: auto; bottom: 8px; left: calc(var(--cardw) + 24px); right: 396px; transform: none; }

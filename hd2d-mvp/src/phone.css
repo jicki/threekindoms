@@ -82,7 +82,7 @@ body.phone[data-screen="war"] .logbox { display: none; }
 
 body.phone .wardock, body.phone.flat2d .wardock { right: var(--gr); bottom: var(--gb); padding: 4px; gap: 4px; }
 body.phone .wardock > .btn { min-height: var(--hit); padding: 0 12px; font-size: 15px; }
-body.phone .wardock .turnpair { padding: 4px; gap: 4px; } body.phone .wardock .turnpair .btn { min-height: 38px; min-width: 38px; }
+body.phone .wardock .turnpair { padding: 4px; gap: 4px; } body.phone .wardock .turnpair .btn { min-height: var(--hit); min-width: var(--hit); }
 body.phone .deploybtn, body.phone.flat2d .deploybtn { top: auto; left: auto; right: var(--gr); bottom: calc(var(--gb) + var(--hit) + 16px); width: auto; max-width: 300px; padding: 6px 10px; gap: 10px; }
 body.phone .deploybtn b { font-size: 18px; letter-spacing: 2px; } body.phone .deploybtn p { font-size: 12px; line-height: 1.4; } body.phone .deploybtn .btn { min-height: var(--hit); white-space: nowrap; }
 
@@ -310,14 +310,27 @@ body.phone .tq-cmd:not(.on) { color: #f3e6c8; text-shadow: 0 1px 2px #000; }
 body.phone .tq-dcard { top: calc(9vh + 3px); }
 
 /* ---------- 2026-11-14 交互评审后的修改 ---------- */
-/* 战场: 威胁范围 had no way in on the flat map (its button rides with the 3D turn pair, hidden there). The pair's plate becomes a
-   plain slot in the dock holding 威 alone; ‹ › step through our generals (the keys [ and ] on a desktop). */
+/* 战场：手机将威胁、选将及切换按钮放入工具栏；平面地图只隐藏旋转按钮。 */
 body.phone.flat2d .wardock .turnpair, body.phone .wardock .turnpair { display: contents; }
 body.phone.flat2d .wardock .turnbtn { display: none; }
-body.phone .wardock .threatbtn, body.phone .wardock .cyclebtn { min-height: var(--hit); min-width: 40px; padding: 0 8px; font-size: 16px; }
+body.phone.flat2d .wardock .turnpair .threatbtn { display: inline-block; }
+body.phone .wardock .threatbtn, body.phone .wardock .cyclebtn, body.phone .wardock .war-rosterbtn { min-height: var(--hit); min-width: var(--hit); padding: 0 8px; font-size: 16px; }
 body.phone .wardock .cyclebtn { font-size: 22px; line-height: 1; }
 body.phone .wardock > .btn { padding: 0 9px; }
 body.phone .wardock > .btn.primary { margin-left: 10px; } /* 结束本日 stands a little apart from what the thumb taps all turn */
+/* 窄屏保留全部按钮，工具栏换行并避开左侧武将卡片；3D 多了两个旋转按钮。 */
+@media (max-width: 850px) {
+  body.phone:not(.flat2d) .wardock { max-width: calc(100vw - var(--g) - var(--gr) - 248px); flex-wrap: wrap; justify-content: flex-end; }
+  body.phone:not(.flat2d) .deploybtn, body.phone:not(.flat2d) .unitpanel .acts { bottom: calc(var(--gb) + var(--hit) + var(--hit) + 24px); }
+}
+@media (max-width: 600px) {
+  body.phone .wardock .day-full { display: none; }
+  body.phone .wardock .day-short { display: inline; }
+}
+@media (max-width: 750px) {
+  body.phone.flat2d .wardock { max-width: calc(100vw - var(--g) - var(--gr) - 248px); flex-wrap: wrap; justify-content: flex-end; }
+  body.phone.flat2d .deploybtn, body.phone.flat2d .unitpanel .acts { bottom: calc(var(--gb) + var(--hit) + var(--hit) + 24px); }
+}
 /* 战略地图: the last command of a long list ran under 结束本月行动 */
 body.phone .dock .acts { max-height: calc(var(--vh) - var(--gt) - 44px - var(--gb) - var(--hit) - 12px); }
 /* 战报 (☰ 系统 → 战报) */

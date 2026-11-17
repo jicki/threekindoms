@@ -154,7 +154,7 @@ export function flatten(war, G, blankScene) {
   wrap.append(cv); document.body.append(wrap); document.body.classList.add('flat2d');
   const g = cv.getContext('2d');
   const view = { z: 1, x: 0, y: 0 };
-  let box = null, time = 0, tv = 0; // tv: how far the ground view (F04) is shown
+  let box = null, time = 0, tv = 0, painted = null; // tv: how far the ground view (F04) is shown
   const sky = createSky2d(); let skyT;
   const thin = new Map(); // each general's eased opacity while he covers the hovered cell
   function layout() {
@@ -211,6 +211,48 @@ export function flatten(war, G, blankScene) {
     return x >= 0 && y >= 0 && x < W && y < H ? { x, y } : null;
   };
 
+  // 画面上的人物和名牌可能跨出所在格。使用最后一帧实际绘制的顺序和位置，避免把选人当成选空格。
+  const alphas = new WeakMap();
+  function figureHit(v, px, py) {
+    const dx = px - v.cx, dy = py - v.foot, cos = Math.cos(v.tilt), sin = Math.sin(v.tilt);
+    const x = (cos * dx + sin * dy) * (v.flip < 0 ? -1 : 1), y = -sin * dx + cos * dy;
+    if (x < -v.w / 2 || x >= v.w / 2 || y < -v.h || y >= 0) return false;
+    let alpha = alphas.get(v.img);
+    if (alpha === undefined) {
+      try {
+        const c = document.createElement('canvas'); c.width = v.img.width; c.height = v.img.height;
+        const ctx = c.getContext('2d', { willReadFrequently: true }); ctx.drawImage(v.img, 0, 0);
+        alpha = { w: c.width, h: c.height, data: ctx.getImageData(0, 0, c.width, c.height).data };
+      } catch { alpha = null; } // 无法读取像素时退回地格，避免透明区域误选。
+      alphas.set(v.img, alpha);
+    }
+    if (!alpha) return false;
+    const sx = Math.floor(v.sx + (x / v.w + 0.5) * v.cw), sy = Math.floor((y / v.h + 1) * v.ch);
+    return sx >= 0 && sx < alpha.w && sy >= 0 && sy < alpha.h && alpha.data[(sy * alpha.w + sx) * 4 + 3] >= 128;
+  }
+  function pick(ndc) {
+    const cell = cellAt(ndc);
+    if (!painted || painted.box !== box || document.body.classList.contains('terrain-view')) return cell;
+    const px = (ndc.x + 1) / 2 * innerWidth, py = (1 - ndc.y) / 2 * innerHeight;
+    const valid = (u) => !u.gone && field.unitAt(u.x, u.y) === u;
+    for (let i = painted.plates.length - 1; i >= 0; i--) {
+      const p = painted.plates[i];
+      if (valid(p.u) && px >= p.x && px <= p.x + p.w && py >= p.y && py <= p.y + p.h) return { x: p.u.x, y: p.u.y, tag: true };
+    }
+    // 格子本身有武将时保留该格的选择；可移动空格仍可穿过人物，避免挡住行军。
+    if (cell && field.unitAt(cell.x, cell.y)) return cell;
+    const st = war.st, free = cell && (st.deploying ? !!st.sel && painted.deploy.has(`${cell.x},${cell.y}`)
+      : st.cast == null && st.sel?.side === field.human && st.reach?.dist.has(`${cell.x},${cell.y}`));
+    for (let i = painted.bodies.length - 1; i >= 0; i--) {
+      const v = painted.bodies[i], u = v.u;
+      if (!valid(u) || !figureHit(v, px, py)) continue;
+      const target = st.sel && (st.cast != null ? field.legal(st.sel, st.cast, u)
+        : u.side !== field.human && field.adjacentEnemies(st.sel).includes(u));
+      if (!free || target) return { x: u.x, y: u.y };
+    }
+    return cell;
+  }
+
   // The board under everything that moves (PERF-04, 2026-11-07): the dark frame, the map scaled to the window, the
   // composed map's drop shadow (a 24 px blur over the whole picture) and gilt edge, the painting's faint grid. None of
   // it changes from frame to frame, so it is painted once onto a canvas of the screen's size and copied pixel for pixel
@@ -247,6 +289,7 @@ export function flatten(war, G, blankScene) {
 
   function draw() {
     const { cw: c, ch, x: ox, y: oy, dpr } = box, s = war.flatState();
+    const picking = { box, plates: [], bodies: [], deploy: new Set(s.marks.filter((m) => m.kind === 'deploy').map((m) => `${m.x},${m.y}`)) };
     paintBase(); frames++;
     // The board, copied 1:1 in device pixels (it is opaque and covers the canvas, so nothing needs clearing first).
     g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; g.drawImage(base, 0, 0);
@@ -402,6 +445,7 @@ export function flatten(war, G, blankScene) {
       }
       if (v.img) {
         const h = tall, w = h * v.cw / v.ch, a = v.opacity * k * ghost;
+        if (v.opacity >= 0.5 && a >= 0.02) picking.bodies.push({ u: v.u, img: v.img, sx: v.sx, cw: v.cw, ch: v.ch, cx, foot: foot - v.lift * c + c * 0.04, w, h, tilt: v.tilt ?? 0, flip: v.flip });
         g.globalAlpha = a;
         g.save(); g.translate(cx, foot - v.lift * c + c * 0.04); g.rotate(v.tilt ?? 0); if (v.flip < 0) g.scale(-1, 1);
         g.drawImage(v.img, v.sx, 0, v.cw, v.ch, -w / 2, -h, w, h);
@@ -421,6 +465,7 @@ export function flatten(war, G, blankScene) {
       const a = v.opacity * (thin.get(v.u) ?? 1) * (1 - tv);
       if (v.opacity < 0.5 || a < 0.02) continue;
       const [col, lit] = SIDE[v.side], { o, full, label, stats, sf, chip, cf, w, hh, bars, cx, X, Y } = plate.get(v), max = D.officers[v.u.id]?.hp || o.hp || 1;
+      picking.plates.push({ u: v.u, x: X, y: Y, w, h: hh });
       g.globalAlpha = a;
       g.fillStyle = 'rgba(0, 0, 0, 0.35)'; g.fillRect(X + 1.5, Y + 2, w, hh);
       g.fillStyle = 'rgba(22, 16, 10, 0.9)'; g.fillRect(X, Y, w, hh);
@@ -438,6 +483,7 @@ export function flatten(war, G, blankScene) {
       if (full) { g.font = `${sf}px "Noto Serif SC", serif`; g.fillStyle = '#e6d6b4'; g.fillText(stats, cx, by + bars + pad * 0.5 + sf / 2 + 1); }
       g.globalAlpha = 1;
     }
+    painted = picking;
     // The day's loss rising over its target: red, outlined, easing up and out above the plaque.
     const now = performance.now() / 1000;
     for (const f of s.fx) {
@@ -570,8 +616,8 @@ export function flatten(war, G, blankScene) {
     flatDebug: () => ({ basePaints, frames, base: [base.width, base.height], canvas: [cv.width, cv.height], country: pic.country }),
     // A hidden window still moves the war on (app.js runs it 30 times a second) but paints nothing, as the 3D views.
     update(dt) { time += dt; war.update(dt); if (PHONE) follow(dt); if (!document.hidden) draw(); },
-    hover(ndc) { return war.hoverCell(cellAt(ndc)); },
-    click(ndc, e) { const c = cellAt(ndc); if (c) war.clickCell(c.x, c.y, e); }, // the event goes on: src/commitguard.js judges the click by it
+    hover(ndc) { return war.hoverCell(pick(ndc)); },
+    click(ndc, e) { const c = pick(ndc); if (c) war.clickCell(c.x, c.y, e); }, // the event goes on: src/commitguard.js judges the click by it
     // A cell's centre on screen, in CSS px (tools click the map as a player would).
     screenOf: (x, y) => ({ x: box.x + (x + 0.5) * box.cw, y: box.y + (y + 0.5) * box.ch, cw: box.cw, ch: box.ch }),
     screenAxes: () => ({ x: [box.cw, 0], y: [0, box.ch] }), // one grid step on screen (the gamepad's cursor, app.js)

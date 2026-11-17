@@ -165,7 +165,11 @@ export function makePick(wv) {
     const px = (ndc.x + 1) / 2 * innerWidth, py = (1 - ndc.y) / 2 * innerHeight; let best = null, bz = -Infinity;
     for (const [u, v] of views) {
       if (v.fading || u.gone || !v.label.visible || !v.el.isConnected || !inside(u.x, u.y)) continue;
-      const r = v.el.getBoundingClientRect(); if (!r.width || px < r.left || px > r.right || py < r.top || py > r.bottom) continue;
+      const r = v.el.getBoundingClientRect(); if (!r.width) continue;
+      // 折叠的名牌只显示中心小圆点，隐藏文字的矩形不能继续拦截其他目标。
+      if (v.el.classList.contains('dot')) {
+        if (Math.abs(px - (r.left + r.right) / 2) > 4 || Math.abs(py - (r.top + r.bottom) / 2) > 4) continue;
+      } else if (px < r.left || px > r.right || py < r.top || py > r.bottom) continue;
       const z = Number(v.el.style.zIndex) || 0; if (z >= bz) { bz = z; best = u; }
     }
     return best;
@@ -186,9 +190,8 @@ export function makePick(wv) {
     // His name tag is his: a click on it is a click on him, through the same entry and the same guards as one on the map.
     ray.setFromCamera(ndc, camera);
     const ground = groundHit(ray.ray), cell = ground?.cell ?? null, wall = !!ground?.wall;
-    // As with his figure below: while a destination is being chosen, a free cell of the reach under the pointer beats the tag of a
-    // general who is not himself a target there.
-    const tagged = tagAt(ndc); if (tagged) return freeTarget(cell) && !wall && !unitTarget(tagged) ? { ...cell, through: tagged } : { x: tagged.x, y: tagged.y, tag: true };
+    // 名牌是明确的选人入口，不能因下方恰好有可移动的空格而移动已选武将。
+    const tagged = tagAt(ndc); if (tagged) return { x: tagged.x, y: tagged.y, tag: true };
     // Figures in front of the ground, nearest first; anything behind it is hidden by the terrain.
     const hits = wv.view.tactical ? [] : ray.intersectObjects([...views.values()].filter((v) => v.g.parent).map((v) => v.body), false);
     for (const hit of hits) {

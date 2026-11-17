@@ -91,6 +91,9 @@ test('a new campaign, the 战略地图 and a command, with the pad alone', async
   // spent), A on the city goes to its panel and throws nothing (review, 2026-11-14).
   await page.evaluate(() => { const { g, debug } = window.__game; g.current = (g.player + 1) % g.factions.length; debug.hud(); });
   assert.equal(await page.evaluate(() => !!document.querySelector('.dock')), false);
+  // HUD 重绘使手柄从菜单回到地图；等原有 160 ms 防误触窗口结束，再模拟新的一次按键。
+  await page.waitForFunction(() => window.__game.pad.state.zone === 'map');
+  await page.waitForTimeout(200);
   await padTap(page, 'a');
   assert.deepEqual(page.errors, []);
   assert.ok(await page.evaluate(() => document.querySelector('.citypanel')?.contains(document.activeElement)), 'the focus goes into the city panel');
@@ -187,6 +190,13 @@ for (const view of ['flat', '3D']) test(`the war map on the pad (${view}): deplo
     await page.waitForFunction(() => { const w = window.__game.war, f = w.field; return !w.st.deploying && f.turn === f.human && !document.querySelector('.banner, .panel.msg'); }, null, { timeout: 30000 });
   } finally { stop(); }
   await page.waitForTimeout(300);
+  // 未选中武将时，LB 从最后一名开始，RB 从第一名开始。
+  const ids = await page.evaluate(() => { const f = window.__game.war.field; return f.side(f.human).map((u) => u.id); });
+  assert.equal(await page.evaluate(() => window.__game.war.st.sel), null);
+  await padTap(page, 'lb'); assert.equal(await page.evaluate(() => window.__game.war.st.sel?.id), ids.at(-1));
+  await padTap(page, 'b'); assert.equal(await page.evaluate(() => window.__game.war.st.sel), null);
+  await padTap(page, 'rb'); assert.equal(await page.evaluate(() => window.__game.war.st.sel?.id), ids[0]);
+  await padTap(page, 'b'); assert.equal(await page.evaluate(() => window.__game.war.st.sel), null);
   // The cursor stands on a general of ours; A selects him.
   const c0 = await cell(page);
   const me = await page.evaluate(([x, y]) => { const f = window.__game.war.field, u = f.unitAt(x, y); return u && u.side === f.human ? u.id : null; }, [c0.x, c0.y]);

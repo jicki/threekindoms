@@ -979,7 +979,7 @@ test('a right drag turns the board and lands on the nearest corner; the left dra
   await p.keyboard.press('q'); await p.waitForTimeout(450);
   await p.evaluate(() => window.__game.war.resetView()); await p.waitForTimeout(600);
   assert.deepEqual(p.errors, []);
-  assert.equal(await page.locator('.wardock .turnpair:visible').count(), 0, 'no turn buttons on the flat map');
+  assert.equal(await page.locator('.wardock .turnbtn:visible').count(), 0, 'no turn buttons on the flat map');
 });
 
 test('the wheel steps 全景 → far → mid → near and stops at either end', async () => {

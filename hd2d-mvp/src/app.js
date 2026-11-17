@@ -426,14 +426,42 @@ addEventListener('keyup', (e) => { if (keyName(e) === 'r' && threatHeld) { threa
 addEventListener('blur', () => { threatHeld = false; threatView(); });
 // [ and ]: the previous and the next of our generals, as LB / RB on a pad (padCycle), on the commands step only: while a target is
 // being chosen or an attack or 计略 is asked about, the keys do nothing (D32 §5).
+function nextWarOfficer(mine, selected, d) {
+  const i = mine.indexOf(selected);
+  return mine[i < 0 ? (d > 0 ? 0 : mine.length - 1) : (i + d + mine.length) % mine.length];
+}
 function keyCycle(d) {
   if (mode !== war || blocking()) return;
   const f = war.field, st = war.st, mine = f.alive.filter((u) => u.side === f.human); if (!mine.length || st.busy) return;
   if (st.cast != null || st.confirm || st.strike || st.atkList || st.menu) return;
   if (!(f.turn === f.human || st.deploying)) return;
-  const i = mine.indexOf(st.sel), u = mine[(i + d + mine.length) % mine.length];
+  const u = nextWarOfficer(mine, st.sel, d);
   if (st.sel && st.sel !== u && !st.deploying) war.cancel?.();
   Promise.resolve(war.clickCell(u.x, u.y)).finally(() => war.keepInView?.(u));
+}
+async function chooseWarOfficer() {
+  const current = war;
+  const available = () => mode === current && !blocking() && !current.st.busy && !current.field.over
+    && (current.st.deploying || current.field.turn === current.field.human);
+  const choosing = () => current.st.cast != null || current.st.confirm || current.st.strike || current.st.atkList || current.st.menu;
+  if (!current || !available()) return;
+  if (choosing()) { toast('请先完成或取消当前指令'); return; }
+  const mine = current.field.alive.filter((u) => u.side === current.field.human);
+  if (!mine.length) return;
+  const chosen = await modal('选择我军武将', (close) => [
+    h('p', { class: 'hint' }, '选择武将后可在战场上继续行动。'),
+    h('div', { class: 'war-roster' }, mine.map((u) => h('button', {
+      class: `btn${current.st.sel === u ? ' on' : ''}`, 'aria-pressed': String(current.st.sel === u),
+      onclick: () => close(u),
+    }, h('b', {}, `${u.commander ? '★' : ''}${name(u.id)}`), h('small', {}, `兵 ${current.field.O(u.id).soldiers}　体 ${current.field.O(u.id).hp}`)))),
+    h('div', { class: 'foot' }, h('button', { class: 'btn', onclick: () => close(null) }, '取消')),
+  ]);
+  if (!chosen || !available() || choosing() || !current.field.alive.includes(chosen) || chosen.side !== current.field.human) return;
+  if (current.st.sel !== chosen) {
+    if (current.st.sel && !current.st.deploying) current.cancel?.();
+    await current.clickCell(chosen.x, chosen.y);
+  }
+  current.keepInView?.(chosen);
 }
 // Intercept before the ordinary input handler and before a modal can consume the key. In the desktop game
 // F5 must not refresh even when saving is blocked; modified browser shortcuts keep their own meaning.
@@ -802,7 +830,7 @@ function padCycle(d) {
   // on screen is his, and a click on another of ours there would be taken as a target or drop the step.
   const f = war.field, st = war.st, mine = f.alive.filter((u) => u.side === f.human); if (!mine.length || blocking()) return;
   if (st.cast != null || st.confirm || st.strike || st.atkList || st.menu) return;
-  const i = mine.indexOf(st.sel), u = mine[(i + d + mine.length) % mine.length];
+  const u = nextWarOfficer(mine, st.sel, d);
   setCell(u); // the cursor goes to him even while the enemy acts or a move plays out: only the selecting waits
   if (!st.busy && (f.turn === f.human || st.deploying)) Promise.resolve(war.clickCell(u.x, u.y)).finally(() => padZone() === 'map' && setCell(u));
 }
@@ -2533,19 +2561,21 @@ function warUi(field) {
         warFlat ? h('button', { class: 'btn viewmode', title: '本场是平面战场，点此查看原因与如何换回3D战场', onclick: flatInfo }, '平面战场') : null));
       if (!$('.logbox')) root().append(h('div', { class: 'panel logbox' }), sysButtons());
       $('.wardock')?.remove();
-      const act = s.myTurn && !s.deploying;
+      const act = s.myTurn && !s.deploying, canSelect = s.myTurn || s.deploying;
+      const rosterButton = () => h('button', { class: 'btn war-rosterbtn', disabled: !canSelect, title: '从我军名单选择武将（也可用 [ 和 ] 切换）', onclick: chooseWarOfficer }, '选将');
       root().append(h('div', { class: 'panel wardock' },
-        h('button', { class: 'btn', disabled: !act || !s.canUndo, title: '撤销上一次移动，退还机动力（Z）', 'data-pad': 'x', onclick: () => war?.undo() }, '撤销', h('kbd', {}, 'Z')),
+        s.deploying ? rosterButton() : h('button', { class: 'btn', disabled: !act || !s.canUndo, title: '撤销上一次移动，退还机动力（Z）', 'data-pad': 'x', onclick: () => war?.undo() }, '撤销', h('kbd', {}, 'Z')),
         // Turning the 3D board (Q / E, or a right drag): a pair riding over the dock's right end, so the dock keeps its width beside the foe's card.
         h('div', { class: 'panel turnpair' },
-          // 威胁: with the turn pair, so the dock keeps its width beside the foe's card. The flat map has no pair: there it is R alone.
+          // 威胁和选将放在上方工具栏，避免挤占敌我武将卡片；平面地图的威胁范围仍由 R 查看。
           h('button', { class: 'btn icon threatbtn', 'aria-pressed': String(threatPinned), title: '敌军威胁范围（按住 R 临时查看）：敌军下次行动时，任何一名敌将单独最远能打到的格子。机动力全军共用，不是全体同时能到。指着一名敌将只看他一人的', 'aria-label': '敌军威胁范围', onclick: () => { threatPinned = !threatPinned; threatView(); } }, '威', h('kbd', { class: 'pad-only', 'data-glyph': 'y' })),
+          s.deploying ? null : rosterButton(),
           h('button', { class: 'btn icon turnbtn', title: '向左旋转视角（Q，或按住右键拖动）', 'aria-label': '向左旋转视角', html: TURN_ICON(-1), onclick: () => war?.rotate?.(-1) }),
           h('button', { class: 'btn icon turnbtn', title: '向右旋转视角（E，或按住右键拖动）', 'aria-label': '向右旋转视角', html: TURN_ICON(1), onclick: () => war?.rotate?.(1) })),
         h('button', { class: 'btn terrainbtn', 'aria-pressed': String(terrainPinned), title: '人物淡出，显示被遮住的地形（按住 T 临时查看）', onclick: () => { terrainPinned = !terrainPinned; terrainView(); } }, '地形', h('kbd', { 'data-glyph': 'l3' }, 'T')),
-        PHONE ? h('button', { class: 'btn icon cyclebtn', disabled: !act, 'aria-label': '上一名武将', onclick: () => keyCycle(-1) }, '‹') : null,
-        PHONE ? h('button', { class: 'btn icon cyclebtn', disabled: !act, 'aria-label': '下一名武将', onclick: () => keyCycle(1) }, '›') : null,
-        h('button', { class: 'btn primary', disabled: !act, title: '我军全体待机，结束本日（Enter）', 'data-pad': 'y-hold', onclick: () => endDay() }, '待机·结束本日', h('kbd', {}, '⏎'))));
+        PHONE ? h('button', { class: 'btn icon cyclebtn', disabled: !canSelect, 'aria-label': '上一名武将', onclick: () => keyCycle(-1) }, '‹') : null,
+        PHONE ? h('button', { class: 'btn icon cyclebtn', disabled: !canSelect, 'aria-label': '下一名武将', onclick: () => keyCycle(1) }, '›') : null,
+        h('button', { class: 'btn primary', disabled: !act, title: '我军全体待机，结束本日（Enter）', 'aria-label': '待机并结束本日', 'data-pad': 'y-hold', onclick: () => endDay() }, h('span', { class: 'day-full' }, '待机·结束本日'), h('span', { class: 'day-short' }, '结束本日'), h('kbd', {}, '⏎'))));
     },
     // two of these make a 计略 when the picture is off: each takes half the original's 3.48 s less the wrap-up
     stratBanner: (n) => banner(n, '#c070ff', paced(ORIGINAL.strategyCast)),
