@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import * as G from '../src/core/game.js';
 import { applyScenario, newDraft, validateScenario } from '../src/core/scenario.js';
 import { addPresetAbilities, hasLegacyRecords, loadScenario } from '../src/core/scenario-store.js';
-import { FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID, ROSTER_PRESETS, visualUrl } from '../src/core/visuals.js';
+import { FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID, SOVEREIGN_SCENARIO_ID, ROSTER_PRESETS, visualUrl } from '../src/core/visuals.js';
 import { Field, PLAIN } from '../src/core/field.js';
 import { Tactical } from '../src/core/tactical.js';
 import { Duel } from '../src/core/skirmish.js';
@@ -41,6 +41,12 @@ test('旧存档、备份和中断战斗均保留兼容入口，存储不可用�
       assert.equal(hasLegacyRecords(id), true, id);
       session.clear();
     }
+    for (const suffix of ['1', '1:bak', 'quick', 'auto']) {
+      const key = `haou-hd2d-save:scenario:${SOVEREIGN_SCENARIO_ID}:${suffix}`;
+      values.set(key, 'old'); assert.equal(hasLegacyRecords(SOVEREIGN_SCENARIO_ID), true, key); values.delete(key);
+    }
+    const interrupted = `haou-hd2d-suspend:scenario:${SOVEREIGN_SCENARIO_ID}`;
+    values.set(interrupted, 'old'); assert.equal(hasLegacyRecords(SOVEREIGN_SCENARIO_ID), true); values.delete(interrupted);
     session.set('haou-hd2d-load:scenario:builtin-female', 'pending'); assert.equal(hasLegacyRecords(), true); session.clear();
     Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('storage denied'); } });
     assert.equal(hasLegacyRecords(), true);

@@ -4,8 +4,9 @@ import { realChance } from './origrng.js';
 const FRIENDLY = new Set(['亲属', '夫妻', '朋友', '师徒', '父子', '父女', '母子', '母女', '兄弟', '姐妹', '兄妹', '姐弟', '结义', '君臣', '同僚', '姻亲']);
 const HOSTILE = new Set(['对手', '宿敌']);
 
-export function relationDisposition(data, g, a, b) {
-  if (g.relationshipEffects !== true || a == null || b == null || a === b) return 0;
+// 专属技能可读取关系本身；招募等通用关系效果仍受独立开关控制。
+export function relationshipAffinity(data, g, a, b) {
+  if (a == null || b == null || a === b) return 0;
   let friendly = false, hostile = false;
   const relations = g.campaignRules === true ? [...(data.relationships ?? []), ...(data.campaignRelationships ?? [])] : data.relationships ?? [];
   for (const rel of relations) {
@@ -13,6 +14,9 @@ export function relationDisposition(data, g, a, b) {
     friendly ||= FRIENDLY.has(rel.kind); hostile ||= HOSTILE.has(rel.kind);
   }
   return Number(friendly) - Number(hostile);
+}
+export function relationDisposition(data, g, a, b) {
+  return g.relationshipEffects === true ? relationshipAffinity(data, g, a, b) : 0;
 }
 
 // 招募考虑招募方及原势力君主，但两边和多条关系都不能叠加到超过一个档位。

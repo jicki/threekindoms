@@ -55,6 +55,7 @@ export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random(
   if (D.smartAiReinforcement) g.smartAiReinforcement = true;
   if (D.cityRaids) g.cityRaids = true;
   if (D.rulerPassives && D.enhancedRulerPassives) g.enhancedRulerPassives = true;
+  if (D.focusedRulerPassives) g.focusedRulerPassives = true;
   if (D.relationshipEffects) g.relationshipEffects = true;
   if (D.autoBattleSkills) g.autoBattleSkills = true;
   if (D.eliteTroops) g.eliteTroops = true;
@@ -73,7 +74,7 @@ export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random(
   }));
   g.factions = D.factions.map((f) => ({ id: f.id, ruler: f.ruler, city: D.officers[f.ruler].city, ai: f.id !== playerFaction, alliance: Array(D.factions.length).fill(0) }));
   g.aiCursor = Array(D.factions.length).fill(0);
-  if (scenarioId === EXPANDED_MAP_ID && D.expandedMap) {
+  if (D.expandedMap && (scenarioId === EXPANDED_MAP_ID || D.expandedOpening)) {
     applyExpandedOpening(g);
     g.expandedOpeningGuard = true;
   }
@@ -108,6 +109,7 @@ export const citiesOf = (g, f) => holdingsOf(g, f).filter((c) => !isPass(c.id));
 export const cityCount = () => D.cities.filter((c) => c.kind !== 'pass').length;
 export const alive = (g, f) => g.factions[f].ruler != null;
 export const isRuler = (g, id) => g.factions.some((f) => f.ruler === id);
+export const boundRulerWeapon = (g, id) => D.equipment[g.officers[id]?.weapon]?.exclusiveRuler === id;
 export const roads = (cid) => D.cities[cid].roads;
 export const name = (id) => D.officers[id].name;
 export const cityName = (cid) => D.cities[cid].name;
@@ -124,7 +126,7 @@ export const troopsOf = (g, c) => c.officers.reduce((a, id) => a + g.officers[id
 export const books = (g, f) => D.rules.books[citiesOf(g, f).length];
 export function rulerPassive(g, f) {
   const id = g.factions[f]?.ruler, officer = id == null ? null : g.officers[id];
-  return D.rulerPassives && officer?.status === SERVING ? describeRulerPassive({ ...D.officers[id], ...officer }, g.enhancedRulerPassives === true, g.campaignRules === true) : null;
+  return D.rulerPassives && officer?.status === SERVING ? describeRulerPassive({ ...D.officers[id], ...officer }, g.enhancedRulerPassives === true, g.campaignRules === true, g.focusedRulerPassives === true) : null;
 }
 function grantRulerPassive(g, f) {
   const turn = `${g.year}:${g.month}:${f}`;
@@ -691,6 +693,8 @@ const SPECIAL = { 15: { bit: 0x02, ok: (o) => o.id === 38, need: '关羽专用' 
 const FIELD_SPECIAL = { 22: { ok: (o) => o.war >= 90, need: '需武力90' }, 30: { ok: (o) => o.virtue >= 90, need: '需人德90' } };
 export function equipBlock(g, id, eq, { field = false } = {}) {
   const sp = SPECIAL[eq], officer = g.officers[id];
+  const item = D.equipment[eq];
+  if (item?.exclusiveRuler !== undefined) return '君主专属武器不可购买或转移';
   if (sp) {
     if ((g.specialBought || 0) & sp.bit) return '已售出';
     const test = (field && FIELD_SPECIAL[eq]) || sp;
@@ -709,6 +713,7 @@ export function equipBlock(g, id, eq, { field = false } = {}) {
 // Put a bought item on (no refund for the old one) and mark a special piece as sold for the rest of the game.
 export function wearEquip(g, id, eq) {
   const e = D.equipment[eq], o = g.officers[id];
+  if (e?.exclusiveRuler !== undefined) return '君主专属武器不可购买或转移';
   if (SPECIAL[eq]) g.specialBought = (g.specialBought || 0) | SPECIAL[eq].bit;
   if (e.kind === 'weapon') o.weapon = eq; else o.armor = eq - 24;
   return `${name(id)} 装备了${e.name}`;
@@ -840,6 +845,10 @@ function validRoster(g) {
     if (!Array.isArray(g.clones) || new Set(g.clones).size !== g.clones.length || g.clones.some((id) => !validId(id) || id < firstClone)) return false;
   }
   if (g.factions.some((f) => !f || (f.ruler != null && !validId(f.ruler)))) return false;
+  if (g.officers.some((o) => {
+    const weapon = D.equipment[o.weapon];
+    return weapon?.exclusiveRuler !== undefined && weapon.exclusiveRuler !== o.id;
+  })) return false;
   const cityFields = ['gold', 'rice', 'pop', 'land', 'industry', 'disaster', 'gov', 'reserve', 'treasure'];
   return g.cities.every((c, id) => c.id === id && Number.isInteger(c.faction) && (c.faction === NONE || !!g.factions[c.faction])
     && cityFields.every((key) => Number.isFinite(c[key])) && c.officers.every(validId));
@@ -850,6 +859,7 @@ export function upgrade(g) {
   try { g.version ??= 1; while (g.version < SAVE_VERSION) MIGRATIONS[g.version++](g); } catch { return null; }
   const ok = g.version === SAVE_VERSION && Number.isInteger(g.year) && Number.isInteger(g.month) && Number.isInteger(g.player)
     && (g.enhancedRulerPassives === undefined || typeof g.enhancedRulerPassives === 'boolean')
+    && (g.focusedRulerPassives === undefined || typeof g.focusedRulerPassives === 'boolean')
     && (g.relationshipEffects === undefined || typeof g.relationshipEffects === 'boolean')
     && (g.autoBattleSkills === undefined || typeof g.autoBattleSkills === 'boolean')
     && (g.eliteTroops === undefined || typeof g.eliteTroops === 'boolean')

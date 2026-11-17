@@ -14,7 +14,8 @@ import { WARLORD_SCENARIO_ID, SOVEREIGN_SCENARIO_ID } from '../src/core/visuals.
 
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
 const scenario = await loadScenario(SOVEREIGN_SCENARIO_ID, base);
-const use = () => G.setData(applyScenario(base, scenario), SOVEREIGN_SCENARIO_ID);
+// 本文件保留对旧增强被动和存档的行为断言；新开局另行测试精简规则。
+const use = () => { const data = applyScenario(base, scenario); data.focusedRulerPassives = false; return G.setData(data, SOVEREIGN_SCENARIO_ID); };
 const names = (ids) => ids.map((id) => G.name(id));
 
 test('十位开局君主各有不同被动，属性变化及候选君主使用当前属性', () => {

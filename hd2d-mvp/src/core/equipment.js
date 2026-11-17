@@ -16,6 +16,29 @@ export function equipmentIconUrl(value) {
   return icon ? `assets/equipment/${icon.file}.webp` : null;
 }
 
+// 武器名称和数值为游戏设定；只在君主列传的新剧本中追加，不改动原有装备编号。
+export function addRulerWeapons(draft, base) {
+  const specs = [
+    ['西凉霸刀', '刀', 14, 9, 12], ['河北名剑', '剑', 10, 7, 3], ['魏武佩剑', '剑', 12, 7, 5],
+    ['江东霸王枪', '枪', 14, 9, 20], ['双股剑', '剑', 10, 6, 5], ['蜀川佩剑', '剑', 6, 4, 1],
+    ['西凉铁枪', '枪', 11, 7, 20], ['白马银枪', '枪', 11, 7, 20], ['淮南宝刀', '刀', 10, 7, 11], ['荆襄佩剑', '剑', 7, 4, 2],
+  ];
+  const rulers = [...base.factions, ...(draft.factions ?? [])];
+  const fields = ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'appear', 'city', 'faction'];
+  for (const [index, [name, cat, atk, weight, icon]] of specs.entries()) {
+    const id = rulers[index].ruler;
+    let officer = draft.officers.find((item) => item.id === id);
+    if (!officer) {
+      const original = base.officers[id];
+      officer = { ...Object.fromEntries(fields.map((key) => [key, original[key]])), birthYear: null, birthCity: null, portraitId: id, skills: [] };
+      draft.officers.push(officer);
+    }
+    const weapon = { id: base.equipment.length + draft.weapons.length + (draft.armors?.length ?? 0), name, cat, atk, weight,
+      price: 0, icon, grade: 4, shops: [], exclusiveRuler: id };
+    draft.weapons.push(weapon); officer.weapon = weapon.id;
+  }
+}
+
 // 角色模板复用同名同类型的装备；缺少时在版本内追加，编号不因之后添加装备而移动。
 export function ensureFemaleGear(draft, base, character, { balanced = false } = {}) {
   const armors = draft.armors ??= [];

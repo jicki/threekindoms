@@ -43,13 +43,13 @@ test('标题可选择君主列传，技能说明与人物资料显示实际生�
     await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns-expanded-map');
     const card = await chooseRuler(page, '公孙瓒');
     assert.equal(await page.locator('.ruler').count(), 10);
-    assert.match(await page.locator('.setup-passive').textContent(), /白马备战.*金＋44.*后备兵＋45/);
+    assert.match(await page.locator('.setup-passive').textContent(), /白马备战.*金＋44.*专属/);
     await card.click(); await waitPlayer(page);
     const start = await page.evaluate(() => {
       const { g, G } = window.__game;
       return { owner: g.cities[0].faction, gold: g.cities[0].gold, reserve: g.cities[0].reserve, passive: G.rulerPassive(g, 7).name };
     });
-    assert.deepEqual(start, { owner: 7, gold: 944, reserve: 145, passive: '白马备战' });
+    assert.deepEqual(start, { owner: 7, gold: 944, reserve: 100, passive: '白马备战' });
     await page.evaluate(() => { delete window.__game.g.enhancedRulerPassives; });
     await page.locator('.sysmenu-btn').click();
     const passive = page.locator('.sysmenu-list button', { hasText: '君主被动' });
@@ -57,10 +57,10 @@ test('标题可选择君主列传，技能说明与人物资料显示实际生�
     assert.match(await passive.textContent(), /增强/);
     assert.equal(await page.evaluate(() => window.__game.G.rulerPassive(window.__game.g, 7).effects[0].value), 44);
     await passive.click(); assert.match(await passive.textContent(), /原有/);
-    assert.deepEqual(await page.evaluate(() => [window.__game.g.cities[0].gold, window.__game.g.cities[0].reserve]), [944, 145], '同月切换不能重复领取');
+    assert.deepEqual(await page.evaluate(() => [window.__game.g.cities[0].gold, window.__game.g.cities[0].reserve]), [944, 100], '同月切换不能重复领取');
     await passive.click(); await page.locator('.sysmenu-btn').click();
     await page.keyboard.press('r'); await page.locator('tr[data-id="246"]').click();
-    assert.match(await page.locator('.ocard-info').textContent(), /君主被动：白马备战.*金＋44.*后备兵＋45/);
+    assert.match(await page.locator('.ocard-info').textContent(), /君主被动：白马备战.*金＋44.*专属/);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });

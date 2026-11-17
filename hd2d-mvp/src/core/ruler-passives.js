@@ -37,13 +37,35 @@ const UNIQUE = {
   袁术: ['tax', '四月己方各城税金额外＋5%，每城最多40金'],
   刘表: ['garrison', '守方战斗武力额外＋1'],
 };
+// 新开局的基础被动只占一种类别；专属效果仍独立生效。
+const FOCUSED = {
+  董卓: ['army', { war: 4 }], 袁绍: ['field', { mobility: 1 }], 曹操: ['strategy', { strategy: 3 }],
+  孙策: ['army', { war: 4 }], 刘备: ['economy', ['rice']], 刘璋: ['economy', ['rice']],
+  马腾: ['army', { war: 4 }], 公孙瓒: ['economy', ['gold']], 袁术: ['economy', ['gold', 'rice']], 刘表: ['economy', ['gold']],
+};
 const LABELS = { gold: '金', rice: '米', reserve: '后备兵', land: '土地', gov: '统治（至80）', soldiers: '最低兵数武将的兵数', loyalty: '最低忠诚部将的忠诚（至90）' };
 
-export function describeRulerPassive(officer, enhanced = false, campaign = false) {
+export function describeRulerPassive(officer, enhanced = false, campaign = false, focused = false) {
   if (!officer) return null;
   const stat = (key) => Math.max(0, Math.min(99, Math.floor(Number(officer[key]) || 0)));
   const strongest = ['war', 'int', 'virtue'].reduce((a, b) => stat(b) > stat(a) ? b : a);
   const named = Object.hasOwn(PROFILES, officer.name), [name, rules] = named ? PROFILES[officer.name] : DEFAULTS[strongest];
+  if (enhanced && campaign && focused) {
+    const [category, value] = named ? FOCUSED[officer.name] : strongest === 'war' ? ['army', { war: 3 }]
+      : strongest === 'int' ? ['strategy', { strategy: 3 }] : ['economy', ['rice']];
+    const effects = category === 'economy' ? rules.filter(([kind]) => value.includes(kind)).map(([kind, key, base, divisor]) => ({
+      kind, value: (base + (key ? Math.floor(stat(key) / divisor) : 0)) * 4,
+    })) : [];
+    const combat = { war: 0, int: 0, strategy: 0, mobility: 0, tacticRounds: 0, ...(category === 'economy' ? {} : value) };
+    const unique = named ? UNIQUE[officer.name] : null;
+    if (unique) combat.unique = unique[0];
+    const baseText = category === 'economy' ? `每月君主所在城：${effects.map(({ kind, value: amount }) => `${LABELS[kind]}＋${amount}`).join('，')}`
+      : category === 'army' ? `全军${combat.war ? `战斗武力＋${combat.war}` : `白兵智力＋${combat.int}`}`
+        : category === 'field' ? `战场每日机动力恢复和上限＋${combat.mobility}`
+          : `全军计策成功率最多＋${combat.strategy}个百分点`;
+    return { name: named ? name : `${officer.name || '君主'}·${name}`, category, effects, combat,
+      text: `${baseText}${unique ? `；专属：${unique[1]}` : ''}` };
+  }
   const effects = rules.map(([kind, key, base, divisor]) => ({ kind, value: (base + (key ? Math.floor(stat(key) / divisor) : 0))
     * (enhanced ? (kind === 'gold' || kind === 'rice' ? 4 : kind === 'reserve' || kind === 'soldiers' ? 5 : 1) : 1) }));
   const [war, intelligence, strategy, tacticRounds] = named ? COMBAT[officer.name] : DEFAULT_COMBAT[strongest];

@@ -8,7 +8,7 @@ import { setupWar } from '../src/core/warcore.js';
 import { suspend, takeSuspend } from '../src/core/suspend.js';
 import { applyScenario, ORIGINAL_SCENARIO } from '../src/core/scenario.js';
 import { loadScenario } from '../src/core/scenario-store.js';
-import { SOVEREIGN_SCENARIO_ID } from '../src/core/visuals.js';
+import { SOVEREIGN_SCENARIO_ID, WARLORD_SCENARIO_ID } from '../src/core/visuals.js';
 import { EXPANDED_MAP_ID, expandMap } from '../src/core/expanded-map.js';
 
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
@@ -41,6 +41,22 @@ test('扩展地图新开局为两方提供相同的有限补给，不取决于�
   assert.deepEqual(cityValues(legacy.cities[13]), cityValues(standard.cities[13]));
   G.setData(structuredClone(base), ORIGINAL_SCENARIO);
   assert.equal(G.newGame(4, 1, 37).expandedOpeningGuard, undefined);
+});
+
+test('发布的扩展剧本仅在显式配置时继承开局补给与保护', async () => {
+  const source = await loadScenario(SOVEREIGN_SCENARIO_ID, base), version = `v-${'a'.repeat(32)}`;
+  source.id = version; source.map = 'expanded';
+  const fresh = expandMap(applyScenario(base, source)); G.setData(fresh, version);
+  let g = G.newGame(4, 1, 37);
+  assert.equal(g.expandedOpeningGuard, true);
+  assert.deepEqual(cityValues(g.cities[13]), { gold: 600, rice: 750, reserve: 250, gov: 50 });
+  delete source.expandedOpening;
+  G.setData(expandMap(applyScenario(base, source)), version);
+  g = G.newGame(4, 1, 37);
+  assert.equal(g.expandedOpeningGuard, undefined);
+  assert.deepEqual(cityValues(g.cities[13]), { gold: 450, rice: 450, reserve: 100, gov: 45 });
+  const restored = G.upgrade(JSON.parse(JSON.stringify(g)));
+  assert.deepEqual(cityValues(restored.cities[13]), cityValues(g.cities[13]));
 });
 
 test('新旧扩展记录在关隘战斗中断后保留各自的保护状态和资源', () => {
@@ -126,6 +142,10 @@ test('旧记录中单将关隘面对空守敌方据点时保持原有电脑回�
   Object.assign(g.factions[0], { ruler: 100, city: 12, ai: false });
   Object.assign(g.officers[20], { status: G.SERVING, soldiers: 1000, loyalty: 100 });
   Object.assign(g.officers[21], { status: G.SERVING, soldiers: 1000, loyalty: 90 });
+  // 此对照代表新增专属装备和精简被动之前的记录。
+  const oldData = applyScenario(base, await loadScenario(WARLORD_SCENARIO_ID, base));
+  for (const o of g.officers) { const weapon = d.equipment[o.weapon]; if (weapon?.exclusiveRuler === o.id) o.weapon = oldData.officers[o.id].weapon; }
+  delete g.focusedRulerPassives;
   delete g.expandedOpeningGuard; g.warlike = true; g.year = 190; g.seed = 0;
   assert.ok(G.upgrade(g), '这种旧记录可被读取');
   assert.equal(await takeTurn(g), null);

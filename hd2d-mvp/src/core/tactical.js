@@ -6,7 +6,7 @@
 // axis-greedy stepping with one alternate axis, four commands (前进/后退/待机/包围), six tactics with
 // their costs and effects, AI command schedule and tactic priorities, capture and AI withdrawal.
 // The engine is stepped by the UI (one event per call) or run to the end for AI-only battles.
-import { data, addExp, isRuler, spared, sparedHp, weaponGroup } from './game.js';
+import { data, addExp, isRuler, spared, sparedHp, weaponGroup, boundRulerWeapon } from './game.js';
 import { Duel } from './skirmish.js';
 import { SPECIAL_TROOPS, makeSquads, officerSpecialty, officerSquadLimit, troopDamage } from './troop-specialties.js';
 
@@ -29,6 +29,8 @@ const CASTLE = 5;
 const DUEL_LOOT = { 131: { eq: 6, p: 30 }, 173: { eq: 7, lv: 2 }, 182: { eq: 5 }, 222: { eq: 31 } };
 export function duelLoot(g, winner, dead, r) {
   const rule = DUEL_LOOT[dead], o = g.officers[winner];
+  // 已绑定的专属武器不能被单挑所得的普通武器覆盖；护甲战利品仍可获得。
+  if (boundRulerWeapon(g, winner) && (!rule || rule.eq < 24)) return null;
   let eq = null;
   if (rule) { if ((rule.p == null || r(100) < rule.p) && (rule.lv == null || o.level <= rule.lv)) eq = rule.eq; }
   else if (isRuler(g, dead) && !g.dragonFang && r(100) < 50) { g.dragonFang = true; eq = 14; }

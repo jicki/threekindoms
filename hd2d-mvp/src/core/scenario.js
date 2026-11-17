@@ -79,7 +79,7 @@ export function newScenarioId() {
 // 只接受已知结构；读取时也要验证，不能假定本地存储或导入文件可信。
 export function validateScenario(s, base, { draft = false } = {}) {
   obj(s, '版本');
-  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops', 'campaignRules', 'campaignRelations', 'map'], '版本');
+  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'focusedRulerPassives', 'expandedOpening', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops', 'campaignRules', 'campaignRelations', 'map'], '版本');
   if (s.format !== SCENARIO_FORMAT) fail('不支持的版本文件格式');
   if (!(draft && s.id === null) && s.id !== FEMALE_SCENARIO_ID && s.id !== HERO_SCENARIO_ID && s.id !== ROSTER_SCENARIO_ID && s.id !== WARLORD_SCENARIO_ID && s.id !== SOVEREIGN_SCENARIO_ID && (typeof s.id !== 'string' || !ID.test(s.id))) fail('版本编号无效');
   text(s.name, '版本名称', 40);
@@ -91,6 +91,9 @@ export function validateScenario(s, base, { draft = false } = {}) {
   if (s.rulerPassives !== undefined && typeof s.rulerPassives !== 'boolean') fail('君主被动设置无效');
   if (s.enhancedRulerPassives !== undefined && typeof s.enhancedRulerPassives !== 'boolean') fail('增强君主被动设置无效');
   if (s.enhancedRulerPassives && !s.rulerPassives) fail('增强君主被动需要先启用君主被动');
+  if (s.focusedRulerPassives !== undefined && typeof s.focusedRulerPassives !== 'boolean') fail('精简君主被动设置无效');
+  if (s.focusedRulerPassives && (!s.enhancedRulerPassives || !s.campaignRules)) fail('精简君主被动需要增强被动和新版玩法');
+  if (s.expandedOpening !== undefined && typeof s.expandedOpening !== 'boolean') fail('扩展地图开局设置无效');
   if (s.relationshipEffects !== undefined && typeof s.relationshipEffects !== 'boolean') fail('人物关系效果设置无效');
   if (s.autoBattleSkills !== undefined && typeof s.autoBattleSkills !== 'boolean') fail('电脑战斗技能设置无效');
   if (s.eliteTroops !== undefined && typeof s.eliteTroops !== 'boolean') fail('特色兵队设置无效');
@@ -141,6 +144,7 @@ export function validateScenario(s, base, { draft = false } = {}) {
   const seenOfficers = new Set(), seenRelations = new Set();
   const equipment = [...s.weapons.map((item) => ({ item, kind: 'weapon' })), ...armors.map((item) => ({ item, kind: 'armor' }))];
   const equipmentKinds = new Map();
+  const exclusiveWeapons = new Map(), exclusiveOwners = new Set();
   for (const { item, kind } of equipment) {
     obj(item, kind === 'weapon' ? '武器' : '防具');
     integer(item.id, '新装备编号', base.equipment.length, base.equipment.length + equipment.length - 1);
@@ -167,12 +171,18 @@ export function validateScenario(s, base, { draft = false } = {}) {
     }
   };
   for (const w of s.weapons) {
-    keys(w, ['id', 'name', 'cat', 'atk', 'weight', 'price', 'icon', 'shops', 'grade', 'requirements'], '武器');
+    keys(w, ['id', 'name', 'cat', 'atk', 'weight', 'price', 'icon', 'shops', 'grade', 'requirements', 'exclusiveRuler'], '武器');
     text(w.name, '武器名称');
     if (!WEAPON_CATEGORIES.includes(w.cat)) fail('武器类型无效');
     integer(w.atk, '武器攻击', 0, 99); integer(w.weight, '武器重量', 0, 99); integer(w.price, '武器价格', 0, 9999);
     if (!validEquipmentIcon(w.icon, 'weapon')) fail('武器图标无效');
     shops(w); requirements(w);
+    if (w.exclusiveRuler !== undefined) {
+      integer(w.exclusiveRuler, '专属武器君主', 0, maxOfficer);
+      if (!allFactions.some((f) => f.ruler === w.exclusiveRuler) || exclusiveOwners.has(w.exclusiveRuler)) fail('专属武器须对应唯一的开局君主');
+      if (w.shops.length) fail('君主专属武器不能在商店出售');
+      exclusiveOwners.add(w.exclusiveRuler); exclusiveWeapons.set(w.id, w.exclusiveRuler);
+    }
   }
   for (const a of armors) {
     keys(a, ['id', 'name', 'dfn', 'weight', 'price', 'icon', 'shops', 'grade', 'requirements'], '防具');
@@ -214,6 +224,7 @@ export function validateScenario(s, base, { draft = false } = {}) {
     const lastEquipment = base.equipment.length + equipment.length - 1;
     integer(o.weapon, '武器', 0, lastEquipment);
     if ((base.equipment[o.weapon]?.kind ?? equipmentKinds.get(o.weapon)) !== 'weapon') fail('武器不能选择防具');
+    if (exclusiveWeapons.has(o.weapon) && exclusiveWeapons.get(o.weapon) !== o.id) fail('君主专属武器不能分配给其他武将');
     integer(o.armor, '防具', 0, lastEquipment - 24);
     if ((base.equipment[24 + o.armor]?.kind ?? equipmentKinds.get(24 + o.armor)) !== 'armor') fail('防具不能选择武器');
     if (!['平', '山', '水'].includes(o.army)) fail('兵种无效');
@@ -285,6 +296,8 @@ export function applyScenario(base, scenario, { draft = false } = {}) {
   d.customSkills = clone(scenario.skills);
   d.rulerPassives = scenario.rulerPassives === true;
   d.enhancedRulerPassives = scenario.enhancedRulerPassives === true;
+  d.focusedRulerPassives = scenario.focusedRulerPassives === true;
+  d.expandedOpening = scenario.expandedOpening === true;
   d.relationshipEffects = scenario.relationshipEffects === true;
   d.autoBattleSkills = scenario.autoBattleSkills === true;
   d.eliteTroops = scenario.eliteTroops === true;
@@ -302,7 +315,8 @@ export function applyScenario(base, scenario, { draft = false } = {}) {
   for (const { item, kind } of equipment.sort((a, b) => a.item.id - b.item.id)) {
     d.equipment.push({ id: item.id, name: item.name, kind, cat: kind === 'weapon' ? item.cat : '防具', atk: kind === 'weapon' ? item.atk : 0,
       dfn: kind === 'armor' ? item.dfn : 0, weight: item.weight, price: item.price, icon: item.icon,
-      ...(item.grade !== undefined ? { grade: item.grade } : {}), ...(item.requirements !== undefined ? { requirements: clone(item.requirements) } : {}) });
+      ...(item.grade !== undefined ? { grade: item.grade } : {}), ...(item.requirements !== undefined ? { requirements: clone(item.requirements) } : {}),
+      ...(item.exclusiveRuler !== undefined ? { exclusiveRuler: item.exclusiveRuler } : {}) });
     for (const city of item.shops) {
       d.cities[city].shop.push(item.id); d.cities[city].field_shop.push(item.id); d.cities[city].ai_shop.push(item.id);
     }

@@ -218,7 +218,7 @@ test('标题可选择合并后的内置版本，原有角色立绘和表情正�
     await skipIntro(page); await page.locator('.sysmenu-btn').click();
     await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
     await page.getByRole('button', { name: /^群英新篇·君主列传\s*(当前版本|选择此版本)$/ }).click();
-    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns', null, { timeout: 30000 });
+    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns-expanded-map', null, { timeout: 30000 });
     const result = await page.evaluate(async () => {
       const { G } = window.__game, { face, figure } = await import('./src/ui.js');
       const officer = G.data().officers.find((o) => o.name === '孙尚香');
@@ -271,7 +271,7 @@ test('模拟桌面离线协议时仍可选择内置版本且不请求版本接�
     await skipIntro(page); await page.locator('.sysmenu-btn').click();
     await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
     await page.getByRole('button', { name: /^群英新篇·君主列传\s*(当前版本|选择此版本)$/ }).click();
-    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns', null, { timeout: 30000 });
+    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns-expanded-map', null, { timeout: 30000 });
     assert.equal(versionRequests, 0);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }

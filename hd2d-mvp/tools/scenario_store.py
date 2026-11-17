@@ -185,7 +185,7 @@ def image_info(data):
 
 
 def validate(s, base):
-    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops', 'campaignRules', 'campaignRelations', 'map'])
+    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'focusedRulerPassives', 'expandedOpening', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops', 'campaignRules', 'campaignRelations', 'map'])
     if type(s.get('format')) is not int or s['format'] != 1:
         fail('不支持的版本文件格式')
     if not isinstance(s.get('id'), str) or not ID.fullmatch(s['id']):
@@ -197,6 +197,12 @@ def validate(s, base):
         fail('增强君主被动设置无效')
     if s.get('enhancedRulerPassives') and not s.get('rulerPassives'):
         fail('增强君主被动需要先启用君主被动')
+    if 'focusedRulerPassives' in s and type(s['focusedRulerPassives']) is not bool:
+        fail('精简君主被动设置无效')
+    if s.get('focusedRulerPassives') and (not s.get('enhancedRulerPassives') or not s.get('campaignRules')):
+        fail('精简君主被动需要增强被动和新版玩法')
+    if 'expandedOpening' in s and type(s['expandedOpening']) is not bool:
+        fail('扩展地图开局设置无效')
     if 'relationshipEffects' in s and type(s['relationshipEffects']) is not bool:
         fail('人物关系效果设置无效')
     if 'autoBattleSkills' in s and type(s['autoBattleSkills']) is not bool:
@@ -276,7 +282,7 @@ def validate(s, base):
 
     kinds = {}
     for item, kind in [(w, 'weapon') for w in weapons] + [(a, 'armor') for a in armors]:
-        obj(item, '武器' if kind == 'weapon' else '防具', ['id', 'name', 'cat', 'atk', 'dfn', 'weight', 'price', 'icon', 'shops', 'grade', 'requirements'])
+        obj(item, '武器' if kind == 'weapon' else '防具', ['id', 'name', 'cat', 'atk', 'dfn', 'weight', 'price', 'icon', 'shops', 'grade', 'requirements', 'exclusiveRuler'])
         integer(item.get('id'), '新装备编号', len(base['equipment']), len(base['equipment']) + len(weapons) + len(armors) - 1)
         if item['id'] in kinds:
             fail('新装备编号重复')
@@ -313,14 +319,22 @@ def validate(s, base):
             for officer_id in ids: integer(officer_id, '指定武将', 0, max_officer)
             if len(ids) != len(set(ids)): fail('指定武将重复')
 
+    exclusive_weapons, exclusive_owners = {}, set()
     for w in weapons:
-        obj(w, '武器', ['id', 'name', 'cat', 'atk', 'weight', 'price', 'icon', 'shops', 'grade', 'requirements'])
+        obj(w, '武器', ['id', 'name', 'cat', 'atk', 'weight', 'price', 'icon', 'shops', 'grade', 'requirements', 'exclusiveRuler'])
         text(w.get('name'), '武器名称')
         if w.get('cat') not in ('剑', '刀', '枪', '扇', '弓'):
             fail('武器类型无效')
         for key, label, maximum in [('atk', '武器攻击', 99), ('weight', '武器重量', 99), ('price', '武器价格', 9999)]:
             integer(w.get(key), label, 0, maximum)
         check_icon(w.get('icon'), 'weapon'); check_shops(w); check_requirements(w)
+        if 'exclusiveRuler' in w:
+            integer(w['exclusiveRuler'], '专属武器君主', 0, max_officer)
+            if w['exclusiveRuler'] not in {f['ruler'] for f in all_factions} or w['exclusiveRuler'] in exclusive_owners:
+                fail('专属武器须对应唯一的开局君主')
+            if w['shops']:
+                fail('君主专属武器不能在商店出售')
+            exclusive_owners.add(w['exclusiveRuler']); exclusive_weapons[w['id']] = w['exclusiveRuler']
     for a in armors:
         obj(a, '防具', ['id', 'name', 'dfn', 'weight', 'price', 'icon', 'shops', 'grade', 'requirements'])
         text(a.get('name'), '防具名称')
@@ -372,6 +386,8 @@ def validate(s, base):
         weapon_kind = base['equipment'][o['weapon']]['kind'] if o['weapon'] < len(base['equipment']) else kinds.get(o['weapon'])
         if weapon_kind != 'weapon':
             fail('武器不能选择防具')
+        if o['weapon'] in exclusive_weapons and exclusive_weapons[o['weapon']] != oid:
+            fail('君主专属武器不能分配给其他武将')
         integer(o.get('armor'), '防具', 0, last - 24)
         armor_id = 24 + o['armor']
         armor_kind = base['equipment'][armor_id]['kind'] if armor_id < len(base['equipment']) else kinds.get(armor_id)

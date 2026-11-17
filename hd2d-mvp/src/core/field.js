@@ -5,7 +5,7 @@
 import { data, rng, NONE, DEAD, roads, addExp, takeLevelUps, equipBlock, wearEquip, spared, sparedHp, isRuler, isPass, maxHp, rulerPassive, recruitLoyalty } from './game.js';
 import { Tactical } from './tactical.js';
 import { roll100, realChance } from './origrng.js';
-import { relationDisposition, recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
+import { relationshipAffinity, recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
 import { passiveRiceUse } from './ruler-passives.js';
 
 const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0]]; // 上下左右
@@ -136,7 +136,7 @@ export class Field {
     const faction = this.faction(s), ruler = this.g.factions[faction]?.ruler;
     const deployed = this.units.find((u) => u.side === s && u.id === ruler);
     let passive = deployed?.gone ? null : rulerPassive(this.g, faction)?.combat ?? null;
-    if (passive?.unique === 'bonds' && this.side(s).filter((u) => u.id !== ruler && relationDisposition(data(), this.g, ruler, u.id) > 0).length >= 2) {
+    if (passive?.unique === 'bonds' && this.side(s).filter((u) => u.id !== ruler && relationshipAffinity(data(), this.g, ruler, u.id) > 0).length >= 2) {
       passive = { ...passive, strategy: passive.strategy + 2 };
     }
     if (passive?.unique === 'garrison' && s === 'def') passive = { ...passive, war: passive.war + 1 };
@@ -758,14 +758,31 @@ export class Field {
       best = { x, y, cost, distance };
     }
     if (!best) return null;
-    const path = this.path(reach, best.x, best.y), step = path[0];
+    const path = this.path(reach, best.x, best.y), step = path.shift();
     if (!step) return null;
+    u.aiDetour = path.length ? { target: [target.x, target.y], path } : null;
     const cost = this.cost(u, ...step);
     this.move(u, ...step, cost);
     return { type: 'move', u, path: [step], cost };
   }
   approach(u, target) {
     if (!target || this.pool[u.side] <= 0 || u.stop || u.qimen) return null;
+    // 绕路必须继续到选定的落点，不能下一步又按直线走回刚才的位置。
+    const route = u.aiDetour;
+    if (this.g.campaignRules === true && route) {
+      const step = Array.isArray(route.path) ? route.path[0] : null;
+      const sameTarget = Array.isArray(route.target) && route.target.length === 2 && route.target[0] === target.x && route.target[1] === target.y;
+      const adjacent = Array.isArray(step) && step.length === 2 && step.every(Number.isInteger)
+        && Math.abs(step[0] - u.x) + Math.abs(step[1] - u.y) === 1 && this.inside(...step);
+      if (sameTarget && adjacent && !this.unitAt(...step)) {
+        const cost = this.cost(u, ...step);
+        if (cost > this.pool[u.side]) return null;
+        route.path.shift(); if (!route.path.length) u.aiDetour = null;
+        this.move(u, ...step, cost);
+        return { type: 'move', u, path: [step], cost };
+      }
+      u.aiDetour = null;
+    }
     const dx = target.x - u.x, dy = target.y - u.y;
     // A60C has no "stop beside the target": an occupied target cell blocks (or is attacked) below, an
     // empty one (a vacated castle, a village) is entered. Stop once standing on it.

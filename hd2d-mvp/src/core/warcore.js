@@ -4,7 +4,7 @@ import { data, rng, NONE, DEAD, SERVING, RONIN, roads, officerCity, capturedLoya
 import { DUEL_SKILLS } from './duel-skills.js';
 import { makeSquads, officerSpecialty, officerSquadLimit } from './troop-specialties.js';
 import { passiveRiceUse } from './ruler-passives.js';
-import { relationDisposition } from './relationships.js';
+import { relationshipAffinity } from './relationships.js';
 
 // Remove the expedition from its source city and empty the target into the defender's war chest.
 export function setupWar(g, { from, to, ids, commander, gold, rice }) {
@@ -266,7 +266,7 @@ export function fight(g, war) {
     const applies = unique === 'assault' && side === 'att'
       || unique === 'muster' && active.length >= 4
       || unique === 'river' && D.maps[war.city]?.some((row) => row.includes(3))
-      || unique === 'bonds' && active.filter((id) => id !== ruler && relationDisposition(D, g, ruler, id) > 0).length >= 2
+      || unique === 'bonds' && active.filter((id) => id !== ruler && relationshipAffinity(D, g, ruler, id) > 0).length >= 2
       || (unique === 'cavalry' || unique === 'horsebow') && active.some(hasCavalry)
       || unique === 'garrison' && side === 'def';
     return applies ? Math.min(2, Math.floor(base / 80)) : 0;
@@ -278,7 +278,12 @@ export function fight(g, war) {
   const sa = baseA + bonus.att + troops.att + gear.att + lord.att, sd = baseD + bonus.def + troops.def + gear.def + gate + lord.def;
   const q = Math.floor((100 * sa) / Math.max(1, sa + sd));
   const days = 30 - Math.abs(Math.floor(q / 2) - 25);
-  const proj = (ids, faction) => passiveRiceUse(Math.floor((Math.floor(ids.reduce((a, id) => a + O(id).soldiers, 0) / 100) * (days * 4)) / 10), rulerPassive(g, faction));
+  const proj = (ids, faction) => {
+    const soldiers = ids.reduce((a, id) => a + O(id).soldiers, 0), passive = rulerPassive(g, faction);
+    // 曹操的保底节粮按日生效，不能对整场粮耗只取整一次；其他规则保留原自动结算公式。
+    return passive?.combat?.unique === 'supply' ? passiveRiceUse(Math.floor(soldiers * 4 / 1000), passive) * days
+      : Math.floor((Math.floor(soldiers / 100) * (days * 4)) / 10);
+  };
   const attWins = !war.def.ids.length || war.def.rice < proj(war.def.ids, war.defender) || r(100) < q;
   war.day = days;
   // Troop loss by current HP, deaths, experience.

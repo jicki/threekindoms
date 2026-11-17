@@ -81,6 +81,37 @@ test('曹操的节粮在实际战场日结算和中断恢复后生效，旧记�
   G.setData(base);
 });
 
+test('电脑自动战斗逐日估算曹操节粮，其他君主保留原自动结算公式', () => {
+  const g = setup(), cao = g.factions[2].ruler, yuan = g.factions[1].ruler;
+  for (const id of [cao, yuan]) Object.assign(g.officers[id], { soldiers: 1000, hp: 100 });
+  const war = { city: 11, from: 4, attacker: 1, defender: 2,
+    att: { ids: [yuan], gold: 100, rice: 1000 }, def: { ids: [cao], gold: 100, rice: 1000 } };
+  const result = fight(structuredClone(g), structuredClone(war)), field = new Field(structuredClone(g), structuredClone(war), null);
+  let cost = 0;
+  for (let day = 0; day < result.days; day++) {
+    field.turn = 'def'; const before = field.war.def.rice; field.endTurn(); cost += before - field.war.def.rice;
+  }
+  assert.equal(result.proj([cao], 2), cost);
+  const without = structuredClone(g); without.enhancedRulerPassives = false;
+  const original = fight(without, structuredClone(war));
+  assert.equal(original.proj([cao], 2), Math.floor(10 * original.days * 4 / 10));
+  G.setData(base);
+});
+
+test('刘备专属被动使用人物关系，但不启用已关闭的通用关系效果', () => {
+  const g = setup();
+  const war = { city: 1, from: 0, attacker: 4, defender: 7,
+    att: { ids: g.cities[2].officers.slice(0, 3), gold: 100, rice: 1000 },
+    def: { ids: g.cities[0].officers.slice(0, 2), gold: 100, rice: 1000 } };
+  const f = new Field(g, war, null), baseChance = G.rulerPassive(g, 4).combat.strategy;
+  assert.equal(f.combatPassive('att').strategy, baseChance + 2);
+  g.relationshipEffects = false;
+  assert.equal(f.combatPassive('att').strategy, baseChance + 2);
+  f.side('att').find((u) => G.name(u.id) === '张飞').gone = true;
+  assert.equal(f.combatPassive('att').strategy, baseChance);
+  G.setData(base);
+});
+
 test('袁绍四将恢复与下一回合威胁预报一致；刘备关系和刘表守势有明确条件', () => {
   const g = setup(), f = fieldFor(g);
   g.factions[7].ruler = byName('袁绍'); f.pool.att = 0; f.turn = 'def';
@@ -219,7 +250,7 @@ test('地方建言在真实回合中由玩家选择，读档后不会再次弹�
   }
   assert.ok(selected);
   const expected = template.cities[selected.city];
-  assert.equal(game.cities[selected.city].gold, expected.gold - 80 + G.rulerPassive(game, 7).effects.find((effect) => effect.kind === 'gold').value);
+  assert.equal(game.cities[selected.city].gold, expected.gold - 80 + (G.rulerPassive(game, 7).effects.find((effect) => effect.kind === 'gold')?.value ?? 0));
   assert.equal(game.cities[selected.city].rice, expected.rice + 100);
   game.over = null; game = G.upgrade(JSON.parse(JSON.stringify(game))); assert.ok(game);
   let again = false;
@@ -241,6 +272,27 @@ test('电脑直行被敌军阻挡时可绕行，旧记录仍保留原行为', ()
   assert.equal(action?.type, 'move'); assert.equal(action.path.length, 1);
   assert.equal(f.pool.att, before - f.cost(attacker, attacker.x, attacker.y));
   assert.notDeepEqual([attacker.x, attacker.y], [4, 5]);
+  G.setData(base);
+});
+
+test('电脑绕路连续前进且战场中断恢复后不走回头路', () => {
+  const g = setup();
+  const war = { city: 11, from: 4, attacker: 1, defender: 2,
+    att: { ids: g.cities[4].officers.slice(0, 4), gold: 100, rice: 1000 },
+    def: { ids: g.cities[11].officers.slice(0, 1), gold: 100, rice: 1000 } };
+  let f = new Field(g, war, null);
+  const [commander, unit, a, b] = f.side('att'), foe = f.side('def')[0], [x, y] = f.castle();
+  for (const u of [commander, unit, a, b, foe]) Object.assign(g.officers[u.id], { soldiers: 800, hp: 100, army: '平' });
+  Object.assign(commander, { x: 0, y: 0, stop: 3 }); Object.assign(unit, { x: 2, y: 1, role: 1 });
+  Object.assign(a, { x: 3, y: 1, role: 7 }); Object.assign(b, { x: 2, y: 2, role: 7 }); Object.assign(foe, { x, y });
+  f.units = [commander, unit, a, b, foe]; f.pool.att = 30;
+  assert.equal(f.aiDecide(unit)?.type, 'move');
+  f = Field.restore(g, structuredClone(war), JSON.parse(JSON.stringify(f.snapshot())));
+  const resumed = f.units.find((u) => u.id === unit.id), path = [[2, 1], [resumed.x, resumed.y]];
+  for (let i = 0; i < 4; i++) { assert.equal(f.aiDecide(resumed)?.type, 'move'); path.push([resumed.x, resumed.y]); }
+  assert.equal(new Set(path.map((p) => p.join(','))).size, path.length, `不应重复往返：${JSON.stringify(path)}`);
+  assert.ok(Math.abs(x - resumed.x) + Math.abs(y - resumed.y) < Math.abs(x - 2) + Math.abs(y - 1));
+  assert.ok(f.pool.att >= 0);
   G.setData(base);
 });
 

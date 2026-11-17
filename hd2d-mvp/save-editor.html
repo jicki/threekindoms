@@ -358,9 +358,17 @@ function gearPicker(o) {
   const now = h('div', { class: 'se-gear-now' });
   const line = (k, label, list, off) => {
     const btns = list.map((e) => {
-      const b = h('button', { class: 'eq', title: `${e.name}  ${e.kind === 'weapon' ? `攻${e.atk}` : `防${e.dfn}`}  重${e.weight}`, 'aria-label': e.name },
+      const locked = k === 'weapon' && e.id !== o.weapon && e.exclusiveRuler !== undefined;
+      const b = h('button', { class: 'eq', disabled: locked, title: `${e.name}  ${e.kind === 'weapon' ? `攻${e.atk}` : `防${e.dfn}`}  重${e.weight}${locked ? ' · 君主专属武器不可获取或转移' : ''}`, 'aria-label': e.name },
         h('img', { src: icon(e.id), alt: '' }));
-      b.onclick = () => { setOfficer(g, o.id, k, e.id - off); paint(); onEdit(); };
+      b.onclick = async () => {
+        const previous = o.weapon;
+        if (k === 'weapon' && e.id !== previous && G.boundRulerWeapon(g, o.id)) {
+          if (!(await ask('更换专属武器', h('p', {}, '更换后当前专属武器消失，无法再次获得。确定更换？'), '更换'))) return;
+          if (g.officers[o.id] !== o || o.weapon !== previous) return;
+        }
+        if (setOfficer(g, o.id, k, e.id - off) != null) { paint(); onEdit(); }
+      };
       b.dataset.v = e.id - off; return b;
     });
     return { k, btns, el: h('div', { class: 'se-gear-row' }, h('span', { class: 'k' }, label), btns) };
@@ -421,7 +429,14 @@ function officerDetail(id) {
         h('button', { class: 'btn', disabled: dead, title: '武力、知力、人德、体力（连同上限）99，忠诚 100，兵 1000', onclick: () => {
           for (const [k, v] of [['war', 99], ['int', 99], ['virtue', 99], ['hp', 99], ['loyalty', 100], ['soldiers', 1000]]) setOfficer(g, id, k, v);
           repaint(); } }, '能力拉满'),
-        h('button', { class: 'btn', onclick: () => { for (const [k] of OFFICER_FIELDS) if (!(dead && k === 'hp')) setOfficer(g, id, k, base.officers[id][k]); if (base.officers[id].maxHp == null) delete o.maxHp; else o.maxHp = base.officers[id].maxHp; o.hp = base.officers[id].hp; repaint(); } }, '还原此人'))),
+        h('button', { class: 'btn', onclick: () => {
+          for (const [k] of OFFICER_FIELDS) if (!(dead && k === 'hp')) {
+            // 尚未写回时可撤销本次更换；一旦写回，基准记录也随之更新。
+            if (k === 'weapon' && D.equipment[base.officers[id].weapon]?.exclusiveRuler === id) o.weapon = base.officers[id].weapon;
+            else setOfficer(g, id, k, base.officers[id][k]);
+          }
+          if (base.officers[id].maxHp == null) delete o.maxHp; else o.maxHp = base.officers[id].maxHp; o.hp = base.officers[id].hp; repaint();
+        } }, '还原此人'))),
     h('div', { class: 'sec' }, h('h4', {}, '能力'), h('div', { class: 'stats-ed' }, rows)),
     h('div', { class: 'sec' }, h('h4', {}, '装备'), gear));
 }

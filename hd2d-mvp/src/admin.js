@@ -272,7 +272,8 @@ if (base) {
     } }, '应用整套素材');
     assetInputs.push(stylePreset, applyPreset);
     showPortrait();
-    const weapons = data.equipment.filter((e) => e.kind === 'weapon').map((e) => [e.id, `${e.name}（攻${e.atk}）`]);
+    const weapons = data.equipment.filter((e) => e.kind === 'weapon' && (e.exclusiveRuler === undefined || e.exclusiveRuler === o.id))
+      .map((e) => [e.id, `${e.name}（攻${e.atk}）`]);
     const armors = data.equipment.filter((e) => e.kind === 'armor').map((e) => [e.id - 24, `${e.name}（防${e.dfn}）`]);
     const stats = [['hp', '体力', 1, 99], ['war', '武力', 1, 99], ['int', '智力', 1, 99], ['virtue', '人德', 1, 99],
       ['loyalty', '忠诚', 0, 100], ['level', '等级', 1, 8], ['exp', '经验', 0, 49999], ['soldiers', '兵数', 0, 1000],
@@ -319,7 +320,7 @@ if (base) {
   }
 
   function renderWeapons() {
-    const items = draft.weapons;
+    const data = currentData(), items = draft.weapons;
     const add = el('button', { type: 'button', onclick: () => {
       if (!abandonForm()) return;
       const id = equipmentId();
@@ -331,7 +332,7 @@ if (base) {
     if (!w) return workspace(side, panel('detail', el('h2', {}, '新武器'), el('p', { class: 'empty' }, '创建新武器后设置属性和售卖城市。')));
     selected.weapons = w.id;
     const form = el('form'), shops = el('div', { class: 'checks' }, base.cities.filter((c) => c.facilities.weapons).map((c) => el('label', {},
-      el('input', { type: 'checkbox', name: 'shops', value: c.id, checked: w.shops.includes(c.id) }), c.name)));
+      el('input', { type: 'checkbox', name: 'shops', value: c.id, checked: w.shops.includes(c.id), disabled: w.exclusiveRuler !== undefined }), c.name)));
     const icon = select('icon', iconChoices('weapon'), w.icon);
     const iconPreview = el('img', { class: 'weapon-preview', alt: '武器图标预览' });
     const showIcon = () => { iconPreview.src = equipmentIconUrl(iconValue(icon.value)); };
@@ -341,11 +342,12 @@ if (base) {
       field('攻击', input('atk', w.atk, 0, 99)), field('重量', input('weight', w.weight, 0, 99)), field('价格', input('price', w.price, 0, 9999)),
       field('沿用图标', icon), iconPreview, ...gearRequirements(w),
       el('div', { class: 'wide' }, '售卖城市', shops)),
-      el('p', { class: 'intro' }, '弓可在白兵中沿直线射击两格，远射的战力和武器攻击分别按 55% 和 60% 计算；近身遇敌将仍单挑，扇使用近战。所选城市的武器屋出售，有战场武器店时也可购买；电脑按武器类别与购买条件换装。'), formButtons());
+      el('p', { class: 'intro' }, w.exclusiveRuler !== undefined ? `该武器仅由${data.officers[w.exclusiveRuler].name}开局持有，不可出售或转移；更换后消失。` : '弓可在白兵中沿直线射击两格，远射的战力和武器攻击分别按 55% 和 60% 计算；近身遇敌将仍单挑，扇使用近战。所选城市的武器屋出售，有战场武器店时也可购买；电脑按武器类别与购买条件换装。'), formButtons());
     markForm(form);
     form.addEventListener('submit', (event) => {
       event.preventDefault(); const fd = new FormData(form), value = { id: w.id, name: String(fd.get('name')).trim(), cat: fd.get('cat'),
-        atk: number(fd, 'atk'), weight: number(fd, 'weight'), price: number(fd, 'price'), icon: iconValue(fd.get('icon')), shops: fd.getAll('shops').map(Number), ...readGearRequirements(fd) };
+        atk: number(fd, 'atk'), weight: number(fd, 'weight'), price: number(fd, 'price'), icon: iconValue(fd.get('icon')), shops: fd.getAll('shops').map(Number), ...readGearRequirements(fd),
+        ...(w.exclusiveRuler !== undefined ? { exclusiveRuler: w.exclusiveRuler } : {}) };
       update((d) => { d.weapons[d.weapons.findIndex((item) => item.id === w.id)] = value; }, '武器修改已应用到草稿');
     });
     return workspace(side, panel('detail', el('h2', {}, w.name), form));
@@ -462,20 +464,30 @@ if (base) {
       if (!abandonForm()) { map.value = draft.map ?? 'standard'; return; }
       update((d) => { if (map.value === 'expanded') d.map = 'expanded'; else delete d.map; }, '地图设置已应用到草稿');
     });
+    const expandedOpening = el('input', { type: 'checkbox', checked: !!draft.expandedOpening });
+    expandedOpening.addEventListener('change', () => {
+      if (!abandonForm()) { expandedOpening.checked = !!draft.expandedOpening; return; }
+      update((d) => { if (expandedOpening.checked) d.expandedOpening = true; else delete d.expandedOpening; }, '扩展地图开局设置已应用到草稿');
+    });
     const campaignRules = el('input', { type: 'checkbox', checked: !!draft.campaignRules });
     campaignRules.addEventListener('change', () => {
       if (!abandonForm()) { campaignRules.checked = !!draft.campaignRules; return; }
-      update((d) => { if (campaignRules.checked) d.campaignRules = true; else delete d.campaignRules; }, '新版玩法设置已应用到草稿');
+      update((d) => { if (campaignRules.checked) d.campaignRules = true; else { delete d.campaignRules; delete d.focusedRulerPassives; } }, '新版玩法设置已应用到草稿');
     });
     const passive = el('input', { type: 'checkbox', checked: !!draft.rulerPassives });
     passive.addEventListener('change', () => {
       if (!abandonForm()) { passive.checked = !!draft.rulerPassives; return; }
-      update((d) => { if (passive.checked) d.rulerPassives = true; else { delete d.rulerPassives; delete d.enhancedRulerPassives; } }, '君主被动设置已应用到草稿');
+      update((d) => { if (passive.checked) d.rulerPassives = true; else { delete d.rulerPassives; delete d.enhancedRulerPassives; delete d.focusedRulerPassives; } }, '君主被动设置已应用到草稿');
     });
     const enhancedPassive = el('input', { type: 'checkbox', checked: !!draft.enhancedRulerPassives, disabled: !draft.rulerPassives });
     enhancedPassive.addEventListener('change', () => {
       if (!abandonForm()) { enhancedPassive.checked = !!draft.enhancedRulerPassives; return; }
-      update((d) => { if (enhancedPassive.checked) d.enhancedRulerPassives = true; else delete d.enhancedRulerPassives; }, '增强君主被动设置已应用到草稿');
+      update((d) => { if (enhancedPassive.checked) d.enhancedRulerPassives = true; else { delete d.enhancedRulerPassives; delete d.focusedRulerPassives; } }, '增强君主被动设置已应用到草稿');
+    });
+    const focusedPassive = el('input', { type: 'checkbox', checked: !!draft.focusedRulerPassives, disabled: !draft.enhancedRulerPassives || !draft.campaignRules });
+    focusedPassive.addEventListener('change', () => {
+      if (!abandonForm()) { focusedPassive.checked = !!draft.focusedRulerPassives; return; }
+      update((d) => { if (focusedPassive.checked) d.focusedRulerPassives = true; else delete d.focusedRulerPassives; }, '精简君主被动设置已应用到草稿');
     });
     const fixedRecruitment = el('input', { type: 'checkbox', checked: !!draft.fixedAiRecruitment });
     fixedRecruitment.addEventListener('change', () => {
@@ -538,9 +550,11 @@ if (base) {
       el('span', {}, `${data.officers[r.officer].name} · ${data.officers[data.factions[r.faction].ruler].name}势力 · ${data.cities[data.officers[r.officer].city].name}`),
       el('button', { type: 'button', onclick: () => { if (abandonForm()) update((d) => d.rulers.splice(i, 1), '君主候选已移除'); } }, '移除')));
     return panel('detail', el('h2', {}, '君主候选'), field('地图', map), el('p', { class: 'intro' }, '扩展地图增加三城与四处关隘；人物登场和装备商店仍按原有三十城配置。发布后各版本存档独立。'),
+      field('扩展地图开局补给与保护', expandedOpening), el('p', { class: 'intro' }, '仅对扩展地图的新开局生效：为董卓、袁术补给，并在开局五年保护电脑君主城；已有记录不补发。'),
       field('启用新版玩法', campaignRules), el('p', { class: 'intro' }, '新开局启用改进的电脑决策、同盟和战斗规则；设置随记录保存。'),
-      field('启用君主被动技能', passive), el('p', { class: 'intro' }, '启用后君主每月按当前属性为所在城提供固定增益；继位者按自身属性获得被动，玩家和电脑规则相同。'),
-      field('增强君主被动', enhancedPassive), el('p', { class: 'intro' }, '新开局增加每月资源，并为全军提供战斗武力、计策和战场机动力增益；部分君主延长己方增益战术。不修改武将基础属性，旧记录可在游戏中选择启用。'),
+      field('启用君主被动技能', passive), el('p', { class: 'intro' }, '启用后君主提供内政或战斗被动，具体效果由增强与精简选项决定；继位者按自身属性获得被动，玩家和电脑规则相同。'),
+      field('增强君主被动', enhancedPassive), el('p', { class: 'intro' }, '启用增强被动；效果随本局设置生效，不修改武将基础属性。'),
+      field('精简君主被动', focusedPassive), el('p', { class: 'intro' }, '需要增强被动和新版玩法。新开局每名君主保留一种基础效果和专属效果；旧记录保留原有配置。'),
       field('修正电脑补兵', fixedRecruitment), el('p', { class: 'intro' }, '启用后电脑按实际金币和后备兵补兵，金币不足时只能补充可负担的人数。'),
       field('优化电脑补兵优先级', smartReinforcement), el('p', { class: 'intro' }, '新开局在启用修正电脑补兵时，兼顾可补人数、前线和君主所在城；已启用的存档使用更新后的排序，未启用的旧存档保留原有排序。'),
       field('增强灾害影响', enhancedDisasters), el('p', { class: 'intro' }, '新开局启用后，旱灾和洪水会损失金、米、土地与产业；防灾越高损失越小，资源不足时最多损失现有数量。是否启用随开局保存，已启用的存档使用更新后的损失规则。'),

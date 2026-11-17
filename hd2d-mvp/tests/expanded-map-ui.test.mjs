@@ -49,6 +49,40 @@ test('旧版会话转到新版，但旧存档数据不被覆盖', async () => {
   } finally { await page.context().close(); }
 });
 
+test('新会话可以读取君主列传标准地图记录，并返回扩展地图', async () => {
+  const page = await game.open('&flat&phone', { setup: (ctx) => ctx.addInitScript(() => {
+    if (!localStorage.getItem('test-standard-record-ready')) sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns');
+  }) });
+  try {
+    const record = await page.evaluate(async () => {
+      const { G } = window.__game, base = await (await fetch('data/game-data.json')).json();
+      const { applyScenario } = await import('./src/core/scenario.js'), { loadScenario } = await import('./src/core/scenario-store.js');
+      const oldData = applyScenario(base, await loadScenario('builtin-warlords', base));
+      const g = G.newGame(4, 1, 12); delete g.focusedRulerPassives;
+      for (const o of g.officers) if (G.data().equipment[o.weapon]?.exclusiveRuler === o.id) o.weapon = oldData.officers[o.id].weapon;
+      g.turnIdx = G.data().rules.turn_orders[g.order].indexOf(g.player); g.current = g.player; g.books = G.books(g, g.player);
+      G.save(g, 1); const raw = localStorage.getItem('haou-hd2d-save:scenario:builtin-sovereigns:1');
+      localStorage.setItem('test-standard-record-ready', '1'); sessionStorage.removeItem('haou-hd2d-scenario'); return raw;
+    });
+    await page.reload(); await waitScenario(page, 'original'); await skipIntro(page);
+    await page.locator('.sysmenu-btn').click(); await page.getByRole('tab', { name: '其他' }).click();
+    await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
+    await page.getByRole('button', { name: /群英新篇·君主列传/ }).click();
+    await waitScenario(page, 'builtin-sovereigns-expanded-map'); await skipIntro(page);
+    await page.getByRole('button', { name: '读取标准地图记录' }).click();
+    await waitScenario(page, 'builtin-sovereigns'); await skipIntro(page);
+    await page.getByRole('button', { name: '返回扩展地图记录' }).click();
+    await waitScenario(page, 'builtin-sovereigns-expanded-map'); await skipIntro(page);
+    await page.getByRole('button', { name: '读取标准地图记录' }).click();
+    await waitScenario(page, 'builtin-sovereigns'); await skipIntro(page);
+    assert.equal(await page.evaluate(() => localStorage.getItem('haou-hd2d-save:scenario:builtin-sovereigns:1')), record);
+    await page.getByRole('button', { name: /继续记录/ }).click();
+    await page.waitForFunction(() => document.body.dataset.screen === 'strategy' && window.__game.g?.current === window.__game.g.player);
+    assert.equal(await page.evaluate(() => window.__game.g.focusedRulerPassives), undefined);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
 test('手机地图可点选关隘、切换简洁视图及势力图层', async () => {
   const page = await game.open('&flat&phone', { setup: async (ctx) => {
     await ctx.addInitScript(() => {
