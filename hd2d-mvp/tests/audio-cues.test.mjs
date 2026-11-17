@@ -11,6 +11,21 @@ const cues = ['cue-land', 'cue-industry', 'cue-town', 'cue-st-fire', 'cue-st-rus
   'cue-move', 'cue-envoy', 'cue-record', 'cue-sortie', 'cue-conscript', 'cue-study', 'cue-disaster', 'cue-aiwar', 'cue-income', 'cue-levelup'];
 const effects = ['sfx-volley-land', 'sfx-duel-ride', 'sfx-duel-swing', 'sfx-chime', 'sfx-duel-desperate', 'sfx-duel-blow'];
 
+test('爆炎与碰撞音效能由浏览器解码播放', async () => {
+  const page = await game.open(); await skipIntro(page);
+  const result = await page.evaluate(async () => {
+    const a = window.__game.audio; a.unlock(); const durations = {};
+    for (const key of ['sfx-blast', 'sfx-clash']) {
+      if (a.files[key] !== `assets/audio/${key}.mp3`) throw new Error(`${key} 文件未被选择`);
+      const buffer = await a.preload(key); durations[key] = buffer.duration; a.sfx(key);
+    }
+    return durations;
+  });
+  assert.ok(result['sfx-blast'] > 2 && result['sfx-blast'] < 3);
+  assert.ok(result['sfx-clash'] > 0.5 && result['sfx-clash'] < 1.5);
+  assert.deepEqual(page.errors, []); await page.context().close();
+});
+
 test('实际短曲可在两个曲库中解码播放，结束后恢复背景音乐', async () => {
   const page = await game.open(); await skipIntro(page);
   const result = await page.evaluate(async ({ cues, effects }) => {

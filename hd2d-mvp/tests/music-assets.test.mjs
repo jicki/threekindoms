@@ -34,6 +34,17 @@ test('未收录的本地音频仍被忽略', () => {
   }
 });
 
+test('爆炎与碰撞音效文件存在、可被选中并允许纳入版本控制', () => {
+  for (const key of ['sfx-blast', 'sfx-clash']) {
+    const path = `assets/audio/${key}.mp3`, repoPath = `hd2d-mvp/${path}`;
+    assert.ok(manifest.audio[key].includes(path), `${key} 未在清单中`);
+    const data = readFileSync(new URL(`../${path}`, import.meta.url));
+    assert.ok(data.length > 1000 && (data.toString('ascii', 0, 3) === 'ID3' || (data[0] === 0xff && (data[1] & 0xe0) === 0xe0)), `${path} 不是 MP3 音频`);
+    const ignored = spawnSync('git', ['check-ignore', '--no-index', '-q', '--', repoPath], { cwd: root });
+    assert.equal(ignored.status, 1, `${repoPath} 不应被忽略：${ignored.stderr}`);
+  }
+});
+
 test('所有内政、事件和计略短曲都存在于两套曲库且不会被忽略', () => {
   const cues = ['land', 'industry', 'town', 'st-fire', 'st-ruse', 'st-lure', 'st-trap',
     'move', 'envoy', 'record', 'sortie', 'conscript', 'study', 'disaster', 'aiwar', 'income', 'levelup'];
