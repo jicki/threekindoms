@@ -53,7 +53,7 @@ export class Tactical {
         return Reflect.get(target, prop, receiver);
       } }) : original;
       const eq = { atk: D.equipment[o.weapon]?.atk || 0, def: D.equipment[24 + o.armor]?.dfn || 0, wgrp: weaponGroup(o.weapon), weight: (D.equipment[o.weapon]?.weight || 0) + (D.equipment[24 + o.armor]?.weight || 0) };
-      return { key, id, o, baseWar: original.war, tacticRounds: bonus?.tacticRounds ?? 0, unique: bonus?.unique, F: Math.floor((C(o.war) * o.war) / 100) + 9 - r(9), eq, hp: o.hp, start: o.soldiers, tp: Math.floor((o.int * 13) / 100), fx: {}, cmd: { gen: 'advance', cav: 'advance', arc: 'advance', inf: 'advance' }, formation: 0 };
+      return { key, id, o, baseWar: original.war, tacticRounds: bonus?.tacticRounds ?? 0, unique: bonus?.unique, fortify: bonus?.fortify === true, massed: bonus?.massed === true, F: Math.floor((C(o.war) * o.war) / 100) + 9 - r(9), eq, hp: o.hp, start: o.soldiers, tp: Math.floor((o.int * 13) / 100), fx: {}, cmd: { gen: 'advance', cav: 'advance', arc: 'advance', inf: 'advance' }, formation: 0 };
     };
     this.side = { a: mk(aId, 'a'), d: mk(dId, 'd') };
     this.side.a.foe = this.side.d; this.side.d.foe = this.side.a;
@@ -228,10 +228,12 @@ export class Tactical {
     if (t.kind === 'gen') D = Math.max(0, Math.floor(D / 2) - T.eq.def);
     D = troopDamage(D, u, t, ranged);
     if (D > 0 && t.kind === 'cav' && T.unique === 'horsebow' && ranged) D = Math.max(1, Math.floor(D * 92 / 100));
+    if (D > 0 && T.fortify && t.kind !== 'gen' && u.kind !== 'gen' && !ranged) D = Math.max(1, Math.floor(D * 94 / 100));
     if (D > 0 && t.kind !== 'gen') {
       const extra = S.unique === 'assault' && u.side === 'a' && !ranged ? 5
         : S.unique === 'river' && this.terrain === 3 && u.kind !== 'gen' && !ranged ? 5
         : S.unique === 'cavalry' && u.kind === 'cav' && !ranged ? 5
+        : S.massed && u.kind !== 'gen' && !ranged ? 5
         : S.unique === 'horsebow' && u.special === SPECIAL_TROOPS.horsebow.sprite && ranged ? 8 : 0;
       if (extra) D = Math.max(1, Math.floor(D * (100 + extra) / 100));
     }

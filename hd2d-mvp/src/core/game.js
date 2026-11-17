@@ -9,7 +9,7 @@ import { applyScenario, ORIGINAL_SCENARIO } from './scenario.js';
 import { loadScenario, selectedScenario } from './scenario-store.js';
 import { applyRulerPassive, describeRulerPassive } from './ruler-passives.js';
 import { relationDisposition, recruitDisposition, recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
-import { EXPANDED_MAP_ID, expandMap, applyExpandedOpening } from './expanded-map.js';
+import { EXPANDED_MAP_ID, EXPANDED_NODES, expandMap, applyExpandedOpening } from './expanded-map.js';
 import { SOVEREIGN_SCENARIO_ID } from './visuals.js';
 import { chooseCampaignEvent, applyCampaignEvent } from './campaign-events.js';
 // 原版无主为 7；扩展剧本将无主编号放在实际势力编号之后。
@@ -46,6 +46,9 @@ export function rng(g) {
   };
 }
 
+const cityRecord = (c) => ({ id: c.id, faction: c.faction, gold: c.gold, rice: c.rice, pop: c.pop, land: c.land, industry: c.industry,
+  disaster: c.disaster, gov: c.gov, reserve: c.reserve, treasure: c.treasure, officers: [...c.officers], riot: 0 });
+
 // ---------- New game ----------
 export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random() * 1e9)) >>> 0, { ruler = null } = {}) {
   const g = { version: 1, level, player: playerFaction, year: 189, month: 0, seed, turnIdx: -1, monthDone: false, current: null, books: 0, over: null };
@@ -56,18 +59,17 @@ export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random(
   if (D.cityRaids) g.cityRaids = true;
   if (D.rulerPassives && D.enhancedRulerPassives) g.enhancedRulerPassives = true;
   if (D.focusedRulerPassives) g.focusedRulerPassives = true;
+  if (D.battleRulerPassives) g.battleRulerPassives = true;
   if (D.relationshipEffects) g.relationshipEffects = true;
   if (D.autoBattleSkills) g.autoBattleSkills = true;
   if (D.eliteTroops) g.eliteTroops = true;
   if (D.safeAiLure) g.safeAiLure = true;
   if (D.balancedTroops) g.balancedTroops = true;
   if (D.campaignRules) g.campaignRules = true;
+  if (D.expandedMap && D.frontierMap) g.frontierMap = true;
   const r = rng(g);
   g.order = r(5); // 新游戏随机0–4 (5.2)
-  g.cities = D.cities.map((c) => ({
-    id: c.id, faction: c.faction, gold: c.gold, rice: c.rice, pop: c.pop, land: c.land, industry: c.industry,
-    disaster: c.disaster, gov: c.gov, reserve: c.reserve, treasure: c.treasure, officers: [...c.officers], riot: 0,
-  }));
+  g.cities = D.cities.map(cityRecord);
   g.officers = D.officers.filter((o) => !o.clone).map((o) => ({
     id: o.id, hp: o.hp, war: o.war, int: o.int, loyalty: o.loyalty, virtue: o.virtue, exp: o.exp, soldiers: o.soldiers,
     weapon: o.weapon, armor: o.armor, level: o.level, army: o.army, status: o.appear === 'initial' ? SERVING : UNAPPEARED, loc: o.city,
@@ -126,7 +128,7 @@ export const troopsOf = (g, c) => c.officers.reduce((a, id) => a + g.officers[id
 export const books = (g, f) => D.rules.books[citiesOf(g, f).length];
 export function rulerPassive(g, f) {
   const id = g.factions[f]?.ruler, officer = id == null ? null : g.officers[id];
-  return D.rulerPassives && officer?.status === SERVING ? describeRulerPassive({ ...D.officers[id], ...officer }, g.enhancedRulerPassives === true, g.campaignRules === true, g.focusedRulerPassives === true) : null;
+  return D.rulerPassives && officer?.status === SERVING ? describeRulerPassive({ ...D.officers[id], ...officer }, g.enhancedRulerPassives === true, g.campaignRules === true, g.focusedRulerPassives === true, g.battleRulerPassives === true) : null;
 }
 function grantRulerPassive(g, f) {
   const turn = `${g.year}:${g.month}:${f}`;
@@ -857,9 +859,17 @@ export function upgrade(g) {
   if (!g || typeof g !== 'object') return null;
   if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return null;
   try { g.version ??= 1; while (g.version < SAVE_VERSION) MIGRATIONS[g.version++](g); } catch { return null; }
+  if (g.frontierMap !== undefined && typeof g.frontierMap !== 'boolean') return null;
+  // 旧扩展地图记录只补充无主的新据点，已有城市、武将及战斗状态不重置。
+  const legacyCount = 30 + EXPANDED_NODES.length;
+  if (D.expandedMap && D.frontierMap && Array.isArray(g.cities) && g.cities.length === legacyCount && g.frontierMap !== true) {
+    g.cities.push(...D.cities.slice(legacyCount).map(cityRecord)); g.frontierMap = true;
+  }
   const ok = g.version === SAVE_VERSION && Number.isInteger(g.year) && Number.isInteger(g.month) && Number.isInteger(g.player)
     && (g.enhancedRulerPassives === undefined || typeof g.enhancedRulerPassives === 'boolean')
     && (g.focusedRulerPassives === undefined || typeof g.focusedRulerPassives === 'boolean')
+    && (g.battleRulerPassives === undefined || typeof g.battleRulerPassives === 'boolean')
+    && (!g.battleRulerPassives || (g.focusedRulerPassives === true && g.campaignRules === true))
     && (g.relationshipEffects === undefined || typeof g.relationshipEffects === 'boolean')
     && (g.autoBattleSkills === undefined || typeof g.autoBattleSkills === 'boolean')
     && (g.eliteTroops === undefined || typeof g.eliteTroops === 'boolean')

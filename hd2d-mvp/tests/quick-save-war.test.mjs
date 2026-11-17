@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { startGame, newCampaign, skipIntro, closeMessages } from './game.mjs';
 
 let game;
-before(async () => { game = await startGame(); });
+before(async () => { game = await startGame({ scenario: 'original' }); });
 after(() => game?.close());
 
 async function startWar(p, side) {

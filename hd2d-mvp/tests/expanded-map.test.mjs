@@ -18,12 +18,12 @@ const standard = applyScenario(base, scenario);
 const use = () => G.setData(expandMap(standard), EXPANDED_MAP_ID);
 const game = (seed = 1) => { use(); return G.newGame(4, 1, seed); };
 
-test('扩展地图增加三个城市和四处关隘，双向道路与原始数据独立', () => {
+test('扩展地图增加四个城市和五处关隘，双向道路与原始数据独立', () => {
   const before = JSON.stringify(standard), d = use(), g = G.newGame(4, 1, 7);
   assert.equal(JSON.stringify(standard), before);
-  assert.equal(d.cities.length, 37); assert.equal(G.cityCount(), 33);
-  assert.deepEqual(d.cities.slice(30).map((c) => c.name), ['襄阳', '江州', '宛城', '虎牢关', '函谷关', '武关', '剑阁']);
-  assert.equal(d.cities.filter((c) => c.kind === 'pass').length, 4);
+  assert.equal(d.cities.length, 39); assert.equal(G.cityCount(), 34);
+  assert.deepEqual(d.cities.slice(30).map((c) => c.name), ['襄阳', '江州', '宛城', '虎牢关', '函谷关', '武关', '剑阁', '望垣峡', '夷洲']);
+  assert.equal(d.cities.filter((c) => c.kind === 'pass').length, 5);
   for (const c of d.cities) for (const n of c.roads) assert.ok(d.cities[n].roads.includes(c.id), `${c.name} → ${d.cities[n].name}`);
   for (const n of EXPANDED_NODES) {
     const [a, b] = n.road;
@@ -49,6 +49,33 @@ test('平面和三维地图的关隘与城市都落在被拆分的道路上', ()
       if (dims === 2) assert.deepEqual(endpoints[0], [result.cities[n.id].cx, result.cities[n.id].cy]);
       else assert.deepEqual(endpoints[0], [result.cities[n.id].x, result.cities[n.id].y, result.cities[n.id].z]);
     }
+  }
+});
+
+test('宛城和襄阳错开相邻城市，通过短支路连回原道路', () => {
+  for (const [data, dims, build] of [
+    [read('../assets/ai/sandtable/flat/board.json'), 2, expandedFlatBoard],
+    [read('../assets/ai/sandtable/board/board.json'), 3, expandedSandMeta],
+  ]) {
+    const old = JSON.stringify(data), result = build(data);
+    const xy = (p) => dims === 2 ? [p[0], p[1]] : [p[0], p[2]];
+    const seat = (city) => dims === 2 ? [city.cx, city.cy] : [city.x, city.z];
+    const minDistance = (p, ids) => Math.min(...ids.map((id) => {
+      const q = seat(data.cities[id]); return Math.hypot(p[0] - q[0], p[1] - q[1]);
+    }));
+    for (const id of [30, 32]) {
+      const node = EXPANDED_NODES.find((n) => n.id === id), original = data.roads.find((r) =>
+        (r.a === node.road[0] && r.b === node.road[1]) || (r.b === node.road[0] && r.a === node.road[1]));
+      const length = original.p.length / dims, cut = Math.round((length - 1) * node.fraction);
+      const junction = original.p.slice(cut * dims, (cut + 1) * dims);
+      const segments = result.roads.filter((r) => r.a === id || r.b === id), spur = segments.find((r) => r.spur)?.spur;
+      assert.ok(spur?.length > dims * 2, `${node.name}需要可绘制的连接道路`);
+      assert.deepEqual(spur.slice(0, dims), junction);
+      assert.deepEqual(xy(spur.slice(-dims)), seat(result.cities[id]));
+      assert.ok(minDistance(seat(result.cities[id]), node.road) > minDistance(xy(junction), node.road), `${node.name}与两端的最近距离应增加`);
+      for (const r of segments) if (r.sea) assert.equal(r.sea.length, r.p.length / dims);
+    }
+    assert.equal(JSON.stringify(data), old, '不得改写原版地图数据');
   }
 });
 
@@ -94,7 +121,7 @@ test('最后一座城市不能将所有武将移往关隘，但可以派部分�
   assert.equal(city.faction, f);
 });
 
-test('扩展地图统一按三十三城判断，关隘不计入胜利', async () => {
+test('扩展地图统一按三十四城判断，关隘不计入胜利', async () => {
   const g = game(), events = [];
   for (const c of g.cities.slice(0, 30)) c.faction = g.player;
   Object.assign(g, { current: g.player, books: 3, over: null });
@@ -102,6 +129,8 @@ test('扩展地图统一按三十三城判断，关隘不计入胜利', async ()
   await G.run(g, io); assert.equal(g.over.type, 'test'); assert.ok(!events.includes('unify'));
   for (const c of g.cities.slice(30, 33)) c.faction = g.player;
   g.cities[33].faction = 0; g.over = null;
+  await G.run(g, io); assert.equal(g.over.type, 'test'); assert.ok(!events.includes('unify'));
+  g.cities[38].faction = g.player; g.over = null;
   await G.run(g, io); assert.equal(g.over.type, 'unify'); assert.ok(events.includes('unify'));
 });
 
@@ -172,7 +201,7 @@ test('普通和快捷存档分离，扩展地图记录不能被旧地图误读',
     G.setData(structuredClone(standard), SOVEREIGN_SCENARIO_ID);
     const old = G.newGame(4, 1, 5); old.year = 195; assert.ok(G.save(old, 1)); assert.ok(G.saveQuick(old));
     const fresh = game(); fresh.year = 196; assert.ok(G.save(fresh, 1)); assert.ok(G.saveQuick(fresh));
-    assert.equal(G.load(1).year, 196); assert.equal(G.loadQuick().cities.length, 37); assert.equal(G.upgrade(structuredClone(old)), null);
+    assert.equal(G.load(1).year, 196); assert.equal(G.loadQuick().cities.length, 39); assert.equal(G.upgrade(structuredClone(old)), null);
     G.setData(structuredClone(standard), SOVEREIGN_SCENARIO_ID);
     assert.equal(G.load(1).year, 195); assert.equal(G.loadQuick().cities.length, 30); assert.equal(G.upgrade(structuredClone(fresh)), null);
   } finally { if (previous) Object.defineProperty(globalThis, 'localStorage', previous); else delete globalThis.localStorage; }

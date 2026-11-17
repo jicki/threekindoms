@@ -79,7 +79,7 @@ export function newScenarioId() {
 // 只接受已知结构；读取时也要验证，不能假定本地存储或导入文件可信。
 export function validateScenario(s, base, { draft = false } = {}) {
   obj(s, '版本');
-  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'focusedRulerPassives', 'expandedOpening', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops', 'campaignRules', 'campaignRelations', 'map'], '版本');
+  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'focusedRulerPassives', 'battleRulerPassives', 'expandedOpening', 'frontierMap', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops', 'campaignRules', 'campaignRelations', 'map'], '版本');
   if (s.format !== SCENARIO_FORMAT) fail('不支持的版本文件格式');
   if (!(draft && s.id === null) && s.id !== FEMALE_SCENARIO_ID && s.id !== HERO_SCENARIO_ID && s.id !== ROSTER_SCENARIO_ID && s.id !== WARLORD_SCENARIO_ID && s.id !== SOVEREIGN_SCENARIO_ID && (typeof s.id !== 'string' || !ID.test(s.id))) fail('版本编号无效');
   text(s.name, '版本名称', 40);
@@ -93,7 +93,10 @@ export function validateScenario(s, base, { draft = false } = {}) {
   if (s.enhancedRulerPassives && !s.rulerPassives) fail('增强君主被动需要先启用君主被动');
   if (s.focusedRulerPassives !== undefined && typeof s.focusedRulerPassives !== 'boolean') fail('精简君主被动设置无效');
   if (s.focusedRulerPassives && (!s.enhancedRulerPassives || !s.campaignRules)) fail('精简君主被动需要增强被动和新版玩法');
+  if (s.battleRulerPassives !== undefined && typeof s.battleRulerPassives !== 'boolean') fail('战场君主被动设置无效');
+  if (s.battleRulerPassives && !s.focusedRulerPassives) fail('战场君主被动需要精简被动');
   if (s.expandedOpening !== undefined && typeof s.expandedOpening !== 'boolean') fail('扩展地图开局设置无效');
+  if (s.frontierMap !== undefined && typeof s.frontierMap !== 'boolean') fail('边地据点设置无效');
   if (s.relationshipEffects !== undefined && typeof s.relationshipEffects !== 'boolean') fail('人物关系效果设置无效');
   if (s.autoBattleSkills !== undefined && typeof s.autoBattleSkills !== 'boolean') fail('电脑战斗技能设置无效');
   if (s.eliteTroops !== undefined && typeof s.eliteTroops !== 'boolean') fail('特色兵队设置无效');
@@ -297,7 +300,9 @@ export function applyScenario(base, scenario, { draft = false } = {}) {
   d.rulerPassives = scenario.rulerPassives === true;
   d.enhancedRulerPassives = scenario.enhancedRulerPassives === true;
   d.focusedRulerPassives = scenario.focusedRulerPassives === true;
+  d.battleRulerPassives = scenario.battleRulerPassives === true;
   d.expandedOpening = scenario.expandedOpening === true;
+  d.frontierMap = scenario.frontierMap === true;
   d.relationshipEffects = scenario.relationshipEffects === true;
   d.autoBattleSkills = scenario.autoBattleSkills === true;
   d.eliteTroops = scenario.eliteTroops === true;

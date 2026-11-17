@@ -177,7 +177,7 @@ test('版本选择适配长名称，旧版入口隐藏且已发布版本仍可�
       const choices = dialog.locator('.scenario-choices .slot');
       assert.equal(await choices.count(), 3);
       assert.equal(await choices.filter({ hasText: '旧存档兼容' }).count(), 0);
-      assert.equal(await choices.filter({ hasText: '原版' }).getAttribute('aria-current'), 'true');
+      assert.equal(await choices.filter({ hasText: '群英新篇·君主列传' }).getAttribute('aria-current'), 'true');
       const custom = choices.filter({ hasText: longName }); await custom.scrollIntoViewIfNeeded();
       const geometry = await custom.evaluate((button) => {
         const b = button.getBoundingClientRect(), name = button.querySelector('b'), state = button.querySelector('span');

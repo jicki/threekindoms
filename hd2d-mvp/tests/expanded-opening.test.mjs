@@ -145,7 +145,7 @@ test('旧记录中单将关隘面对空守敌方据点时保持原有电脑回�
   // 此对照代表新增专属装备和精简被动之前的记录。
   const oldData = applyScenario(base, await loadScenario(WARLORD_SCENARIO_ID, base));
   for (const o of g.officers) { const weapon = d.equipment[o.weapon]; if (weapon?.exclusiveRuler === o.id) o.weapon = oldData.officers[o.id].weapon; }
-  delete g.focusedRulerPassives;
+  delete g.focusedRulerPassives; delete g.battleRulerPassives;
   delete g.expandedOpeningGuard; g.warlike = true; g.year = 190; g.seed = 0;
   assert.ok(G.upgrade(g), '这种旧记录可被读取');
   assert.equal(await takeTurn(g), null);

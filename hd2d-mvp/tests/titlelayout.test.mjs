@@ -9,7 +9,7 @@ import { startGame, skipIntro } from './game.mjs';
 G.setData(JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url))));
 let game;
 const layouts = [];
-before(async () => { game = await startGame(); });
+before(async () => { game = await startGame({ scenario: 'original' }); });
 after(async () => { await game?.close(); if (capture) writeFileSync(`${capture}/layouts.json`, '[\n' + layouts.map(r => JSON.stringify(r)).join(',\n') + '\n]\n'); });
 const sizes = [[1280, 800], [800, 600], [1280, 720], [1024, 768], [1920, 1080], [1440, 900]];
 const capture = process.env.TITLE_CAPTURE;

@@ -6,7 +6,7 @@ import { startGame, skipIntro, closeMessages } from './game.mjs';
 
 let game, page;
 const errors = [];
-before(async () => { game = await startGame(); page = await game.open(); page.on('pageerror', (e) => errors.push(e.message)); });
+before(async () => { game = await startGame({ scenario: 'original' }); page = await game.open(); page.on('pageerror', (e) => errors.push(e.message)); });
 after(() => game?.close());
 
 const item = () => page.locator('.sysmenu-list button', { hasText: '电脑进攻' });

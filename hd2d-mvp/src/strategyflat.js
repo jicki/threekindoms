@@ -46,7 +46,7 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 export async function createStrategyFlat(ctx) {
   const { data, month: start = 2 } = ctx;
   let board = await (await fetch(`${DIR}/board.json`)).json();
-  if (data.expandedMap) board = expandedFlatBoard(board);
+  if (data.expandedMap) board = expandedFlatBoard(board, data.frontierMap);
   const [W, H] = board.size, B = board.bounds, cities = [];
   for (const c of board.cities) cities[c.id] = c;
 
@@ -232,9 +232,20 @@ export async function createStrategyFlat(ctx) {
     if (skyOn) drawSky(k, y, dt);
   }
 
-  // 额外据点绘制在同一条预烘焙道路上；尺寸随缩放变化，但在手机全图时保留可见轮廓。
+  // 额外据点和连接原路的短支路随缩放绘制，手机全图时保留可见轮廓。
   function drawAddedSites(k, x, y) {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    for (const r of board.roads) if (r.spur) {
+      g.save(); g.strokeStyle = '#d8bd8f'; g.globalAlpha = 0.9; g.lineWidth = Math.max(1, 4 * k);
+      g.beginPath(); for (let i = 0; i < r.spur.length; i += 2) { const px = r.spur[i] * k + x, py = r.spur[i + 1] * k + y; if (!i) g.moveTo(px, py); else g.lineTo(px, py); }
+      g.stroke(); g.restore();
+    }
+    // 原底图没有新增航线；随底图绘制细虚线，路线概览仍使用完整道路图层。
+    for (const r of board.roads) if (r.generated) {
+      g.save(); g.strokeStyle = '#c4e5e4'; g.globalAlpha = 0.7; g.lineWidth = Math.max(1, 3 * k); g.setLineDash([Math.max(3, 8 * k), Math.max(3, 7 * k)]);
+      g.beginPath(); for (let i = 0; i < r.p.length; i += 2) { const px = r.p[i] * k + x, py = r.p[i + 1] * k + y; if (!i) g.moveTo(px, py); else g.lineTo(px, py); }
+      g.stroke(); g.restore();
+    }
     for (const c of board.cities) {
       if (!c.added) continue;
       const s = Math.max(k, 0.14), px = c.cx * k + x, py = c.cy * k + y;
@@ -777,7 +788,7 @@ export async function createStrategyFlat(ctx) {
       const up = m.h * s / 2;
       entries.push({ m, s, d: -c.cy, keep, x: px, y0: py - up, foot: up }); // no depth here: the south first, its northern neighbours step up, as the 3D map's nearest first does
     }
-    layoutTags(entries, { dt });
+    layoutTags(entries, { dt, spread: data.expandedMap, bounds: { left: 0, right: vw, top: 44, bottom: vh } });
   }
 
   // The city at a screen point: on its model or its ring, the nearest of those, and during a map pick a candidate first.

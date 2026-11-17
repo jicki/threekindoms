@@ -31,16 +31,18 @@ test('编辑器的新版地图、条件技能和关系可发布，玩家加载�
     assert.equal(await content.getByLabel('地图', { exact: true }).inputValue(), 'expanded');
     assert.equal(await content.getByLabel('启用新版玩法').isChecked(), true);
     assert.equal(await content.getByLabel('精简君主被动').isChecked(), true);
+    assert.equal(await content.getByLabel('战场君主被动').isChecked(), true);
+    assert.equal(await content.getByLabel('新增边地据点').isChecked(), true);
     assert.equal(await content.getByLabel('扩展地图开局补给与保护').isChecked(), true);
     await content.getByLabel('扩展地图开局补给与保护').uncheck();
     await content.getByLabel('扩展地图开局补给与保护').check();
     await admin.getByRole('tab', { name: '新武器' }).click();
-    await content.getByRole('button', { name: '西凉霸刀', exact: true }).click();
-    await content.getByLabel('攻击').fill('13'); await content.getByRole('button', { name: '应用修改' }).click();
+    await content.getByRole('button', { name: '董卓手戟', exact: true }).click();
+    await content.getByLabel('攻击').fill('21'); await content.getByRole('button', { name: '应用修改' }).click();
     assert.deepEqual(await admin.evaluate(() => {
-      const w = window.__admin.draft.weapons.find((item) => item.name === '西凉霸刀');
+      const w = window.__admin.draft.weapons.find((item) => item.name === '董卓手戟');
       return { owner: w.exclusiveRuler, shops: w.shops, atk: w.atk };
-    }), { owner: 173, shops: [], atk: 13 });
+    }), { owner: 173, shops: [], atk: 21 });
     await admin.getByRole('tab', { name: '新技能' }).click();
     await content.getByRole('button', { name: '北疆守御' }).click();
     assert.equal(await content.getByLabel('新版条件效果').inputValue(), 'frontier');
@@ -61,8 +63,8 @@ test('编辑器的新版地图、条件技能和关系可发布，玩家加载�
           focused: g.focusedRulerPassives, guard: g.expandedOpeningGuard, xinYe: [g.cities[13].gold, g.cities[13].rice],
           owner: data.equipment[g.officers[173].weapon].exclusiveRuler, atk: data.equipment[g.officers[173].weapon].atk };
       });
-      assert.deepEqual(loaded, { cities: 37, passes: 4, campaign: true, effect: 'fortress', relations: 6, ruler: 'horsebow',
-        focused: true, guard: true, xinYe: [600, 750], owner: 173, atk: 13 });
+      assert.deepEqual(loaded, { cities: 39, passes: 5, campaign: true, effect: 'fortress', relations: 6, ruler: 'horsebow',
+        focused: true, guard: true, xinYe: [600, 750], owner: 173, atk: 21 });
       assert.deepEqual(player.errors, []);
     } finally { await player.context().close(); }
     assert.deepEqual(admin.errors, []);

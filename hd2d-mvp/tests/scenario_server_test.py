@@ -33,17 +33,19 @@ class ValidationTest(unittest.TestCase):
     def test_campaign_map_skills_and_relations_match_browser_validation(self):
         scenario = version()
         scenario.update({'campaignRules': True, 'rulerPassives': True, 'enhancedRulerPassives': True,
-                         'focusedRulerPassives': True, 'expandedOpening': True, 'map': 'expanded',
+                         'focusedRulerPassives': True, 'battleRulerPassives': True, 'frontierMap': True, 'expandedOpening': True, 'map': 'expanded',
                          'weapons': [{'id': 32, 'name': '专属刀', 'cat': '刀', 'atk': 10, 'weight': 7, 'price': 0,
                                       'icon': 8, 'shops': [], 'exclusiveRuler': BASE['factions'][0]['ruler']}],
                          'campaignRelations': [{'from': 38, 'to': 222, 'kind': '结义'}],
                          'skills': [{'id': 16, 'name': '固阵', 'cost': 9, 'soldiers': 60, 'hp': 0, 'stop': 1, 'rice': 0, 'effectProfile': 'fortress'}]})
         cases = [scenario]
-        for field, value in [('campaignRules', 'true'), ('focusedRulerPassives', 'true'), ('expandedOpening', None), ('map', 'unknown'), ('campaignRelations', {}), ('map', None)]:
+        for field, value in [('campaignRules', 'true'), ('focusedRulerPassives', 'true'), ('battleRulerPassives', 'true'), ('frontierMap', 'true'), ('expandedOpening', None), ('map', 'unknown'), ('campaignRelations', {}), ('map', None)]:
             bad = copy.deepcopy(scenario); bad[field] = value; cases.append(bad)
         bad = copy.deepcopy(scenario); bad['weapons'][0]['shops'] = [4]; cases.append(bad)
         bad = copy.deepcopy(scenario); bad['weapons'][0]['exclusiveRuler'] = 38; cases.append(bad)
         bad = copy.deepcopy(scenario); bad['enhancedRulerPassives'] = False; cases.append(bad)
+        bad = copy.deepcopy(scenario); bad['focusedRulerPassives'] = False; cases.append(bad)
+        bad = copy.deepcopy(scenario); bad['campaignRules'] = False; cases.append(bad)
         bad = copy.deepcopy(scenario); bad['skills'][0]['effectProfile'] = 'arbitrary'; cases.append(bad)
         bad = copy.deepcopy(scenario); bad['skills'][0]['effectProfile'] = []; cases.append(bad)
         bad = copy.deepcopy(scenario); bad['relations'] = [{'from': 222, 'to': 38, 'kind': '结义'}]; cases.append(bad)
@@ -114,9 +116,9 @@ import {loadScenario} from './hd2d-mvp/src/core/scenario-store.js';
 const base = JSON.parse(readFileSync('hd2d-mvp/data/game-data.json'));
 const s = await loadScenario('builtin-sovereigns', base); s.id = 'v-' + 'b'.repeat(32); console.log(JSON.stringify(s));"""
         scenario = json.loads(subprocess.check_output(['node', '--input-type=module', '-e', build], cwd=ROOT, text=True))
-        disabled = copy.deepcopy(scenario); disabled['rulerPassives'] = False; del disabled['enhancedRulerPassives']; del disabled['focusedRulerPassives']
-        omitted = copy.deepcopy(scenario); del omitted['rulerPassives']; del omitted['enhancedRulerPassives']; del omitted['focusedRulerPassives']
-        legacy_passive = copy.deepcopy(scenario); del legacy_passive['enhancedRulerPassives']; del legacy_passive['focusedRulerPassives']
+        disabled = copy.deepcopy(scenario); disabled['rulerPassives'] = False; del disabled['enhancedRulerPassives']; del disabled['focusedRulerPassives']; del disabled['battleRulerPassives']
+        omitted = copy.deepcopy(scenario); del omitted['rulerPassives']; del omitted['enhancedRulerPassives']; del omitted['focusedRulerPassives']; del omitted['battleRulerPassives']
+        legacy_passive = copy.deepcopy(scenario); del legacy_passive['enhancedRulerPassives']; del legacy_passive['focusedRulerPassives']; del legacy_passive['battleRulerPassives']
         no_fix = copy.deepcopy(scenario); del no_fix['fixedAiRecruitment']
         no_opening = copy.deepcopy(scenario); del no_opening['factions'][0]['opening']
         empty_opening = copy.deepcopy(scenario); empty_opening['factions'][0]['opening'] = {}

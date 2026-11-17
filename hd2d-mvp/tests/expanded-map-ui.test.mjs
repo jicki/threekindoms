@@ -7,7 +7,7 @@ before(async () => { game = await startGame({ width: 812, height: 375 }); });
 after(async () => { await game?.close(); });
 
 const setup = (ctx) => ctx.addInitScript(() => {
-  if (!sessionStorage.getItem('haou-hd2d-scenario')) sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns');
+  if (!sessionStorage.getItem('haou-hd2d-scenario')) sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns-expanded-map');
 });
 async function waitScenario(page, id, screen = 'title') {
   await page.waitForFunction(({ id, screen }) => window.__game?.G.currentScenario() === id && document.body.dataset.screen === screen,
@@ -20,17 +20,47 @@ test('君主列传的新征程使用扩展地图，并保留当前版本已有�
     await skipIntro(page);
     const oldRecord = await page.evaluate(() => {
       const g = window.__game.G.newGame(4, 1, 5); g.year = 195; window.__game.G.save(g, 1);
-      return localStorage.getItem('haou-hd2d-save:scenario:builtin-sovereigns:1');
+      return localStorage.getItem('haou-hd2d-save:scenario:builtin-sovereigns-expanded-map:1');
     });
     assert.equal(await page.locator('.map-choice').count(), 0);
     assert.equal(await page.getByText('本游戏免费发布').count(), 0);
     assert.equal(await page.getByText('制作 tianlin', { exact: false }).count(), 0);
     await page.getByText('新的征程').click();
     await waitScenario(page, 'builtin-sovereigns-expanded-map', 'setup');
-    assert.equal(await page.evaluate(() => window.__game.G.data().cities.length), 37);
+    assert.equal(await page.evaluate(() => window.__game.G.data().cities.length), 39);
     assert.equal(await page.locator('.setup-map button').count(), 0);
     assert.ok(await page.locator('.ruler').count() >= 10);
-    assert.equal(await page.evaluate(() => localStorage.getItem('haou-hd2d-save:scenario:builtin-sovereigns:1')), oldRecord);
+    assert.equal(await page.evaluate(() => localStorage.getItem('haou-hd2d-save:scenario:builtin-sovereigns-expanded-map:1')), oldRecord);
+    const restored = await game.open('&flat&phone', { save: oldRecord });
+    try {
+      await waitScenario(restored, 'builtin-sovereigns-expanded-map'); await skipIntro(restored);
+      assert.equal(await restored.getByRole('button', { name: /继续记录/ }).count(), 1);
+      assert.deepEqual(restored.errors, []);
+    } finally { await restored.context().close(); }
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
+test('手机读取旧的 37 据点记录时显示两个新据点且不重置原有资源', async () => {
+  const page = await game.open('&flat&phone', { setup: (ctx) => ctx.addInitScript(() => {
+    sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns-expanded-map');
+  }) });
+  try {
+    await page.evaluate(() => {
+      const { G } = window.__game, g = G.newGame(4, 1, 12);
+      g.cities.splice(37); delete g.frontierMap; delete g.battleRulerPassives; g.cities[13].gold = 123;
+      g.turnIdx = G.data().rules.turn_orders[g.order].indexOf(g.player); g.current = g.player; g.books = G.books(g, g.player);
+      if (!G.save(g, 1)) throw new Error('无法保存旧地图测试记录');
+      sessionStorage.setItem('hd2d-title-seen', '1');
+    });
+    await page.reload(); await waitScenario(page, 'builtin-sovereigns-expanded-map'); await skipIntro(page);
+    await page.getByText('继续记录').click();
+    await page.waitForFunction(() => document.body.dataset.screen === 'strategy' && window.__game.g?.current === window.__game.g.player);
+    assert.deepEqual(await page.evaluate(() => ({ count: window.__game.g.cities.length, gold: window.__game.g.cities[13].gold,
+      owners: [37, 38].map((id) => window.__game.g.cities[id].faction), none: window.__game.G.NONE,
+      battle: window.__game.g.battleRulerPassives ?? null })),
+    { count: 39, gold: 123, owners: [10, 10], none: 10, battle: null });
+    for (const label of ['望垣峡', '夷洲']) assert.equal(await page.locator('.ctag').filter({ hasText: label }).count(), 1);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });
@@ -42,43 +72,40 @@ test('旧版会话转到新版，但旧存档数据不被覆盖', async () => {
   }) });
   try {
     await waitScenario(page, 'builtin-sovereigns-expanded-map'); await skipIntro(page);
-    assert.equal(await page.evaluate(() => window.__game.G.data().cities.length), 37);
+    assert.equal(await page.evaluate(() => window.__game.G.data().cities.length), 39);
     assert.equal(await page.getByText('继续记录').count(), 0);
     assert.equal(await page.evaluate(() => localStorage.getItem('haou-hd2d-save:scenario:builtin-warlords:1')), '{"example":"preserved"}');
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });
 
-test('新会话可以读取君主列传标准地图记录，并返回扩展地图', async () => {
+test('新会话默认君主列传，隐藏标准地图入口且可显式切换并保留原版', async () => {
   const page = await game.open('&flat&phone', { setup: (ctx) => ctx.addInitScript(() => {
-    if (!localStorage.getItem('test-standard-record-ready')) sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns');
+    localStorage.setItem('haou-hd2d-save:scenario:builtin-sovereigns:1', '{"example":"standard-preserved"}');
   }) });
   try {
-    const record = await page.evaluate(async () => {
-      const { G } = window.__game, base = await (await fetch('data/game-data.json')).json();
-      const { applyScenario } = await import('./src/core/scenario.js'), { loadScenario } = await import('./src/core/scenario-store.js');
-      const oldData = applyScenario(base, await loadScenario('builtin-warlords', base));
-      const g = G.newGame(4, 1, 12); delete g.focusedRulerPassives;
-      for (const o of g.officers) if (G.data().equipment[o.weapon]?.exclusiveRuler === o.id) o.weapon = oldData.officers[o.id].weapon;
-      g.turnIdx = G.data().rules.turn_orders[g.order].indexOf(g.player); g.current = g.player; g.books = G.books(g, g.player);
-      G.save(g, 1); const raw = localStorage.getItem('haou-hd2d-save:scenario:builtin-sovereigns:1');
-      localStorage.setItem('test-standard-record-ready', '1'); sessionStorage.removeItem('haou-hd2d-scenario'); return raw;
-    });
+    await waitScenario(page, 'builtin-sovereigns-expanded-map'); await skipIntro(page);
+    assert.equal(await page.getByRole('button', { name: '读取标准地图记录' }).count(), 0);
+    await page.locator('.sysmenu-btn').click(); await page.getByRole('tab', { name: '其他' }).click();
+    await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
+    await page.getByRole('button', { name: /^原版/ }).click();
+    await waitScenario(page, 'original'); await skipIntro(page);
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('haou-hd2d-scenario')), 'original');
+    await page.evaluate(() => { const { G } = window.__game; const g = G.newGame(4, 1, 5); g.year = 195; G.save(g, 1); });
     await page.reload(); await waitScenario(page, 'original'); await skipIntro(page);
+    assert.equal(await page.getByRole('button', { name: /继续记录/ }).count(), 1);
+    const original = await page.evaluate(() => localStorage.getItem('haou-hd2d-save:1'));
     await page.locator('.sysmenu-btn').click(); await page.getByRole('tab', { name: '其他' }).click();
     await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
     await page.getByRole('button', { name: /群英新篇·君主列传/ }).click();
     await waitScenario(page, 'builtin-sovereigns-expanded-map'); await skipIntro(page);
-    await page.getByRole('button', { name: '读取标准地图记录' }).click();
-    await waitScenario(page, 'builtin-sovereigns'); await skipIntro(page);
-    await page.getByRole('button', { name: '返回扩展地图记录' }).click();
-    await waitScenario(page, 'builtin-sovereigns-expanded-map'); await skipIntro(page);
-    await page.getByRole('button', { name: '读取标准地图记录' }).click();
-    await waitScenario(page, 'builtin-sovereigns'); await skipIntro(page);
-    assert.equal(await page.evaluate(() => localStorage.getItem('haou-hd2d-save:scenario:builtin-sovereigns:1')), record);
-    await page.getByRole('button', { name: /继续记录/ }).click();
-    await page.waitForFunction(() => document.body.dataset.screen === 'strategy' && window.__game.g?.current === window.__game.g.player);
-    assert.equal(await page.evaluate(() => window.__game.g.focusedRulerPassives), undefined);
+    assert.equal(await page.getByRole('button', { name: '读取标准地图记录' }).count(), 0);
+    assert.equal(await page.evaluate(() => localStorage.getItem('haou-hd2d-save:1')), original);
+    assert.equal(await page.evaluate(() => localStorage.getItem('haou-hd2d-save:scenario:builtin-sovereigns:1')), '{"example":"standard-preserved"}');
+    await page.evaluate(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns'));
+    await page.reload(); await waitScenario(page, 'builtin-sovereigns-expanded-map'); await skipIntro(page);
+    assert.equal(await page.getByRole('button', { name: '读取标准地图记录' }).count(), 0);
+    assert.equal(await page.evaluate(() => localStorage.getItem('haou-hd2d-save:1')), original);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });
@@ -102,6 +129,10 @@ test('手机地图可点选关隘、切换简洁视图及势力图层', async ()
     await page.waitForTimeout(1500);
     const tag = page.locator('.ctag').filter({ hasText: '武关' }), box = await tag.boundingBox();
     assert.ok(box, '关隘标签应位于可触控的地图上');
+    const leader = await tag.evaluate((element) => {
+      const style = getComputedStyle(element, '::after'); return [style.left, style.top, style.height];
+    });
+    assert.ok(leader.every((value) => Number.isFinite(parseFloat(value))), '标签指引线应能正常渲染');
     const touch = await page.context().newCDPSession(page);
     await touch.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
     await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: box.x + box.width / 2, y: box.y + box.height / 2 }] });
@@ -110,6 +141,17 @@ test('手机地图可点选关隘、切换简洁视图及势力图层', async ()
     assert.match(await page.locator('.citypanel header').innerText(), /武关[\s\S]*关隘/);
     assert.match(await page.locator('.pass-note').innerText(), /不计城数/);
     assert.match(await page.locator('.pass-note').innerText(), /预备兵被动不生效/);
+    for (const [id, label] of [[37, '望垣峡'], [38, '夷洲'], [30, '襄阳'], [32, '宛城']]) {
+      await page.evaluate((city) => window.__game.strategy.focusCity(city), id);
+      await page.waitForTimeout(1500);
+      const point = await page.locator('.ctag').filter({ hasText: label }).boundingBox();
+      assert.ok(point, `${label}应有触控标签`);
+      await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: point.x + point.width / 2, y: point.y + point.height / 2 }] });
+      await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await page.locator('.citypanel header').filter({ hasText: label }).waitFor();
+      if (id === 37) assert.match(await page.locator('.pass-note').innerText(), /不计城数/);
+      else assert.equal(await page.locator('.pass-note').count(), 0);
+    }
     await page.locator('.mapfocusbtn').click();
     assert.equal(await page.locator('.mapfocusbtn').getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('.citypanel .stats').isVisible(), false);
@@ -296,7 +338,7 @@ test('桌面三维地图显示新增据点，并能打开道路和势力图层',
     await page.getByText('继续记录').click();
     await page.waitForFunction(() => document.body.dataset.screen === 'strategy' && window.__game.g?.current === window.__game.g.player);
     assert.equal(await page.evaluate(() => window.__game.strategy.kind), '3d');
-    assert.equal(await page.locator('.ctag').count(), 37);
+    assert.equal(await page.locator('.ctag').count(), 39);
     await page.locator('.roadsbtn').click(); await page.locator('.terrbtn').click();
     assert.equal(await page.locator('.roadsbtn').getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('.terrbtn').getAttribute('aria-pressed'), 'true');
@@ -304,6 +346,37 @@ test('桌面三维地图显示新增据点，并能打开道路和势力图层',
     await page.waitForTimeout(1000);
     const pt = await page.evaluate(() => window.__game.strategy.screenOfCity(30));
     assert.ok(Number.isFinite(pt.x) && Number.isFinite(pt.y));
+    await page.evaluate(() => window.__game.strategy.returnTo(13, { kind: '3d', yaw: 0.12, bias: 0, dist: 20 }));
+    await page.waitForTimeout(1500);
+    const positions = await page.evaluate(() => {
+      const s = window.__game.strategy, ids = [12, 13, 21, 30, 32];
+      return Object.fromEntries(ids.map((id) => [id, s.screenOfCity(id)]));
+    });
+    const gap = (a, b) => Math.hypot(positions[a].x - positions[b].x, positions[a].y - positions[b].y);
+    assert.ok(gap(30, 13) > 70 && gap(30, 21) > 75, '襄阳与新野、荆州应有可见间距');
+    assert.ok(gap(32, 12) > 75 && gap(32, 13) > 85, '宛城与洛阳、新野应有可见间距');
+    const labels = await page.evaluate(() => [12, 13, 21, 30, 32, 33, 34, 35].map((id) => {
+      const rect = window.__game.strategy.tagOf(id).getBoundingClientRect();
+      return { id, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+    }));
+    for (const [i, a] of labels.entries()) for (const b of labels.slice(i + 1)) {
+      assert.ok(a.right <= b.left + 1 || b.right <= a.left + 1 || a.bottom <= b.top + 1 || b.bottom <= a.top + 1,
+        `洛阳附近的标签 ${a.id} 和 ${b.id} 不应重叠`);
+    }
+    for (const label of ['襄阳', '宛城', '函谷关', '武关']) {
+      await page.locator('.ctag').filter({ hasText: label }).click();
+      await page.locator('.citypanel header').filter({ hasText: label }).waitFor();
+      await page.waitForTimeout(250);
+    }
+    for (const [id, label] of [[37, '望垣峡'], [38, '夷洲']]) {
+      await page.evaluate((city) => window.__game.strategy.returnTo(city, { kind: '3d', yaw: 0.12, bias: 0, dist: 24 }), id);
+      await page.waitForTimeout(1500);
+      await page.locator('.ctag').filter({ hasText: label }).click();
+      await page.locator('.citypanel header').filter({ hasText: label }).waitFor();
+      const pos = await page.evaluate((city) => window.__game.strategy.screenOfCity(city), id);
+      assert.ok(Number.isFinite(pos.x) && Number.isFinite(pos.y));
+      await page.waitForTimeout(250);
+    }
     await page.evaluate(() => {
       const { g, debug } = window.__game, city = g.cities[12], guard = city.officers.find((id) => id !== g.factions[city.faction].ruler);
       city.officers = city.officers.filter((id) => id !== guard);
@@ -336,7 +409,7 @@ test('桌面三维地图显示新增据点，并能打开道路和势力图层',
     }) });
     await proc.evaluate(() => { const { G, strategy } = window.__game; strategy.refresh(G.newGame(4, 1, 1)); strategy.territory(true); });
     assert.equal(await proc.evaluate(() => window.__game.strategy.kind), '3d');
-    assert.equal(await proc.locator('.ctag').count(), 37);
+    assert.equal(await proc.locator('.ctag').count(), 39);
     assert.deepEqual(proc.errors, []);
   } finally { await desktop.close(); }
 });

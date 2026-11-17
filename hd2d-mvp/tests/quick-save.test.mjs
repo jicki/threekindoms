@@ -15,7 +15,7 @@ const record = () => page.evaluate((k) => JSON.parse(localStorage.getItem(k)), K
 const dialog = () => page.locator('.shade .modal');
 const accept = async () => { await dialog().locator('.btn.primary').click(); await page.waitForSelector('.shade', { state: 'detached' }); };
 const cancel = async () => { await dialog().locator('.btn', { hasText: '取消' }).click(); await page.waitForSelector('.shade', { state: 'detached' }); };
-before(async () => { game = await startGame(); page = await game.open(); await newCampaign(page, '曹操'); await idle(); });
+before(async () => { game = await startGame({ scenario: 'original' }); page = await game.open(); await newCampaign(page, '曹操'); await idle(); });
 after(() => game?.close());
 
 test('first quick save explains the book cost and cancellation spends nothing', async () => {

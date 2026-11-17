@@ -5,7 +5,7 @@ import { startGame, newCampaign, skipIntro, closeMessages } from './game.mjs';
 let game;
 before(async () => { game = await startGame(); });
 after(async () => { await game?.close(); });
-const setup = (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns'));
+const setup = (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns-expanded-map'));
 
 async function startRaid(page, { ruler = '公孙瓒', city = 0, kind = '海贼' } = {}) {
   await page.evaluate(async () => { (await import('./src/pace.js')).setPace(4); (await import('./src/vignette.js')).setVignettes(false); });
@@ -51,12 +51,12 @@ test('手机真实月轮转触发海贼守城，中断恢复后结算并清理�
     assert.ok(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= 812 && box.y + box.height <= 375);
     const auto = await page.evaluate(() => {
       Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange'));
-      return JSON.parse(localStorage.getItem('haou-hd2d-suspend:scenario:builtin-sovereigns'));
+      return JSON.parse(localStorage.getItem('haou-hd2d-suspend:scenario:builtin-sovereigns-expanded-map'));
     });
     assert.equal(auto?.war.raid.kind, 'pirate'); assert.equal(auto.after.kind, 'raid');
     assert.equal(await page.evaluate(() => {
       Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange'));
-      return localStorage.getItem('haou-hd2d-suspend:scenario:builtin-sovereigns');
+      return localStorage.getItem('haou-hd2d-suspend:scenario:builtin-sovereigns-expanded-map');
     }), null);
     await page.locator('.sysmenu-btn').click(); await page.getByRole('tab', { name: '记录' }).click();
     await page.locator('.sysmenu-list button', { hasText: '中断战斗' }).click();

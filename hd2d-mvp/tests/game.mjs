@@ -16,7 +16,7 @@ const freePort = () => new Promise((resolve, reject) => {
 // with the game booted and muted (?mute); `query` adds parameters, e.g. '&flat' for the flat war map (3D is the default), and `save` (a
 // record from saveCampaign) is put in the page's save slot 1 before the game boots, for resumeCampaign; `setup(context)` runs before
 // that boot too (stored settings, network routes, listeners).
-export async function startGame({ width = 1280, height = 800 } = {}) {
+export async function startGame({ width = 1280, height = 800, scenario = null } = {}) {
   const port = await freePort(), url = `http://localhost:${port}/hd2d-mvp/?mute`;
   // 浏览器测试使用临时服务，不应读取或覆盖调用者的持久管理员配置。
   const server = spawn('python3', ['hd2d-mvp/tools/serve.py', String(port)], {
@@ -39,8 +39,13 @@ export async function startGame({ width = 1280, height = 800 } = {}) {
     async open(query = '', { save, setup, clock = false } = {}) {
       const ctx = await browser.newContext({ viewport: { width, height } }); contexts.push(ctx);
       if (clock) await ctx.addInitScript(fastClock);
+      if (scenario) await ctx.addInitScript((id) => sessionStorage.setItem('haou-hd2d-scenario', id), scenario);
       await setup?.(ctx);
-      if (save) await ctx.addInitScript((s) => localStorage.setItem('haou-hd2d-save:1', s), save);
+      if (save) await ctx.addInitScript((s) => {
+        const id = JSON.parse(s).scenarioId ?? 'original';
+        sessionStorage.setItem('haou-hd2d-scenario', id);
+        localStorage.setItem(id === 'original' ? 'haou-hd2d-save:1' : `haou-hd2d-save:scenario:${id}:1`, s);
+      }, save);
       const page = await ctx.newPage(), errors = [];
       page.on('pageerror', (e) => errors.push(e.message));
       page.errors = errors;
@@ -110,7 +115,7 @@ export async function skipIntro(page) {
 }
 
 // The campaign on this page as a save record, to start later pages on the same turn without replaying it.
-export const saveCampaign = (page) => page.evaluate(() => { const { g, G } = window.__game; G.save(g, 1); return localStorage.getItem('haou-hd2d-save:1'); });
+export const saveCampaign = (page) => page.evaluate(() => { const { g, G } = window.__game; G.save(g, 1); return localStorage.getItem(`${G.scenarioKey('haou-hd2d-save')}:1`); });
 
 // Continues the saved record (open(…, { save })) as a player would, through 继续记录, and waits for the player's turn.
 export async function resumeCampaign(page) {

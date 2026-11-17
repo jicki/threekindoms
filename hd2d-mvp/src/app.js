@@ -28,7 +28,7 @@ import { PHONE, hint } from './phone.js';
 import { unitCard } from './warcard.js';
 import * as G from './core/game.js';
 import { NONE } from './core/game.js';
-import { listScenarios, selectScenario, hasLegacyRecords } from './core/scenario-store.js';
+import { listScenarios, selectScenario } from './core/scenario-store.js';
 import { ORIGINAL_SCENARIO } from './core/scenario.js';
 import { EXPANDED_MAP_ID } from './core/expanded-map.js';
 import { SOVEREIGN_SCENARIO_ID, SOVEREIGN_SCENARIO_NAME, visualUrl } from './core/visuals.js';
@@ -1065,6 +1065,10 @@ function sysButtons() {
       g.enhancedRulerPassives = !g.enhancedRulerPassives; b.textContent = `君主被动 ${g.enhancedRulerPassives ? '增强' : '原有'}`;
     }, g.focusedRulerPassives ? '增强：每名君主获得一种基础效果与专属效果。原有：沿用旧版数值。敌我相同，设置随本局记录保存，己方战略回合可切换。'
       : '增强：提高每月资源，并为全军提供战斗武力、战术智力、计策成功率和战场每日机动力增益；部分君主延长己方增益战术。原有：沿用旧版数值。敌我相同，设置随本局记录保存，己方战略回合可切换。') : '',
+    g && D.battleRulerPassives && g.focusedRulerPassives ? item(() => `被动方案 ${g.battleRulerPassives ? '战场' : '旧版'}`, (b) => {
+      if (inWar() || document.body.dataset.screen !== 'strategy' || g.current !== g.player) return toast('请在己方战略回合切换被动方案', 3000);
+      g.battleRulerPassives = !g.battleRulerPassives; b.textContent = `被动方案 ${g.battleRulerPassives ? '战场' : '旧版'}`;
+    }, '启用增强时，战场方案不增加金米；旧版保留此前的精简效果。敌我同时切换，设置随记录保存。') : '',
     ), group('记录',
     g ? item(() => '记录进度', (b) => { const why = saveBlocked(); if (why) return toast(`<em>${why}</em>`, 3500); close(); runCommand(saveCity(), '记录'); },
       '进度不会自动保存。在八个记录位置之一保存当前进度（消耗一张命令书，开启免费记录时不消耗；与城市菜单「城 → 记录」相同；己方回合、战略地图上可用）') : '',
@@ -1111,8 +1115,8 @@ async function chooseScenario() {
   if (!choice || choice === activeVersion) return;
   changeScenario(choice);
 }
-function changeScenario(id, { setup = false } = {}) {
-  try { selectScenario(id); sessionStorage.setItem('hd2d-title-seen', '1'); if (setup) sessionStorage.setItem('hd2d-map-setup', '1'); location.reload(); }
+function changeScenario(id) {
+  try { selectScenario(id); sessionStorage.setItem('hd2d-title-seen', '1'); location.reload(); }
   catch { toast('<em>无法切换游戏版本</em>', 3500); }
 }
 const sovereignMap = () => [SOVEREIGN_SCENARIO_ID, EXPANDED_MAP_ID].includes(G.currentScenario());
@@ -1295,11 +1299,7 @@ async function title() {
         if (!current || JSON.stringify(current) !== JSON.stringify(pick.record)) return toast('<em>记录已改变，请重新选择</em>', 3500);
         begin(pick.record, true);
       } }, '读取记录') : null,
-      G.currentScenario() === EXPANDED_MAP_ID && hasLegacyRecords(SOVEREIGN_SCENARIO_ID)
-        ? h('button', { class: 'btn', onclick: () => changeScenario(SOVEREIGN_SCENARIO_ID) }, '读取标准地图记录') : null,
-      G.currentScenario() === SOVEREIGN_SCENARIO_ID
-        ? h('button', { class: 'btn', onclick: () => changeScenario(EXPANDED_MAP_ID) }, '返回扩展地图记录') : null,
-      h('button', { class: 'btn', onclick: () => { audio.unlock(); if (G.currentScenario() === SOVEREIGN_SCENARIO_ID) changeScenario(EXPANDED_MAP_ID, { setup: true }); else setup(); } }, '新的征程')],
+      h('button', { class: 'btn', onclick: () => { audio.unlock(); setup(); } }, '新的征程')],
     footnote: [h('p', {}, '原作《三国志II 霸王的大陆》© 1992 NAMCO · 以FC日版规则为准 · 立绘由AI生成 · ' +
         (audio.sets.length > 1 ? `曲目可在「☰ 系统 → 曲目」切换 ${audio.sets.map((t) => t.label).join('／')}` : `音乐：${audio.sets[0]?.label ?? '合成音'}`))] });
   titleSeen = true;
@@ -1372,7 +1372,7 @@ async function setup() {
     return h('div', { class: `panel ruler ${on ? 'on' : ''}`, style: { '--c': colorOf(f) }, 'aria-pressed': on ? 'true' : 'false', title: on ? '再次点击开始' : `选择${name(officer)}`,
       ...pressable(() => { if (on) return start.click(); ruler = { faction: f, officer }; start.disabled = false; start.textContent = `${name(officer)} · 出征`;
         if (passiveNote) {
-          const p = describeRulerPassive(o, D.enhancedRulerPassives, D.campaignRules, D.focusedRulerPassives), w = D.equipment[o.weapon];
+          const p = describeRulerPassive(o, D.enhancedRulerPassives, D.campaignRules, D.focusedRulerPassives, D.battleRulerPassives), w = D.equipment[o.weapon];
           passiveNote.textContent = `君主被动 · ${p.name}：${p.text}${w?.exclusiveRuler === officer ? `；专属武器：${w.name}（攻${w.atk}）` : ''}`;
         }
         keep(rulers, drawRulers); }) },

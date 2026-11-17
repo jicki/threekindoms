@@ -42,7 +42,8 @@ test('十名君主有各自专属效果，新旧记录及关闭增强时正确�
 });
 
 test('曹操节粮、袁术征税和刘璋收获对电脑和玩家生效，数值封顶且不改无主城市', () => {
-  const g = setup(), original = structuredClone(g);
+  const g = setup(); delete g.battleRulerPassives;
+  const original = structuredClone(g);
   const taxFaction = g.factions.find((f) => G.name(f.ruler) === '袁术').id;
   const harvestFaction = g.factions.find((f) => G.name(f.ruler) === '刘璋').id;
   const cao = g.factions.find((f) => G.name(f.ruler) === '曹操').id;
@@ -66,7 +67,7 @@ test('曹操节粮、袁术征税和刘璋收获对电脑和玩家生效，数�
 });
 
 test('曹操的节粮在实际战场日结算和中断恢复后生效，旧记录不启用', () => {
-  const template = setup(); template.factions[7].ruler = byName('曹操');
+  const template = setup(); delete template.battleRulerPassives; template.factions[7].ruler = byName('曹操');
   const play = (enabled, resume) => {
     const g = structuredClone(template); g.campaignRules = enabled;
     for (const id of g.cities[0].officers) g.officers[id].soldiers = 1000;
@@ -83,6 +84,7 @@ test('曹操的节粮在实际战场日结算和中断恢复后生效，旧记�
 
 test('电脑自动战斗逐日估算曹操节粮，其他君主保留原自动结算公式', () => {
   const g = setup(), cao = g.factions[2].ruler, yuan = g.factions[1].ruler;
+  delete g.battleRulerPassives;
   for (const id of [cao, yuan]) Object.assign(g.officers[id], { soldiers: 1000, hp: 100 });
   const war = { city: 11, from: 4, attacker: 1, defender: 2,
     att: { ids: [yuan], gold: 100, rice: 1000 }, def: { ids: [cao], gold: 100, rice: 1000 } };

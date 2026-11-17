@@ -126,7 +126,7 @@ export function createStrategyCities({ scene, data, sand, world, sites, onCity, 
         m.roof.color.copy(NEUTRAL); if (m.glaze) m.roof.color.lerp(m.glaze, k);
       }
       if (!measured) measured = measureTags(marks);
-      layoutTags(tags, { dt });
+      layoutTags(tags, { dt, spread: data.expandedMap, bounds: { left: 0, right: innerWidth, top: 44, bottom: innerHeight } });
     }
     return { cityReach, pickables, marks, updateFlags, updateTags, invalidate() { measured = false; } };
   }

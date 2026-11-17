@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { startGame, newCampaign, skipIntro, closeMessages } from './game.mjs';
 
 let game, page;
-before(async () => { game = await startGame(); page = await game.open(); await newCampaign(page, '曹操'); });
+before(async () => { game = await startGame({ scenario: 'original' }); page = await game.open(); await newCampaign(page, '曹操'); });
 after(() => game?.close());
 
 const KEY = 'haou-hd2d-suspend';

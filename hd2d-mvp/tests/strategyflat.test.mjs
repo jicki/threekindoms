@@ -16,7 +16,7 @@ const { x0, y0, x1, y1 } = board.bounds;
 const fit = (w, h) => Math.min(w / (x1 - x0), h / (y1 - y0));
 
 let game, page;
-before(async () => { game = await startGame({ width: 1440, height: 900 }); page = await game.open('&flat', { clock: true }); await newCampaign(page, '董卓'); }, { timeout: 180000 });
+before(async () => { game = await startGame({ width: 1440, height: 900, scenario: 'original' }); page = await game.open('&flat', { clock: true }); await newCampaign(page, '董卓'); }, { timeout: 180000 });
 after(() => game?.close());
 
 const view = () => page.evaluate(() => window.__game.strategy.viewState());

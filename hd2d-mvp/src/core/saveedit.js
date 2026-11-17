@@ -6,7 +6,7 @@
 // 体力 is the one exception to "as the game keeps it": the original caps healing at the ROM template's hp and never
 // stores a cap on the record. Here editing 体力 sets the officer's 体力上限 (o.maxHp) to the same value, so an edited
 // officer is at full 体力 and the 病院, AI healing and the cards all read the edited cap (game.js maxHp).
-import { DEAD, maxHp, data } from './game.js';
+import { DEAD, maxHp, data, upgrade } from './game.js';
 
 // 体力 as the editor shows and compares it: current / cap, so a change to either one counts.
 export const hpText = (o) => `${o.hp}/${maxHp(o)}`;
@@ -55,7 +55,7 @@ export function checkRecord(g) {
   if (!g || typeof g !== 'object') return '不是记录';
   if (!Array.isArray(g.officers) || !Array.isArray(g.cities) || !Array.isArray(g.factions)) return '缺少武将、城市或势力';
   const expected = data()?.cities?.length ?? 30;
-  if (g.cities.length !== expected) return `地图据点数为 ${g.cities.length}，应为 ${expected}`;
+  if (g.cities.length !== expected && !(data()?.expandedMap && data()?.frontierMap && upgrade(structuredClone(g)))) return `地图据点数为 ${g.cities.length}，应为 ${expected}`;
   if (g.cities.some((c) => !Array.isArray(c.officers))) return '城市名册损坏';
   return null;
 }

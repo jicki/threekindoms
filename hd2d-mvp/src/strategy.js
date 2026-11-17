@@ -9,7 +9,7 @@ import './weather.js';
 import { buildWorld, SEA_Y } from './worldmap.js';
 import { buildSandtable, TERRITORY_PALETTE } from './sandtable.js';
 import { placeCities, siteOfCity } from './china.js';
-import { EXPANDED_NODES, expandedSandMeta } from './core/expanded-map.js';
+import { expandedNodes, expandedSandMeta } from './core/expanded-map.js';
 import { NONE, FACTION_COLORS, cityName, factionName } from './core/game.js';
 import { createStrategyRoads } from './strategyroads.js';
 import { createStrategyCities } from './strategycities.js';
@@ -25,8 +25,8 @@ const SITES = placeCities();
 
 export function createStrategy(ctx) {
   const { data } = ctx;
-  const sand = data.expandedMap && ctx.sand ? { ...ctx.sand, meta: expandedSandMeta(ctx.sand.meta) } : ctx.sand;
-  const sites = data.expandedMap ? [...SITES, ...EXPANDED_NODES.map((n) => siteOfCity(n.id))] : SITES;
+  const sand = data.expandedMap && ctx.sand ? { ...ctx.sand, meta: expandedSandMeta(ctx.sand.meta, data.frontierMap) } : ctx.sand;
+  const sites = data.expandedMap ? [...SITES, ...expandedNodes(data.frontierMap).map((n) => siteOfCity(n.id))] : SITES;
   const scene = new THREE.Scene();
   // Sky, camera, lights, world, roads, cities and clouds must enter the scene in the same order as before the split.
   const atmosphere = createStrategySky({ scene, sand, onSeason: (m, instant) => ctx.onSeason?.(m, instant) });

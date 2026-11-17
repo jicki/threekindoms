@@ -63,7 +63,7 @@ test('every caller hands the game over, and none reads the scenario name', () =>
 });
 
 let game;
-before(async () => { game = await startGame(); });
+before(async () => { game = await startGame({ scenario: 'original' }); });
 after(() => game?.close());
 
 // Kills an AI ruler in the running game, through the game's own succession, and repaints the map.

@@ -9,12 +9,32 @@ import { Tactical } from '../src/core/tactical.js';
 import { skirmish } from '../src/core/skirmish.js';
 import { Field, STRAT_INFO, PLAIN, FOREST, RIVER } from '../src/core/field.js';
 import { setupWar } from '../src/core/warcore.js';
-import { listScenarios } from '../src/core/scenario-store.js';
+import { listScenarios, selectedScenario, selectScenario } from '../src/core/scenario-store.js';
 
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
 const editable = (o) => Object.fromEntries(['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'appear', 'city', 'faction'].map((k) => [k, o[k]]));
 const draft = () => ({ ...newDraft(base), id: `v-${'a'.repeat(32)}` });
 const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+
+test('新会话默认使用最新版本，明确选择原版或发布版本后可继续使用', () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage'), values = new Map();
+  Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: {
+    getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, String(value)),
+  } });
+  try {
+    assert.equal(selectedScenario(), 'builtin-sovereigns-expanded-map');
+    selectScenario('original'); assert.equal(selectedScenario(), 'original');
+    assert.equal(values.get('haou-hd2d-scenario'), 'original');
+    const custom = `v-${'a'.repeat(32)}`; selectScenario(custom); assert.equal(selectedScenario(), custom);
+    for (const id of ['builtin-female', 'builtin-heroes', 'builtin-heroes-roster', 'builtin-warlords', 'builtin-sovereigns']) {
+      selectScenario(id); assert.equal(selectedScenario(), 'builtin-sovereigns-expanded-map');
+    }
+    Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, get() { throw new Error('storage denied'); } });
+    assert.equal(selectedScenario(), 'builtin-sovereigns-expanded-map');
+  } finally {
+    if (previous) Object.defineProperty(globalThis, 'sessionStorage', previous); else delete globalThis.sessionStorage;
+  }
+});
 
 test('旧版本兼容，新关系与受限的人物图片可安全应用', () => {
   const old = draft(); delete old.rulers;

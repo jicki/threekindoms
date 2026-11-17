@@ -4,7 +4,7 @@ import { startGame, newCampaign } from './game.mjs';
 import { launchChrome } from '../tools/headless.mjs';
 
 let game;
-before(async () => { game = await startGame(); });
+before(async () => { game = await startGame({ scenario: 'original' }); });
 after(async () => { await game?.close(); });
 
 test('还原此城 preserves the original special land and the legal maximum governance', async () => {
@@ -222,7 +222,9 @@ test('ordinary and quick saves serialize across tabs on an insecure HTTP origin'
   const url = new URL(game.url); url.hostname = 'audit.test';
   const browser = await launchChrome(url.href, ['--no-proxy-server', '--host-resolver-rules=MAP audit.test 127.0.0.1, MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1']);
   try {
-    const ctx = await browser.newContext(), p = await ctx.newPage(), q = await ctx.newPage();
+    const ctx = await browser.newContext();
+    await ctx.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'original'));
+    const p = await ctx.newPage(), q = await ctx.newPage();
     const data = new URL('data/game-data.json', url).href;
     await Promise.all([p.goto(data), q.goto(data)]);
     const save = (page, quick, year) => page.evaluate(async ({ quick, year }) => {

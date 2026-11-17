@@ -15,7 +15,7 @@ import { WARLORD_SCENARIO_ID, SOVEREIGN_SCENARIO_ID } from '../src/core/visuals.
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
 const scenario = await loadScenario(SOVEREIGN_SCENARIO_ID, base);
 // 本文件保留对旧增强被动和存档的行为断言；新开局另行测试精简规则。
-const use = () => { const data = applyScenario(base, scenario); data.focusedRulerPassives = false; return G.setData(data, SOVEREIGN_SCENARIO_ID); };
+const use = () => { const data = applyScenario(base, scenario); data.focusedRulerPassives = false; data.battleRulerPassives = false; return G.setData(data, SOVEREIGN_SCENARIO_ID); };
 const names = (ids) => ids.map((id) => G.name(id));
 
 test('十位开局君主各有不同被动，属性变化及候选君主使用当前属性', () => {
@@ -62,6 +62,7 @@ test('编辑器配置的候选君主开局后使用自身的被动', () => {
   try {
     const draft = structuredClone(scenario), tianyu = draft.officers.find((o) => o.name === '田豫').id;
     draft.rulers.push({ faction: 7, officer: tianyu });
+    delete draft.focusedRulerPassives; delete draft.battleRulerPassives;
     G.setData(applyScenario(base, draft), SOVEREIGN_SCENARIO_ID);
     const g = G.newGame(7, 1, 1, { ruler: tianyu });
     assert.equal(g.factions[7].ruler, tianyu); assert.equal(g.cities[0].officers[0], tianyu);

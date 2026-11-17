@@ -266,7 +266,10 @@ export function fight(g, war) {
     const applies = unique === 'assault' && side === 'att'
       || unique === 'muster' && active.length >= 4
       || unique === 'river' && D.maps[war.city]?.some((row) => row.includes(3))
+      || unique === 'tactics' && active.some((id) => O(id).int >= 50)
       || unique === 'bonds' && active.filter((id) => id !== ruler && relationshipAffinity(D, g, ruler, id) > 0).length >= 2
+      || unique === 'fortify' && side === 'def'
+      || unique === 'massed' && active.length >= 3
       || (unique === 'cavalry' || unique === 'horsebow') && active.some(hasCavalry)
       || unique === 'garrison' && side === 'def';
     return applies ? Math.min(2, Math.floor(base / 80)) : 0;

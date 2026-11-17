@@ -459,7 +459,7 @@ if (base) {
 
   function renderRulers() {
     const data = currentData(), items = draft.rulers ?? [], form = el('form');
-    const map = select('map', [['standard', '标准地图（30城）'], ['expanded', '扩展地图（33城和4处关隘）']], draft.map ?? 'standard');
+    const map = select('map', [['standard', '标准地图（30城）'], ['expanded', draft.frontierMap ? '扩展地图（34城和5处关隘）' : '扩展地图（33城和4处关隘）']], draft.map ?? 'standard');
     map.addEventListener('change', () => {
       if (!abandonForm()) { map.value = draft.map ?? 'standard'; return; }
       update((d) => { if (map.value === 'expanded') d.map = 'expanded'; else delete d.map; }, '地图设置已应用到草稿');
@@ -469,25 +469,35 @@ if (base) {
       if (!abandonForm()) { expandedOpening.checked = !!draft.expandedOpening; return; }
       update((d) => { if (expandedOpening.checked) d.expandedOpening = true; else delete d.expandedOpening; }, '扩展地图开局设置已应用到草稿');
     });
+    const frontierMap = el('input', { type: 'checkbox', checked: !!draft.frontierMap });
+    frontierMap.addEventListener('change', () => {
+      if (!abandonForm()) { frontierMap.checked = !!draft.frontierMap; return; }
+      update((d) => { if (frontierMap.checked) d.frontierMap = true; else delete d.frontierMap; }, '边地据点设置已应用到草稿');
+    });
     const campaignRules = el('input', { type: 'checkbox', checked: !!draft.campaignRules });
     campaignRules.addEventListener('change', () => {
       if (!abandonForm()) { campaignRules.checked = !!draft.campaignRules; return; }
-      update((d) => { if (campaignRules.checked) d.campaignRules = true; else { delete d.campaignRules; delete d.focusedRulerPassives; } }, '新版玩法设置已应用到草稿');
+      update((d) => { if (campaignRules.checked) d.campaignRules = true; else { delete d.campaignRules; delete d.focusedRulerPassives; delete d.battleRulerPassives; } }, '新版玩法设置已应用到草稿');
     });
     const passive = el('input', { type: 'checkbox', checked: !!draft.rulerPassives });
     passive.addEventListener('change', () => {
       if (!abandonForm()) { passive.checked = !!draft.rulerPassives; return; }
-      update((d) => { if (passive.checked) d.rulerPassives = true; else { delete d.rulerPassives; delete d.enhancedRulerPassives; delete d.focusedRulerPassives; } }, '君主被动设置已应用到草稿');
+      update((d) => { if (passive.checked) d.rulerPassives = true; else { delete d.rulerPassives; delete d.enhancedRulerPassives; delete d.focusedRulerPassives; delete d.battleRulerPassives; } }, '君主被动设置已应用到草稿');
     });
     const enhancedPassive = el('input', { type: 'checkbox', checked: !!draft.enhancedRulerPassives, disabled: !draft.rulerPassives });
     enhancedPassive.addEventListener('change', () => {
       if (!abandonForm()) { enhancedPassive.checked = !!draft.enhancedRulerPassives; return; }
-      update((d) => { if (enhancedPassive.checked) d.enhancedRulerPassives = true; else { delete d.enhancedRulerPassives; delete d.focusedRulerPassives; } }, '增强君主被动设置已应用到草稿');
+      update((d) => { if (enhancedPassive.checked) d.enhancedRulerPassives = true; else { delete d.enhancedRulerPassives; delete d.focusedRulerPassives; delete d.battleRulerPassives; } }, '增强君主被动设置已应用到草稿');
     });
     const focusedPassive = el('input', { type: 'checkbox', checked: !!draft.focusedRulerPassives, disabled: !draft.enhancedRulerPassives || !draft.campaignRules });
     focusedPassive.addEventListener('change', () => {
       if (!abandonForm()) { focusedPassive.checked = !!draft.focusedRulerPassives; return; }
-      update((d) => { if (focusedPassive.checked) d.focusedRulerPassives = true; else delete d.focusedRulerPassives; }, '精简君主被动设置已应用到草稿');
+      update((d) => { if (focusedPassive.checked) d.focusedRulerPassives = true; else { delete d.focusedRulerPassives; delete d.battleRulerPassives; } }, '精简君主被动设置已应用到草稿');
+    });
+    const battlePassive = el('input', { type: 'checkbox', checked: !!draft.battleRulerPassives, disabled: !draft.focusedRulerPassives });
+    battlePassive.addEventListener('change', () => {
+      if (!abandonForm()) { battlePassive.checked = !!draft.battleRulerPassives; return; }
+      update((d) => { if (battlePassive.checked) d.battleRulerPassives = true; else delete d.battleRulerPassives; }, '战场君主被动设置已应用到草稿');
     });
     const fixedRecruitment = el('input', { type: 'checkbox', checked: !!draft.fixedAiRecruitment });
     fixedRecruitment.addEventListener('change', () => {
@@ -549,12 +559,14 @@ if (base) {
     const rows = items.map((r, i) => el('div', { class: 'relation' },
       el('span', {}, `${data.officers[r.officer].name} · ${data.officers[data.factions[r.faction].ruler].name}势力 · ${data.cities[data.officers[r.officer].city].name}`),
       el('button', { type: 'button', onclick: () => { if (abandonForm()) update((d) => d.rulers.splice(i, 1), '君主候选已移除'); } }, '移除')));
-    return panel('detail', el('h2', {}, '君主候选'), field('地图', map), el('p', { class: 'intro' }, '扩展地图增加三城与四处关隘；人物登场和装备商店仍按原有三十城配置。发布后各版本存档独立。'),
+    return panel('detail', el('h2', {}, '君主候选'), field('地图', map), el('p', { class: 'intro' }, '基础扩展地图增加三城与四处关隘，可另启用边地据点；人物登场和装备商店仍按原有三十城配置。发布后各版本存档独立。'),
+      field('新增边地据点', frontierMap), el('p', { class: 'intro' }, '扩展地图增加望垣峡和夷洲；标准地图不受影响。'),
       field('扩展地图开局补给与保护', expandedOpening), el('p', { class: 'intro' }, '仅对扩展地图的新开局生效：为董卓、袁术补给，并在开局五年保护电脑君主城；已有记录不补发。'),
       field('启用新版玩法', campaignRules), el('p', { class: 'intro' }, '新开局启用改进的电脑决策、同盟和战斗规则；设置随记录保存。'),
       field('启用君主被动技能', passive), el('p', { class: 'intro' }, '启用后君主提供内政或战斗被动，具体效果由增强与精简选项决定；继位者按自身属性获得被动，玩家和电脑规则相同。'),
       field('增强君主被动', enhancedPassive), el('p', { class: 'intro' }, '启用增强被动；效果随本局设置生效，不修改武将基础属性。'),
       field('精简君主被动', focusedPassive), el('p', { class: 'intro' }, '需要增强被动和新版玩法。新开局每名君主保留一种基础效果和专属效果；旧记录保留原有配置。'),
+      field('战场君主被动', battlePassive), el('p', { class: 'intro' }, '需要精简被动；新局采用战斗效果，不增加金米。旧记录可在游戏内切换方案。'),
       field('修正电脑补兵', fixedRecruitment), el('p', { class: 'intro' }, '启用后电脑按实际金币和后备兵补兵，金币不足时只能补充可负担的人数。'),
       field('优化电脑补兵优先级', smartReinforcement), el('p', { class: 'intro' }, '新开局在启用修正电脑补兵时，兼顾可补人数、前线和君主所在城；已启用的存档使用更新后的排序，未启用的旧存档保留原有排序。'),
       field('增强灾害影响', enhancedDisasters), el('p', { class: 'intro' }, '新开局启用后，旱灾和洪水会损失金、米、土地与产业；防灾越高损失越小，资源不足时最多损失现有数量。是否启用随开局保存，已启用的存档使用更新后的损失规则。'),

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { startGame, skipIntro, newCampaign } from './game.mjs';
 
 let game, page;
-before(async () => { game = await startGame(); page = await game.open(); });
+before(async () => { game = await startGame({ scenario: 'original' }); page = await game.open(); });
 after(() => game?.close());
 
 test('系统 → 记录编辑 opens the editor and 返回游戏 comes back to the title without its opening', async () => {

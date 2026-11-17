@@ -1,6 +1,6 @@
 // Geography of the 战略地图: city seats, coastline, rivers, lakes and mountain ranges in real lon/lat.
 // Pure data and lookups (no three.js), so tools/ can check it in node.
-import { EXPANDED_NODES } from './core/expanded-map.js';
+import { EXPANDED_NODES, FRONTIER_PASS, FRONTIER_ISLAND } from './core/expanded-map.js';
 
 // Each ROM city sits on its Eastern Han / Three Kingdoms seat (治所), given as the modern place's lon/lat.
 export const CITY_SITES = [
@@ -39,10 +39,13 @@ export const CITY_SITES = [
 // 扩展据点按原道路两端的治所估算地区；实际地图位置取预烘焙道路上的节点。
 export function siteOfCity(id) {
   if (CITY_SITES[id]) return CITY_SITES[id];
-  const node = EXPANDED_NODES.find((n) => n.id === id);
+  if (id === FRONTIER_ISLAND.id) return { lon: FRONTIER_ISLAND.lon, lat: FRONTIER_ISLAND.lat, seat: FRONTIER_ISLAND.name, kind: FRONTIER_ISLAND.kind };
+  const node = [...EXPANDED_NODES, FRONTIER_PASS].find((n) => n.id === id);
   if (!node) return null;
   const [a, b] = node.road.map((n) => CITY_SITES[n]);
-  return { lon: (a.lon + b.lon) / 2, lat: (a.lat + b.lat) / 2, seat: node.name, kind: node.kind };
+  const t = node.fraction ?? 0.5;
+  return { lon: a.lon * (1 - t) + b.lon * t + (node.geoOffset?.[0] ?? 0),
+    lat: a.lat * (1 - t) + b.lat * t + (node.geoOffset?.[1] ?? 0), seat: node.name, kind: node.kind };
 }
 
 // The bank each riverside seat stands on, checked against the river's direction of flow

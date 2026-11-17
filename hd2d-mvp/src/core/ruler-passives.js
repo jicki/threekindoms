@@ -43,13 +43,36 @@ const FOCUSED = {
   孙策: ['army', { war: 4 }], 刘备: ['economy', ['rice']], 刘璋: ['economy', ['rice']],
   马腾: ['army', { war: 4 }], 公孙瓒: ['economy', ['gold']], 袁术: ['economy', ['gold', 'rice']], 刘表: ['economy', ['gold']],
 };
+// 战场版只使用一种基础类别和一项专属效果；既有精简记录仍保留 FOCUSED 和 UNIQUE。
+const BATTLE_PROFILES = {
+  董卓: ['威镇西凉', 'army', { war: 4 }, ['assault', UNIQUE.董卓[1]]],
+  袁绍: ['四世督军', 'field', { mobility: 1 }, ['muster', UNIQUE.袁绍[1]]],
+  曹操: ['魏武奇略', 'strategy', { strategy: 3 }, ['tactics', '己方强弩、火矢和士气向上额外持续1回合']],
+  孙策: ['江东奋战', 'army', { war: 3 }, ['river', UNIQUE.孙策[1]]],
+  刘备: ['仁义同心', 'army', { war: 3 }, ['bonds', UNIQUE.刘备[1]]],
+  刘璋: ['守蜀安民', 'army', { int: 3 }, ['fortify', '作为守方时，己方兵队受近战兵队伤害减少6%']],
+  马腾: ['西凉铁骑', 'army', { war: 3 }, ['cavalry', UNIQUE.马腾[1]]],
+  公孙瓒: ['白马义从', 'field', { mobility: 1 }, ['horsebow', UNIQUE.公孙瓒[1]]],
+  袁术: ['淮南军势', 'army', { war: 3 }, ['massed', '战场己方至少3将时，兵队近战对兵队伤害＋5%']],
+  刘表: ['荆襄固守', 'strategy', { strategy: 3 }, ['garrison', UNIQUE.刘表[1]]],
+};
 const LABELS = { gold: '金', rice: '米', reserve: '后备兵', land: '土地', gov: '统治（至80）', soldiers: '最低兵数武将的兵数', loyalty: '最低忠诚部将的忠诚（至90）' };
 
-export function describeRulerPassive(officer, enhanced = false, campaign = false, focused = false) {
+export function describeRulerPassive(officer, enhanced = false, campaign = false, focused = false, battle = false) {
   if (!officer) return null;
   const stat = (key) => Math.max(0, Math.min(99, Math.floor(Number(officer[key]) || 0)));
   const strongest = ['war', 'int', 'virtue'].reduce((a, b) => stat(b) > stat(a) ? b : a);
   const named = Object.hasOwn(PROFILES, officer.name), [name, rules] = named ? PROFILES[officer.name] : DEFAULTS[strongest];
+  if (enhanced && campaign && focused && battle) {
+    const fallback = strongest === 'war' ? ['army', { war: 3 }] : ['strategy', { strategy: strongest === 'int' ? 3 : 2 }];
+    const label = { war: '将略', int: '智略', virtue: '仁望' }[strongest];
+    const [title, category, value, unique] = named ? BATTLE_PROFILES[officer.name] : [`${officer.name || '君主'}·${label}`, ...fallback, null];
+    const combat = { war: 0, int: 0, strategy: 0, mobility: 0, tacticRounds: 0, ...value };
+    if (unique) combat.unique = unique[0];
+    const baseText = category === 'army' ? `全军${combat.war ? `战斗武力＋${combat.war}` : `白兵智力＋${combat.int}`}`
+      : category === 'field' ? `战场每日机动力恢复和上限＋${combat.mobility}` : `全军计策成功率最多＋${combat.strategy}个百分点`;
+    return { name: title, category, effects: [], combat, text: `${baseText}${unique ? `；专属：${unique[1]}` : ''}` };
+  }
   if (enhanced && campaign && focused) {
     const [category, value] = named ? FOCUSED[officer.name] : strongest === 'war' ? ['army', { war: 3 }]
       : strongest === 'int' ? ['strategy', { strategy: 3 }] : ['economy', ['rice']];

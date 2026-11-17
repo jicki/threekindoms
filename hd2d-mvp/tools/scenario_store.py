@@ -185,7 +185,7 @@ def image_info(data):
 
 
 def validate(s, base):
-    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'focusedRulerPassives', 'expandedOpening', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops', 'campaignRules', 'campaignRelations', 'map'])
+    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'focusedRulerPassives', 'battleRulerPassives', 'expandedOpening', 'frontierMap', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops', 'campaignRules', 'campaignRelations', 'map'])
     if type(s.get('format')) is not int or s['format'] != 1:
         fail('不支持的版本文件格式')
     if not isinstance(s.get('id'), str) or not ID.fullmatch(s['id']):
@@ -201,8 +201,14 @@ def validate(s, base):
         fail('精简君主被动设置无效')
     if s.get('focusedRulerPassives') and (not s.get('enhancedRulerPassives') or not s.get('campaignRules')):
         fail('精简君主被动需要增强被动和新版玩法')
+    if 'battleRulerPassives' in s and type(s['battleRulerPassives']) is not bool:
+        fail('战场君主被动设置无效')
+    if s.get('battleRulerPassives') and not s.get('focusedRulerPassives'):
+        fail('战场君主被动需要精简被动')
     if 'expandedOpening' in s and type(s['expandedOpening']) is not bool:
         fail('扩展地图开局设置无效')
+    if 'frontierMap' in s and type(s['frontierMap']) is not bool:
+        fail('边地据点设置无效')
     if 'relationshipEffects' in s and type(s['relationshipEffects']) is not bool:
         fail('人物关系效果设置无效')
     if 'autoBattleSkills' in s and type(s['autoBattleSkills']) is not bool:

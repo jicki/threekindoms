@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { startGame, newCampaign, closeMessages, near, cmd } from './game.mjs';
 
 let game, page;
-before(async () => { game = await startGame(); page = await game.open(); await newCampaign(page); });
+before(async () => { game = await startGame({ scenario: 'original' }); page = await game.open(); await newCampaign(page); });
 after(() => game?.close());
 
 test('the rules core never imports presentation code', () => {

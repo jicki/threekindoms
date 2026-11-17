@@ -12,7 +12,7 @@ import { fight } from '../src/core/warcore.js';
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
 const scenario = await loadScenario(SOVEREIGN_SCENARIO_ID, base);
 // 这些断言验证既有增强规则；精简新规则单独覆盖。
-const use = () => { const data = applyScenario(base, scenario); data.focusedRulerPassives = false; return G.setData(data, SOVEREIGN_SCENARIO_ID); };
+const use = () => { const data = applyScenario(base, scenario); data.focusedRulerPassives = false; data.battleRulerPassives = false; return G.setData(data, SOVEREIGN_SCENARIO_ID); };
 const fieldFor = (g) => {
   const own = g.cities[0].officers.filter((id) => id !== g.factions[7].ruler).slice(0, 2);
   const enemy = g.cities.find((c) => c.faction === 4 && c.officers.length).officers.slice(0, 2);
@@ -159,7 +159,7 @@ test('电脑自动战争也计算君主战斗武力，不更改原有属性', ()
 });
 
 test('版本校验允许缺省旧规则，拒绝无基础被动的增强规则', () => {
-  const legacy = structuredClone(scenario); delete legacy.enhancedRulerPassives; delete legacy.focusedRulerPassives;
+  const legacy = structuredClone(scenario); delete legacy.enhancedRulerPassives; delete legacy.focusedRulerPassives; delete legacy.battleRulerPassives;
   assert.equal(validateScenario(legacy, base), true);
   for (const value of [null, 1, 'true', [], {}]) {
     const bad = structuredClone(scenario); bad.enhancedRulerPassives = value;

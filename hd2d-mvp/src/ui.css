@@ -264,7 +264,7 @@ body:has(.vig-dim) .cmd-preview { display: none; } /* a show is up (from the boo
 .rightcol > .logbox { max-height: 42vh; flex: 0 1 auto; }
 .endturn { position: fixed; bottom: 12px; right: 12px; }
 body.handoff .dock, body.handoff .endturn { pointer-events: none; opacity: .45; filter: saturate(.4); transition: opacity .3s, filter .3s; }
-.ctag { position: relative; pointer-events: auto; cursor: pointer; transform: translateY(var(--dy, 0px)) scale(var(--s, 1)); opacity: var(--o, 1); transition: box-shadow .15s, background .15s, opacity .3s; font: 600 13px/1.2 var(--serif); text-align: center; text-shadow: 0 1px 2px #000; padding: 1px 5px 1px; border-radius: 3px; background: var(--tag-bg); box-shadow: inset 0 -2px 0 var(--c), 0 2px 6px #0006; }
+.ctag { position: relative; pointer-events: auto; cursor: pointer; transform: translate(var(--dx, 0px), var(--dy, 0px)) scale(var(--s, 1)); opacity: var(--o, 1); transition: box-shadow .15s, background .15s, opacity .3s; font: 600 13px/1.2 var(--serif); text-align: center; text-shadow: 0 1px 2px #000; padding: 1px 5px 1px; border-radius: 3px; background: var(--tag-bg); box-shadow: inset 0 -2px 0 var(--c), 0 2px 6px #0006; }
 .ctag.far small { display: none; }
 .ctag.pass { border: 1px solid #d0ae70; border-radius: 5px 5px 2px 2px; }
 .map-overview-filter { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
@@ -274,7 +274,7 @@ body.handoff .dock, body.handoff .endturn { pointer-events: none; opacity: .45; 
 .map-overview-list .btn small { color: var(--dim); }
 .map-overview-list .btn small.overview-warning { color: #f3b977; }
 /* A tag stepped up out of a neighbour's way hangs on a thin leader down to its city (strategy.js update, T14). */
-.ctag::after { content: ''; position: absolute; left: 50%; top: 100%; width: 1px; height: var(--lead, 0px); background: linear-gradient(var(--c), #0000); opacity: .85; pointer-events: none; }
+.ctag::after { content: ''; position: absolute; left: var(--lead-left, 50%); top: var(--lead-start, 100%); width: 1px; height: var(--lead, 0px); transform-origin: top center; transform: rotate(var(--lead-angle, 0deg)); background: linear-gradient(var(--c), #0000); opacity: .85; pointer-events: none; }
 /* The city under the pointer, from its model or its tag: the one a click takes. */
 .ctag.hov { opacity: 1; background: #4a3214f0; color: #fff4d0; box-shadow: inset 0 -2px 0 var(--c), 0 0 0 2px #ffe890, 0 0 18px #ffe06099; }
 .ctag.hov small { display: block; }

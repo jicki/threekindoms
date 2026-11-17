@@ -15,7 +15,7 @@ const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.me
 const expanded = await loadScenario(HERO_SCENARIO_ID, base);
 const data = () => applyScenario(base, expanded);
 
-test('旧存档、备份和中断战斗均保留兼容入口，存储不可用时不隐藏入口', () => {
+test('旧记录检测涵盖存档、备份和中断战斗，存储不可用时保守处理', () => {
   const oldLocal = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
   const oldSession = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
   const values = new Map(), session = new Map();

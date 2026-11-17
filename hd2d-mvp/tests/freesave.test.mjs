@@ -5,7 +5,7 @@ import { startGame, newCampaign, skipIntro, openCmds, cmdRow, cmd } from './game
 
 let game, page;
 const errors = [];
-before(async () => { game = await startGame(); page = await game.open(); page.on('pageerror', (e) => errors.push(e.message)); await newCampaign(page, '曹操'); });
+before(async () => { game = await startGame({ scenario: 'original' }); page = await game.open(); page.on('pageerror', (e) => errors.push(e.message)); await newCampaign(page, '曹操'); });
 after(() => game?.close());
 
 const state = () => page.evaluate(() => ({ books: window.__game.g.books, free: window.__game.g.freeSave }));

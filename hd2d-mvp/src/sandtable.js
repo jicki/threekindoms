@@ -395,7 +395,10 @@ export function buildSandtable(scene, S) {
   const roads = new Map(meta.roads.map((r) => [r.a < r.b ? `${r.a}-${r.b}` : `${r.b}-${r.a}`, r]));
   const roadPath = (a, b) => {
     const r = roads.get(a < b ? `${a}-${b}` : `${b}-${a}`); if (!r) return null;
-    const pts = []; for (let k = 0; k < r.p.length; k += 3) pts.push(new THREE.Vector3(r.p[k], r.p[k + 1], r.p[k + 2]));
+    const pts = []; for (let k = 0; k < r.p.length; k += 3) {
+      const x = r.p[k], z = r.p[k + 2];
+      pts.push(new THREE.Vector3(x, r.generated ? Math.max(SEA_Y, surfaceAt(x, z)) + 0.01 : r.p[k + 1], z));
+    }
     return r.a === a ? pts : pts.reverse();
   };
   const tiers = new Map(), cityModel = (tier) => {

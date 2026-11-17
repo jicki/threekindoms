@@ -140,6 +140,9 @@ export class Field {
       passive = { ...passive, strategy: passive.strategy + 2 };
     }
     if (passive?.unique === 'garrison' && s === 'def') passive = { ...passive, war: passive.war + 1 };
+    if (passive?.unique === 'tactics') passive = { ...passive, tacticRounds: passive.tacticRounds + 1 };
+    if (passive?.unique === 'fortify' && s === 'def') passive = { ...passive, fortify: true };
+    if (passive?.unique === 'massed' && this.side(s).filter((u) => this.O(u.id)?.hp > 0 && this.O(u.id)?.soldiers > 0).length >= 3) passive = { ...passive, massed: true };
     // 关隘的守方获得轻微地形优势，与君主是否参战无关。
     return this.g.campaignRules === true && s === 'def' && isPass(this.war.city)
       ? { int: 0, strategy: 0, mobility: 0, tacticRounds: 0, ...passive, war: (passive?.war ?? 0) + 1 } : passive;

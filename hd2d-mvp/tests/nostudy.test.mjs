@@ -42,7 +42,7 @@ const errors = [];
 const item = () => page.locator('.sysmenu-list button', { hasText: '武将读书' });
 const row = () => cmdRow(page, '学问所');
 test('browser', async (t) => {
-  game = await startGame(); page = await game.open(); page.on('pageerror', (e) => errors.push(e.message));
+  game = await startGame({ scenario: 'original' }); page = await game.open(); page.on('pageerror', (e) => errors.push(e.message));
   try {
     await t.test('the setup screen offers it, off; a game started with it on carries the flag', async () => {
       await skipIntro(page);

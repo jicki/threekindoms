@@ -43,24 +43,28 @@ test('标题可选择君主列传，技能说明与人物资料显示实际生�
     await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns-expanded-map');
     const card = await chooseRuler(page, '公孙瓒');
     assert.equal(await page.locator('.ruler').count(), 10);
-    assert.match(await page.locator('.setup-passive').textContent(), /白马备战.*金＋44.*专属/);
+    assert.match(await page.locator('.setup-passive').textContent(), /白马义从.*机动力.*专属/);
     await card.click(); await waitPlayer(page);
     const start = await page.evaluate(() => {
       const { g, G } = window.__game;
       return { owner: g.cities[0].faction, gold: g.cities[0].gold, reserve: g.cities[0].reserve, passive: G.rulerPassive(g, 7).name };
     });
-    assert.deepEqual(start, { owner: 7, gold: 944, reserve: 100, passive: '白马备战' });
+    assert.deepEqual(start, { owner: 7, gold: 900, reserve: 100, passive: '白马义从' });
     await page.evaluate(() => { delete window.__game.g.enhancedRulerPassives; });
     await page.locator('.sysmenu-btn').click();
     const passive = page.locator('.sysmenu-list button', { hasText: '君主被动' });
     assert.match(await passive.textContent(), /原有/); await passive.click();
     assert.match(await passive.textContent(), /增强/);
+    assert.equal(await page.evaluate(() => window.__game.G.rulerPassive(window.__game.g, 7).combat.mobility), 1);
+    const revision = page.locator('.sysmenu-list button', { hasText: '被动方案' });
+    await revision.click(); assert.match(await revision.textContent(), /旧版/);
     assert.equal(await page.evaluate(() => window.__game.G.rulerPassive(window.__game.g, 7).effects[0].value), 44);
+    await revision.click(); assert.match(await revision.textContent(), /战场/);
     await passive.click(); assert.match(await passive.textContent(), /原有/);
-    assert.deepEqual(await page.evaluate(() => [window.__game.g.cities[0].gold, window.__game.g.cities[0].reserve]), [944, 100], '同月切换不能重复领取');
+    assert.deepEqual(await page.evaluate(() => [window.__game.g.cities[0].gold, window.__game.g.cities[0].reserve]), [900, 100], '同月切换不能重复领取');
     await passive.click(); await page.locator('.sysmenu-btn').click();
     await page.keyboard.press('r'); await page.locator('tr[data-id="246"]').click();
-    assert.match(await page.locator('.ocard-info').textContent(), /君主被动：白马备战.*金＋44.*专属/);
+    assert.match(await page.locator('.ocard-info').textContent(), /君主被动：白马义从.*机动力.*专属/);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });
@@ -70,9 +74,9 @@ test('手机横屏选择君主时能查看被动并进入游戏', { timeout: 180
   try {
     await page.setViewportSize({ width: 812, height: 375 });
     const card = await chooseRuler(page, '袁术');
-    assert.match(await page.locator('.setup-passive').textContent(), /淮南筹资.*金＋44.*米＋20/);
+    assert.match(await page.locator('.setup-passive').textContent(), /淮南军势.*武力＋3.*专属/);
     await card.click(); await waitPlayer(page);
-    assert.equal(await page.evaluate(() => window.__game.G.rulerPassive(window.__game.g, 8).name), '淮南筹资');
+    assert.equal(await page.evaluate(() => window.__game.G.rulerPassive(window.__game.g, 8).name), '淮南军势');
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });

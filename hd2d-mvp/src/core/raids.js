@@ -2,7 +2,7 @@
 import { data, rng, NONE, SERVING, RONIN, DEAD, maxHp, toRonin, isPass } from './game.js';
 
 // 以游戏的州郡范围划分近海，河流或洪水名单不能作为海岸判断。
-export const COASTAL_CITIES = Object.freeze([0, 3, 10, 16, 17, 18]);
+export const COASTAL_CITIES = Object.freeze([0, 3, 10, 16, 17, 18, 38]);
 export const RAID_COOLDOWN = 18;
 const label = (kind) => kind === 'pirate' ? '海贼' : '山贼';
 const stamp = (g) => g.year * 12 + g.month;

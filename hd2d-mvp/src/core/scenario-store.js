@@ -42,10 +42,10 @@ export function addPresetAbilities(draft, preset, officer) {
 
 export function selectedScenario() {
   try {
-    const id = sessionStorage.getItem(SESSION) || ORIGINAL_SCENARIO;
-    return [FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID].includes(id) ? EXPANDED_MAP_ID : id;
+    const id = sessionStorage.getItem(SESSION) || EXPANDED_MAP_ID;
+    return [FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID, SOVEREIGN_SCENARIO_ID].includes(id) ? EXPANDED_MAP_ID : id;
   }
-  catch { return ORIGINAL_SCENARIO; }
+  catch { return EXPANDED_MAP_ID; }
 }
 // 旧版本的动态武将编号可能与合并版冲突；保留检测能力，不在标题中提供旧版入口。
 export function hasLegacyRecords(id = FEMALE_SCENARIO_ID) {
@@ -61,7 +61,7 @@ export function hasLegacyRecords(id = FEMALE_SCENARIO_ID) {
 }
 export function selectScenario(id) {
   if (id !== ORIGINAL_SCENARIO && id !== FEMALE_SCENARIO_ID && id !== HERO_SCENARIO_ID && id !== ROSTER_SCENARIO_ID && id !== WARLORD_SCENARIO_ID && id !== SOVEREIGN_SCENARIO_ID && id !== EXPANDED_MAP_ID && !/^v-[a-f0-9]{32}$/.test(id)) throw new Error('版本编号无效');
-  try { if (id === ORIGINAL_SCENARIO) sessionStorage.removeItem(SESSION); else sessionStorage.setItem(SESSION, id); }
+  try { sessionStorage.setItem(SESSION, id); }
   catch { throw new Error('无法保存当前页面的版本选择'); }
 }
 async function request(url, options, includeSkipped = false) {
@@ -92,7 +92,8 @@ export async function loadScenario(id, base) {
     scenario.id = id; scenario.name = SOVEREIGN_SCENARIO_NAME; scenario.rulerPassives = true; scenario.enhancedRulerPassives = true; scenario.fixedAiRecruitment = true; scenario.enhancedDisasters = true;
     scenario.relationshipEffects = true; scenario.autoBattleSkills = true; scenario.safeAiLure = true; scenario.balancedTroops = true;
     scenario.smartAiReinforcement = true; scenario.cityRaids = true; scenario.campaignRules = true;
-    scenario.focusedRulerPassives = true; scenario.expandedOpening = true;
+    scenario.focusedRulerPassives = true; scenario.battleRulerPassives = true;
+    scenario.expandedOpening = true; scenario.frontierMap = true;
     // 单城势力需要兼顾补兵和行军；仅改变新开局，不覆盖存档中的城市资源。
     for (const [i, amount] of [900, 450, 1200].entries()) scenario.factions[i].opening = { gold: amount, rice: amount };
     const first = base.officers.length + FEMALE_PRESETS.length + EXTRA_PRESETS.length + ROSTER_PRESETS.length + WARLORD_PRESETS.length;

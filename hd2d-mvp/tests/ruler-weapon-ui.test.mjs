@@ -79,7 +79,7 @@ test('记录编辑器只可撤销尚未写回的更换，写回后专属武器�
     });
     await page.goto(new URL('save-editor.html?mute&phone', game.url).href);
     await page.waitForFunction(() => window.__editor?.g);
-    assert.equal(await page.getByRole('button', { name: '白马银枪' }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '两刃矛' }).isDisabled(), true);
     await page.getByRole('button', { name: '长剑', exact: true }).click();
     const confirm = page.getByRole('dialog', { name: '更换专属武器' });
     await confirm.getByText('更换后当前专属武器消失，无法再次获得。确定更换？').waitFor();
@@ -94,7 +94,7 @@ test('记录编辑器只可撤销尚未写回的更换，写回后专属武器�
     await page.waitForFunction(() => document.querySelector('#write').disabled);
     await page.getByRole('button', { name: '还原此人' }).click();
     assert.equal(await page.evaluate((id) => window.__editor.g.officers[id].weapon, before.id), replacement);
-    assert.equal(await page.getByRole('button', { name: '河北名剑' }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '袁绍佩刀' }).isDisabled(), true);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });

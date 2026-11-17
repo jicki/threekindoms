@@ -13,7 +13,7 @@ const shops = D.cities.filter((c) => (D.villages[c.id] || []).some((v) => v.kind
 // (in a page of its own) instead of replaying the opening and the other factions' turns 21 times.
 let game, save;
 before(async () => {
-  game = await startGame();
+  game = await startGame({ scenario: 'original' });
   const page = await game.open();
   try { await newCampaign(page); save = await saveCampaign(page); } finally { await page.context().close(); }
 });
