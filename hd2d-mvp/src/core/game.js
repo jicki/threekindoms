@@ -9,7 +9,7 @@ import { applyScenario, ORIGINAL_SCENARIO } from './scenario.js';
 import { loadScenario, selectedScenario } from './scenario-store.js';
 import { applyRulerPassive, describeRulerPassive } from './ruler-passives.js';
 import { relationDisposition, recruitDisposition, recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
-import { EXPANDED_MAP_ID, expandMap } from './expanded-map.js';
+import { EXPANDED_MAP_ID, expandMap, applyExpandedOpening } from './expanded-map.js';
 import { SOVEREIGN_SCENARIO_ID } from './visuals.js';
 // 原版无主为 7；扩展剧本将无主编号放在实际势力编号之后。
 export let NONE = 7;
@@ -71,6 +71,10 @@ export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random(
   }));
   g.factions = D.factions.map((f) => ({ id: f.id, ruler: f.ruler, city: D.officers[f.ruler].city, ai: f.id !== playerFaction, alliance: Array(D.factions.length).fill(0) }));
   g.aiCursor = Array(D.factions.length).fill(0);
+  if (scenarioId === EXPANDED_MAP_ID && D.expandedMap) {
+    applyExpandedOpening(g);
+    g.expandedOpeningGuard = true;
+  }
   if (ruler != null && ruler !== g.factions[playerFaction]?.ruler) {
     const allowed = D.rulerCandidates?.some((r) => r.faction === playerFaction && r.officer === ruler);
     const city = g.cities.find((c) => c.faction === playerFaction && c.officers.includes(ruler));
@@ -831,6 +835,7 @@ export function upgrade(g) {
     && (g.eliteTroops === undefined || typeof g.eliteTroops === 'boolean')
     && (g.safeAiLure === undefined || typeof g.safeAiLure === 'boolean')
     && (g.balancedTroops === undefined || typeof g.balancedTroops === 'boolean')
+    && (g.expandedOpeningGuard === undefined || typeof g.expandedOpeningGuard === 'boolean')
     && Array.isArray(g.officers) && Array.isArray(g.factions) && Array.isArray(g.cities) && g.cities.length === D.cities.length && g.cities.every((c) => Array.isArray(c?.officers)) && validRoster(g) && validRaidState(g);
   return ok ? g : null;
 }

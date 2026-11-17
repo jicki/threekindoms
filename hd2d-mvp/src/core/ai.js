@@ -205,6 +205,18 @@ function outCount(g, n, r, eager = 0) {
   return Math.max(1, n - Math.max(1, keep - eager));
 }
 
+// 扩展地图新局前五年，君主城和最后一城按全势力人数保留 1–3 将；小势力仍能派人扩张。
+// 标记随记录保存，旧存档和其他版本保持既有决策。
+function protectedOpeningCity(g, f, c) {
+  return data().expandedMap && g.expandedOpeningGuard === true && g.year < 194 && !isPass(c.id)
+    && (c === capitalOf(g, f) || citiesOf(g, f).length === 1);
+}
+function openingGarrison(g, f, c) {
+  if (!protectedOpeningCity(g, f, c)) return 1;
+  const officers = holdingsOf(g, f).reduce((n, holding) => n + holding.officers.length, 0);
+  return Math.max(1, Math.min(3, Math.ceil(officers / 2)));
+}
+
 // A303: bring officers into `dst` until it holds `need`. Pass 1 rear non-capital cities, pass 2 capital or
 // frontier cities; each must pass D583 and holds ≥ its faction threshold before giving one. A3D6 mode 0
 // takes the highest war, mode 1 the highest loyalty skipping the governor slot; ruler never, last slot on
@@ -217,7 +229,7 @@ function gather(g, f, dst, need, mode, spend) {
     const th = data().expandedMap && isPass(dst.id) ? 2 : Math.max(2, (pass ? FRONT : REAR)[aiProfile(f)] - warlike(g));
     for (const c of g.cities) {
       if (c === dst || c.faction !== f || (c === home || isFront(g, f, c)) !== (pass === 1) || !link(dst.id, c.id)) continue;
-      while (c.officers.length >= th) {
+      while (c.officers.length >= th && c.officers.length > openingGarrison(g, f, c)) {
         let pick = null, best = 0;
         c.officers.forEach((id, i) => {
           if (id === ruler || (mode && i === 0)) return;
@@ -328,7 +340,9 @@ async function attackBranch(g, f, r, io, spend) {
     if (!spend(2)) return true;
   }
   // A6C9: marching count and supplies (rice 120 each, gold 100 each ± draw100), requisitioned or → domestic.
-  const n = outCount(g, src.officers.length, r, warlike(g));
+  const dispatched = outCount(g, src.officers.length, r, warlike(g));
+  const n = protectedOpeningCity(g, f, src) ? Math.min(dispatched, src.officers.length - openingGarrison(g, f, src)) : dispatched;
+  if (n < 1) return false;
   const rice = n * 120, gold = Math.max(0, n * 100 + (r(256) >= 128 ? 1 : -1) * r(100));
   for (const [k, amt] of [['gold', gold], ['rice', rice]]) { const t = cover(g, f, src, k, amt, spend); if (t !== true) return t === null; }
   // A79C: officers by floor(war/2)+loyalty, loyalty 100 excluded, last slot on ties.
@@ -347,7 +361,7 @@ async function attackBranch(g, f, r, io, spend) {
 function vacant(g, f, r, spend) {
   // 关隘不计城数；有两名武将时允许留一人守城、派一人先占领无主关隘。
   if (data().expandedMap) for (const c of holdingsOf(g, f)) {
-    if (c.officers.length < 2) continue;
+    if (c.officers.length <= openingGarrison(g, f, c)) continue;
     const target = roads(c.id).find((n) => isPass(n) && g.cities[n].faction === NONE && !g.cities[n].officers.length);
     const id = c.officers.find((o) => o !== g.factions[f].ruler);
     if (target == null || id == null) continue;
@@ -391,7 +405,8 @@ function vacant(g, f, r, spend) {
   for (const [k, amt] of [['gold', gold], ['rice', rice]]) { const t = cover(g, f, src, k, amt, spend); if (t !== true) return t === null; }
   // B287: need-2 officers, highest loyalty after the governor slot, later slot on ties.
   const ids = [], left = src.officers.slice(1);
-  for (let k = 0; k < need - 2 && left.length; k++) {
+  const limit = Math.min(need - 2, src.officers.length - openingGarrison(g, f, src));
+  for (let k = 0; k < limit && left.length; k++) {
     let best = 0; left.forEach((id, i) => { if (g.officers[id].loyalty >= g.officers[left[best]].loyalty) best = i; });
     ids.push(left.splice(best, 1)[0]);
   }
@@ -408,6 +423,7 @@ function abandon(g, f, spend) {
   if (data().expandedMap && citiesOf(g, f).length <= 1) return false;
   let from = null, to = null;
   for (const c of citiesOf(g, f)) {
+    if (protectedOpeningCity(g, f, c)) continue;
     const own = roads(c.id).filter((n) => g.cities[n].faction === f);
     if (own.length === 1 && (from == null || c.land + c.industry < from.land + from.industry)) { from = c; to = g.cities[own[0]]; }
   }
@@ -432,7 +448,7 @@ function redeploy(g, f, spend) {
     const th = pass ? avg + 2 : 3;
     for (const src of g.cities) {
       if (src === home || src.faction !== f || isFront(g, f, src) !== (pass === 1)) continue;
-      while (src.officers.length >= th) {
+      while (src.officers.length >= th && src.officers.length > openingGarrison(g, f, src)) {
         let dst = null;
         for (const c of g.cities) if (c !== src && (c === home || (c.faction === f && isFront(g, f, c))) && c.officers.length < 10 && link(src.id, c.id) && (dst == null || c.officers.length < dst.officers.length)) dst = c;
         if (!dst) break;

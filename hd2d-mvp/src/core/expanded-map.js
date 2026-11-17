@@ -10,6 +10,22 @@ export const EXPANDED_NODES = Object.freeze([
   { id: 36, name: '剑阁', kind: 'pass', road: [25, 26], template: 25, fraction: 0.50 },
 ]);
 
+// 新开局一次性补给：不修改静态剧本和已保存的城市状态。
+const OPENING_SUPPLIES = [
+  { city: 8, faction: 0, gold: 100, rice: 200, reserve: 100, minGov: 30 },
+  { city: 12, faction: 0, gold: 150, rice: 260, reserve: 100, minGov: 30 },
+  { city: 13, faction: 8, gold: 150, rice: 300, reserve: 150, minGov: 50 },
+];
+
+export function applyExpandedOpening(g) {
+  for (const { city, faction, gold, rice, reserve, minGov } of OPENING_SUPPLIES) {
+    const c = g.cities[city];
+    if (!c || c.faction !== faction) continue;
+    c.gold = Math.min(9999, c.gold + gold); c.rice = Math.min(9999, c.rice + rice);
+    c.reserve = Math.min(10000, c.reserve + reserve); c.gov = Math.max(c.gov, minGov);
+  }
+}
+
 // 在现有版本数据应用后调用；基础数据与旧版的签名不变。
 export function expandMap(data) {
   const d = structuredClone(data), none = d.factions.length;
