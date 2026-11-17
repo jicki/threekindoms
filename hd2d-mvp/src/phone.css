@@ -286,6 +286,7 @@ body.phone .tq-duel-acts { grid-template-columns: repeat(8, minmax(0, 1fr)); gap
 body.phone .tq-btn.dcmd { display: flex; align-items: baseline; justify-content: center; gap: 4px; min-height: 36px; padding: 0 2px; background: rgba(30, 20, 12, .82); }
 body.phone .tq-btn.dcmd.primary { background: linear-gradient(180deg, #b8402cee, #7a1f12ee); }
 body.phone .tq-btn.dcmd span { font-size: 15px; } body.phone .tq-btn.dcmd small { font-size: 10px; } body.phone .tq-btn.dcmd small em.up { display: inline; }
+body.phone .tq-btn.dcmd.tq-special { grid-column: span 2; }
 body.phone .tq-dauto { top: auto; bottom: calc(100% + 3px); right: 0; transform: none; min-height: 26px; padding: 0 10px; font-size: 11.5px; background: rgba(30, 20, 12, .82); }
 
 /* 标题: the menu stood on the three lines at the foot. The buttons are one low row, the lines smaller; titlescreen.js measures

@@ -1,16 +1,47 @@
 import { ORIGINAL_SCENARIO, newDraft, validateScenario } from './scenario.js';
-import { FEMALE_PRESETS, FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, femaleOfficer } from './visuals.js';
+import { FEMALE_PRESETS, EXTRA_PRESETS, FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, femaleOfficer } from './visuals.js';
 import { ensureFemaleGear } from './equipment.js';
 
 const SESSION = 'haou-hd2d-scenario';
 const api = () => new URL('/api/versions', location.href).href;
+const HERO_STRATEGIES = {
+  zhuge: { name: '八阵奇谋', cost: 10, soldiers: 120, hp: 0, stop: 1, rice: 0, maxUses: 2 },
+  zhou: { name: '赤壁谋火', cost: 12, soldiers: 160, hp: 0, stop: 0, rice: 50, maxUses: 2 },
+  chen: { name: '公台奇谋', cost: 9, soldiers: 80, hp: 3, stop: 1, rice: 0, maxUses: 2 },
+  cai: { name: '胡笳扰阵', cost: 8, soldiers: 40, hp: 0, stop: 1, rice: 0, maxUses: 2 },
+  wang: { name: '坚城奇策', cost: 9, soldiers: 60, hp: 2, stop: 1, rice: 0, maxUses: 2 },
+};
+const PRESET_DUEL_SKILLS = { sun: 'gongyao', wang: 'shoucheng', gao: 'xianzhen' };
+
+// 添加模板时复用已存在的同名计略，不覆盖管理员对它的调整。
+export function addPresetAbilities(draft, preset, officer) {
+  const spec = HERO_STRATEGIES[preset.key];
+  if (spec) {
+    let skill = draft.skills.find((item) => item.name === spec.name);
+    if (!skill) { skill = { id: 16 + draft.skills.length, ...spec }; draft.skills.push(skill); }
+    officer.skills = [skill.id];
+  }
+  if (PRESET_DUEL_SKILLS[preset.key]) officer.duelSkill = PRESET_DUEL_SKILLS[preset.key];
+}
 
 export function selectedScenario() {
   try { return sessionStorage.getItem(SESSION) || ORIGINAL_SCENARIO; }
   catch { return ORIGINAL_SCENARIO; }
 }
+// 旧版本的动态武将编号可能与合并版的新角色冲突，记录必须留在原版本中继续。
+export function hasLegacyRecords() {
+  try {
+    const storage = globalThis.localStorage, save = `haou-hd2d-save:scenario:${FEMALE_SCENARIO_ID}`;
+    const suspend = `haou-hd2d-suspend:scenario:${FEMALE_SCENARIO_ID}`;
+    for (let i = 0; storage && i < storage.length; i++) {
+      const key = storage.key(i);
+      if (key === save || key?.startsWith(`${save}:`) || key === suspend) return true;
+    }
+    return globalThis.sessionStorage?.getItem(`haou-hd2d-load:scenario:${FEMALE_SCENARIO_ID}`) != null;
+  } catch { return true; } // 无法检查时仍保留入口，避免隐藏用户的旧记录。
+}
 export function selectScenario(id) {
-  if (id !== ORIGINAL_SCENARIO && id !== FEMALE_SCENARIO_ID && !/^v-[a-f0-9]{32}$/.test(id)) throw new Error('版本编号无效');
+  if (id !== ORIGINAL_SCENARIO && id !== FEMALE_SCENARIO_ID && id !== HERO_SCENARIO_ID && !/^v-[a-f0-9]{32}$/.test(id)) throw new Error('版本编号无效');
   try { if (id === ORIGINAL_SCENARIO) sessionStorage.removeItem(SESSION); else sessionStorage.setItem(SESSION, id); }
   catch { throw new Error('无法保存当前页面的版本选择'); }
 }
@@ -37,9 +68,24 @@ async function request(url, options, includeSkipped = false) {
 }
 export async function listScenarios() { return request(api(), undefined, true); }
 export async function loadScenario(id, base) {
-  if (id === FEMALE_SCENARIO_ID) {
-    const scenario = { ...newDraft(base), id, name: FEMALE_SCENARIO_NAME };
-    scenario.officers = FEMALE_PRESETS.map((p, i) => femaleOfficer(base, p, base.officers.length + i, ensureFemaleGear(scenario, base, p.key)));
+  if (id === FEMALE_SCENARIO_ID || id === HERO_SCENARIO_ID) {
+    const expanded = id === HERO_SCENARIO_ID, scenario = { ...newDraft(base), id, name: expanded ? HERO_SCENARIO_NAME : FEMALE_SCENARIO_NAME };
+    const presets = expanded ? [...FEMALE_PRESETS, ...EXTRA_PRESETS] : FEMALE_PRESETS;
+    scenario.officers = presets.map((p, i) => femaleOfficer(base, p, base.officers.length + i, ensureFemaleGear(scenario, base, p.key)));
+    if (expanded) {
+      scenario.skills = ['zhuge', 'zhou', 'chen', 'cai', 'wang'].map((key, i) => ({ id: 16 + i, ...HERO_STRATEGIES[key] }));
+      const copy = (id, extra) => {
+        const o = base.officers[id], fields = ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'appear', 'city', 'faction'];
+        return { ...Object.fromEntries(fields.map((key) => [key, o[key]])), birthYear: null, birthCity: null, portraitId: id, skills: [], ...extra };
+      };
+      scenario.officers.push(copy(109, { skills: [16] }), copy(93, { skills: [17] }),
+        copy(38, { duelSkill: 'qinglong' }), copy(144, { duelSkill: 'longdan' }), copy(153, { duelSkill: 'yanren' }));
+      Object.assign(scenario.officers[0], { duelSkill: 'gongyao' });
+      Object.assign(scenario.officers[3], { skills: [19] });
+      Object.assign(scenario.officers[4], { skills: [20], duelSkill: 'shoucheng' });
+      Object.assign(scenario.officers[5], { skills: [18] });
+      Object.assign(scenario.officers[6], { duelSkill: 'xianzhen' });
+    }
     validateScenario(scenario, base);
     return scenario;
   }
@@ -51,7 +97,7 @@ export async function loadScenario(id, base) {
 }
 export async function addScenario(scenario, base, token) {
   validateScenario(scenario, base);
-  if (scenario.id === FEMALE_SCENARIO_ID) throw new Error('内置版本须载入为新草稿后发布');
+  if (scenario.id === FEMALE_SCENARIO_ID || scenario.id === HERO_SCENARIO_ID) throw new Error('内置版本须载入为新草稿后发布');
   if (typeof token !== 'string' || !token) throw new Error('请输入管理员令牌');
   return request(api(), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(scenario) });
 }

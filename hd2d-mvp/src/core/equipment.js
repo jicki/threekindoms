@@ -50,5 +50,5 @@ export function ensureFemaleGear(draft, base, character) {
   ];
   for (const item of weapons) add('weapon', item);
   for (const item of protection) add('armor', item);
-  return { weapon: (character === 'sun' ? bow : fan).id, armor: armor.id - 24 };
+  return { weapon: (character === 'sun' || character === 'wang' ? bow : fan).id, armor: armor.id - 24 };
 }

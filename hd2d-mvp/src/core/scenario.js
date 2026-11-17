@@ -1,6 +1,7 @@
 // 版本文件只包含受校验的修改，不接受可执行脚本，也不修改原始数据。
-import { FEMALE_SCENARIO_ID, MOODS, validVisualRef } from './visuals.js';
+import { FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, MOODS, validVisualRef } from './visuals.js';
 import { WEAPON_CATEGORIES, validEquipmentIcon } from './equipment.js';
+import { DUEL_SKILLS } from './duel-skills.js';
 export const SCENARIO_FORMAT = 1;
 export const ORIGINAL_SCENARIO = 'original';
 export const RELATION_KINDS = ['亲属', '夫妻', '朋友', '对手', '师徒', '父子', '兄弟', '姐妹', '结义', '君臣', '同僚', '姻亲', '宿敌'];
@@ -78,7 +79,7 @@ export function validateScenario(s, base, { draft = false } = {}) {
   obj(s, '版本');
   keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers'], '版本');
   if (s.format !== SCENARIO_FORMAT) fail('不支持的版本文件格式');
-  if (!(draft && s.id === null) && s.id !== FEMALE_SCENARIO_ID && (typeof s.id !== 'string' || !ID.test(s.id))) fail('版本编号无效');
+  if (!(draft && s.id === null) && s.id !== FEMALE_SCENARIO_ID && s.id !== HERO_SCENARIO_ID && (typeof s.id !== 'string' || !ID.test(s.id))) fail('版本编号无效');
   text(s.name, '版本名称', 40);
   if (s.base !== baseSignature(base)) fail('版本所需的基础数据与当前游戏不一致');
   array(s.officers, '武将', base.officers.length + 100);
@@ -130,15 +131,16 @@ export function validateScenario(s, base, { draft = false } = {}) {
   }
   for (let i = 0; i < s.skills.length; i++) {
     const skill = s.skills[i]; obj(skill, '技能');
-    keys(skill, ['id', 'name', 'cost', 'soldiers', 'hp', 'stop', 'rice'], '技能');
+    keys(skill, ['id', 'name', 'cost', 'soldiers', 'hp', 'stop', 'rice', 'maxUses'], '技能');
     if (skill.id !== 16 + i) fail('新技能编号不连续');
     text(skill.name, '技能名称'); integer(skill.cost, '技能机动力', 1, 60);
     integer(skill.soldiers, '损兵', 0, 1000); integer(skill.hp, '体力伤害', 0, 99);
     integer(skill.stop, '限制移动天数', 0, 10); integer(skill.rice, '粮草损失', 0, 9999);
+    if (skill.maxUses !== undefined) integer(skill.maxUses, '每场使用次数', 1, 3);
     if (!skill.soldiers && !skill.hp && !skill.stop && !skill.rice) fail('技能至少需要一种效果');
   }
   for (const o of s.officers) {
-    obj(o, '武将'); keys(o, ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'portraitData', 'appear', 'city', 'faction', 'skills', 'visual'], '武将');
+    obj(o, '武将'); keys(o, ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'portraitData', 'appear', 'city', 'faction', 'skills', 'duelSkill', 'visual'], '武将');
     integer(o.id, '武将编号', 0, maxOfficer);
     if (seenOfficers.has(o.id)) fail('武将编号重复'); seenOfficers.add(o.id);
     text(o.name, '武将姓名');
@@ -180,6 +182,7 @@ export function validateScenario(s, base, { draft = false } = {}) {
     array(o.skills, '武将技能', 64);
     for (const id of o.skills) integer(id, '技能编号', 16, 15 + s.skills.length);
     if (new Set(o.skills).size !== o.skills.length) fail('武将技能重复');
+    if (o.duelSkill !== undefined && (typeof o.duelSkill !== 'string' || !Object.hasOwn(DUEL_SKILLS, o.duelSkill))) fail('单挑技无效');
   }
   for (let id = base.officers.length; id <= maxOfficer; id++) if (!seenOfficers.has(id)) fail('新武将编号不连续');
   for (const r of s.relations) {

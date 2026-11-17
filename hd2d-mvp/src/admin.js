@@ -1,7 +1,8 @@
 import { applyScenario, MAX_PORTRAIT_BYTES, MAX_PORTRAIT_SIDE, newDraft, newScenarioId, RELATION_KINDS, validateScenario } from './core/scenario.js';
-import { addScenario, listScenarios, loadScenario, uploadVisualAsset, readVisualAsset } from './core/scenario-store.js';
-import { FEMALE_PRESETS, FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, MOODS, femaleOfficer, presetVisual, visualRefs, visualUrl } from './core/visuals.js';
+import { addScenario, addPresetAbilities, listScenarios, loadScenario, uploadVisualAsset, readVisualAsset } from './core/scenario-store.js';
+import { CHARACTER_PRESETS, FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, MOODS, femaleOfficer, presetVisual, visualRefs, visualUrl } from './core/visuals.js';
 import { EQUIPMENT_ICONS, ensureFemaleGear, equipmentIconUrl } from './core/equipment.js';
+import { DUEL_SKILLS } from './core/duel-skills.js';
 
 const $ = (id) => document.getElementById(id);
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -77,7 +78,7 @@ const existingMotions = await (async () => {
 })();
 
 if (base) {
-  $('published').append(el('option', { value: FEMALE_SCENARIO_ID }, `${FEMALE_SCENARIO_NAME}（内置）`));
+  $('published').append(el('option', { value: HERO_SCENARIO_ID }, `${HERO_SCENARIO_NAME}（内置）`));
   let draft = newDraft(base), tab = 'officers', selected = { officers: 0, weapons: null, armors: null, skills: null }, formDirty = false, draftDirty = false, lastPublished = null, leaving = false, inFlight = false;
   const equipmentId = () => base.equipment.length + draft.weapons.length + (draft.armors?.length ?? 0);
   const iconValue = (value) => /^\d+$/.test(value) ? Number(value) : value;
@@ -104,7 +105,8 @@ if (base) {
   };
   const editFields = ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'appear', 'city', 'faction'];
   const editable = (o) => ({ ...Object.fromEntries(editFields.map((key) => [key, o[key]])), birthYear: o.birthYear ?? null, birthCity: o.birthCity ?? null,
-    portraitId: o.portraitId ?? (o.id < base.officers.length ? o.id : 0), portraitData: o.portraitData ?? null, skills: [...(o.skills ?? [])], visual: clone(o.visual ?? {}) });
+    portraitId: o.portraitId ?? (o.id < base.officers.length ? o.id : 0), portraitData: o.portraitData ?? null, skills: [...(o.skills ?? [])],
+    ...(o.duelSkill ? { duelSkill: o.duelSkill } : {}), visual: clone(o.visual ?? {}) });
   const currentData = () => applyScenario(base, draft, { draft: true });
   const hasChanges = () => formDirty || draftDirty || $('version-name').value !== draft.name;
   const abandonForm = () => !formDirty || confirm('当前表单尚未应用，确定放弃这些输入吗？');
@@ -155,12 +157,15 @@ if (base) {
         death: 240, birthYear: null, birthCity: null, portraitId: 0, appear: 'search_city', city: 0, faction: null, skills: [] };
       if (update((next) => next.officers.push(actor), `已添加 ${actor.name}`)) { selected.officers = id; render(); }
     } }, '＋ 新建武将');
-    const addPreset = select('femalePreset', FEMALE_PRESETS.map((p) => [p.key, p.name]), FEMALE_PRESETS[0].key);
-    addPreset.setAttribute('aria-label', '女性角色模板');
+    const addPreset = select('characterPreset', CHARACTER_PRESETS.map((p) => [p.key, p.name]), CHARACTER_PRESETS[0].key);
+    addPreset.setAttribute('aria-label', '角色模板');
     const addFemale = el('button', { type: 'button', onclick: () => {
       if (!abandonForm()) return;
-      const preset = FEMALE_PRESETS.find((p) => p.key === addPreset.value), id = data.officers.length;
-      if (update((next) => next.officers.push(femaleOfficer(base, preset, id, ensureFemaleGear(next, base, preset.key))), `已添加 ${preset.name}`)) { selected.officers = id; render(); }
+      const preset = CHARACTER_PRESETS.find((p) => p.key === addPreset.value), id = data.officers.length;
+      if (update((next) => {
+        const officer = femaleOfficer(base, preset, id, ensureFemaleGear(next, base, preset.key));
+        addPresetAbilities(next, preset, officer); next.officers.push(officer);
+      }, `已添加 ${preset.name}`)) { selected.officers = id; render(); }
     } }, '添加角色模板');
     const side = panel('list', el('h2', {}, `武将 · ${all.length}`), search, el('div', { class: 'actions' }, add, addPreset, addFemale), list);
     const o = editable(all[selected.officers] ?? all[0]), form = el('form');
@@ -205,7 +210,7 @@ if (base) {
     const captions = { portrait: '立绘素材', calm: '平静表情', joy: '喜悦表情', angry: '愤怒表情', grief: '悲伤表情', motion: '动作素材' };
     const assetFields = Object.entries(captions).map(([kind, label]) => {
       const current = kind === 'portrait' || kind === 'motion' ? o.visual[kind] : o.visual.faces?.[kind];
-      const options = [['', '沿用默认'], ...FEMALE_PRESETS.map((p) => [`b-${p.key}-${kind}`, `${p.name} · ${label}`])];
+      const options = [['', '沿用默认'], ...CHARACTER_PRESETS.map((p) => [`b-${p.key}-${kind}`, `${p.name} · ${label}`])];
       if (kind === 'motion') for (const id of existingMotions) if (base.officers[Number(id)]) options.push([`o-${id}`, `${base.officers[Number(id)].name} · 原有动作`]);
       if (current && !options.some(([value]) => value === current)) options.push([current, current.startsWith('a-') ? '已上传素材' : `既有动作 ${current.slice(2)}`]);
       const chosen = visuals[kind] = select(`visual_${kind}`, options, current ?? '');
@@ -234,7 +239,7 @@ if (base) {
       });
       return el('div', {}, field(label, chosen), file, assetPreview);
     });
-    const stylePreset = select('stylePreset', [['', '选择角色素材'], ...FEMALE_PRESETS.map((p) => [p.key, p.name])], '');
+    const stylePreset = select('stylePreset', [['', '选择角色素材'], ...CHARACTER_PRESETS.map((p) => [p.key, p.name])], '');
     stylePreset.setAttribute('aria-label', '整套角色素材');
     const applyPreset = el('button', { type: 'button', onclick: () => {
       if (!stylePreset.value) return;
@@ -255,6 +260,7 @@ if (base) {
       field('人物图像', portraitSelect),
       field('兵种', select('army', [['平', '平军'], ['山', '山军'], ['水', '水军']], o.army)),
       field('武器', select('weapon', weapons, o.weapon)), field('防具', select('armor', armors, o.armor)),
+      field('专属单挑技', select('duelSkill', [['', '无'], ...Object.entries(DUEL_SKILLS).map(([key, skill]) => [key, `${skill.name}（命中${skill.hit >= 0 ? '+' : ''}${skill.hit}，伤害${skill.damage}%）`])], o.duelSkill ?? '')),
       ...stats.map(([key, label, lo, hi]) => field(label, input(key, o[key], lo, hi))),
       field('出生年份', born), field('出生地', select('birthCity', [['', '未知'], ...base.cities.map((c) => [c.id, c.name])], o.birthCity ?? '')),
       field('登场方式', appearance), cityField, factionField,
@@ -263,7 +269,7 @@ if (base) {
         el('p', { class: 'intro' }, '可选择内置素材或上传；上传前请填写管理员令牌。动作图为透明 4×4 网格，包含行军、转向、攻击与受伤帧。'),
         el('div', { class: 'form-grid' }, ...assetFields)),
       el('div', { class: 'wide' }, '分配新技能', checks)),
-      el('p', { class: 'intro' }, '自定义图片会随版本发布，最大 64 KB；各表情共用该图。开局武将必须放在所属势力的城市；原君主的开局位置保持不变。移走城中最后一名武将后，该城开局无主。'), buttons);
+      el('p', { class: 'intro' }, '单挑技每场单挑仅能使用一次。自定义图片会随版本发布，最大 64 KB；各表情共用该图。开局武将必须放在所属势力的城市；原君主的开局位置保持不变。移走城中最后一名武将后，该城开局无主。'), buttons);
     markForm(form);
     form.addEventListener('submit', (event) => {
       event.preventDefault(); if (imageBusy) return; const fd = new FormData(form), mode = fd.get('appear'), cid = number(fd, 'city');
@@ -277,7 +283,7 @@ if (base) {
         army: fd.get('army'), weapon: number(fd, 'weapon'), armor: number(fd, 'armor'), appear: mode,
         city: mode === 'automatic_faction' ? null : cid,
         faction: mode === 'automatic_faction' ? number(fd, 'faction') : mode === 'initial' ? base.cities[cid]?.faction : null,
-        skills: fd.getAll('skills').map(Number), ...(customImage ? { portraitData: customImage } : {}), ...(Object.keys(visual).length ? { visual } : {}) };
+        skills: fd.getAll('skills').map(Number), ...(fd.get('duelSkill') ? { duelSkill: fd.get('duelSkill') } : {}), ...(customImage ? { portraitData: customImage } : {}), ...(Object.keys(visual).length ? { visual } : {}) };
       update((d) => { const at = d.officers.findIndex((item) => item.id === o.id); if (at < 0) d.officers.push(next); else d.officers[at] = next; }, '人物修改已应用到草稿');
     });
     return workspace(side, panel('detail', el('h2', {}, `${o.name} · No.${o.id}`), form));
@@ -360,13 +366,14 @@ if (base) {
     selected.skills = s.id;
     const form = el('form'), fields = [['cost', '机动力消耗', 1, 60], ['soldiers', '损兵', 0, 1000], ['hp', '体力伤害', 0, 99],
       ['stop', '限制移动天数', 0, 10], ['rice', '粮草损失', 0, 9999]];
+    const maxUses = el('input', { name: 'maxUses', type: 'number', min: 1, max: 3, step: 1, value: s.maxUses ?? '', placeholder: '不限' });
     form.append(el('div', { class: 'form-grid' }, field('名称', string('name', s.name)),
-      ...fields.map(([key, label, lo, hi]) => field(label, input(key, s[key], lo, hi)))),
-      el('p', { class: 'intro' }, '目标为 5 格内敌将；效果可以组合，命中率沿用现有战场规则。技能可在武将页面分配。'), formButtons());
+      ...fields.map(([key, label, lo, hi]) => field(label, input(key, s[key], lo, hi))), field('每场使用次数', maxUses)),
+      el('p', { class: 'intro' }, '目标为 5 格内敌将；效果可以组合，命中率沿用现有战场规则。可限制每场使用 1–3 次，尝试失败也消耗次数；技能可在武将页面分配。'), formButtons());
     markForm(form);
     form.addEventListener('submit', (event) => {
       event.preventDefault(); const fd = new FormData(form), value = { id: s.id, name: String(fd.get('name')).trim(),
-        ...Object.fromEntries(fields.map(([key]) => [key, number(fd, key)])) };
+        ...Object.fromEntries(fields.map(([key]) => [key, number(fd, key)])), ...(fd.get('maxUses') !== '' ? { maxUses: number(fd, 'maxUses') } : {}) };
       update((d) => { d.skills[d.skills.findIndex((item) => item.id === s.id)] = value; }, '技能修改已应用到草稿');
     });
     return workspace(side, panel('detail', el('h2', {}, s.name), form));
@@ -448,8 +455,9 @@ if (base) {
     if (sequence !== listRequest) return;
     if (!Array.isArray(versions)) throw new Error('版本列表格式错误');
     const old = $('published').value;
-    $('published').replaceChildren(el('option', { value: '' }, '从原版开始'), el('option', { value: FEMALE_SCENARIO_ID }, `${FEMALE_SCENARIO_NAME}（内置）`), ...versions.filter((v) => v.id !== FEMALE_SCENARIO_ID).map((v) => el('option', { value: v.id }, v.name)));
-    if (old === FEMALE_SCENARIO_ID || versions.some((v) => v.id === old)) $('published').value = old;
+    $('published').replaceChildren(el('option', { value: '' }, '从原版开始'), el('option', { value: HERO_SCENARIO_ID }, `${HERO_SCENARIO_NAME}（内置）`),
+      ...versions.filter((v) => ![FEMALE_SCENARIO_ID, HERO_SCENARIO_ID].includes(v.id)).map((v) => el('option', { value: v.id }, v.name)));
+    if (old === HERO_SCENARIO_ID || versions.some((v) => v.id === old)) $('published').value = old;
     const warning = $('version-warning');
     warning.hidden = !versions.skipped;
     warning.textContent = versions.skipped ? `有 ${versions.skipped} 个已发布版本无法读取，已跳过；请检查服务器日志和版本文件。` : '';

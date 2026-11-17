@@ -236,6 +236,30 @@ test('电脑购买新增防具时按配置价格计费，不会把弓升级为�
   } finally { G.setData(base); }
 });
 
+test('电脑买不起原版防具时仍可选择商店里买得起的新防具', () => {
+  const data = customized(), affordable = data.equipment.find((item) => item.name === '绫罗轻衣'); G.setData(data, female.id);
+  try {
+    const g = G.newGame(4, 1, 1), city = g.cities[8]; city.officers = [237]; city.gold = 100;
+    g.officers[237].weapon = 32; g.officers[237].armor = 0;
+    assert.ok(data.cities[8].ai_shop.some((id) => id >= 24 && id < 32));
+    assert.ok(data.cities[8].ai_shop.includes(affordable.id));
+    assert.equal(equip(g, city, () => 0, () => false), true);
+    assert.equal(g.officers[237].armor, affordable.id - 24); assert.equal(city.gold, 20);
+  } finally { G.setData(base); }
+});
+
+test('高武力武将买不起装备时不会阻挡其他武将购买新防具', () => {
+  const data = customized(), affordable = data.equipment.find((item) => item.name === '绫罗轻衣'); G.setData(data, female.id);
+  try {
+    const g = G.newGame(4, 1, 1), city = g.cities[8]; city.officers = [237, 238]; city.gold = 100;
+    g.officers[237].weapon = 32; g.officers[237].armor = 4;
+    g.officers[238].weapon = 34; g.officers[238].armor = 0;
+    assert.equal(equip(g, city, () => 0, () => false), true);
+    assert.equal(g.officers[237].armor, 4); assert.equal(g.officers[238].armor, affordable.id - 24);
+    assert.equal(city.gold, 20);
+  } finally { G.setData(base); }
+});
+
 test('战场武器店按价格出售新弓和新防具', () => {
   G.setData(customized(), female.id);
   try {

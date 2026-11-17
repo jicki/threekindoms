@@ -7,6 +7,7 @@
 // fight on "前进" automatically for up to 6 rounds. Generals meeting starts a duel.
 import { data, addExp, isRuler, maxHp, weaponGroup } from './game.js';
 import { tableDraws, realChance } from './origrng.js';
+import { DUEL_SKILLS } from './duel-skills.js';
 
 const CASTLE = 5;
 const B = (h) => (h < 15 ? 20 : h < 35 ? 40 : h < 60 ? 50 : h < 80 ? 70 : h < 90 ? 85 : h < 100 ? 95 : 100);
@@ -105,7 +106,7 @@ export function skirmish(g, aId, dId, terrain, r, human = null) {
 const AI_TABLE = ['00022222', '00000222', '00000022', '00222222', '00002222', '00000222', '02222222', '00022222', '00002222'];
 const tier = (h) => (h < 31 ? 0 : h < 61 ? 1 : 2);
 const s8 = (v) => ((v & 255) >= 128 ? 0 : v & 255); // `max_signed8`: an 8-bit value with the sign bit set reads as 0
-const CMD_CODE = { feint: 0, attack: 2, desperate: 6, persuade: 7, taunt: 8 };
+const CMD_CODE = { feint: 0, attack: 2, special: 2, desperate: 6, persuade: 7, taunt: 8 };
 export class Duel {
   // human: the human-controlled skirmish side, if any. The original seats the duel's two generals by
   // controller (`$CD69`): an AI attacker facing a human defender is swapped so the human sits at index 0.
@@ -116,15 +117,23 @@ export class Duel {
     const b = (x) => Math.floor((x.hp + x.o.war) / 10) + 20 - x.eq.weight;
     this.base0 = { a: b(side.a), d: b(side.d) };
     this.seat = human === 'd' ? ['d', 'a'] : ['a', 'd'];
-    this.init = { a: 0, d: 0 }; this.curse = { a: 0, d: 0 }; this.taunted = { a: false, d: false }; this.last = 0;
+    this.init = { a: 0, d: 0 }; this.curse = { a: 0, d: 0 }; this.taunted = { a: false, d: false }; this.specialUsed = { a: false, d: false }; this.last = 0;
   }
   base(s) { return this.base0[s]; }
   hitChance(s) { const me = this.side[s], foe = this.side[s === 'a' ? 'd' : 'a']; return HIT[DUEL_GROUP[me.eq.wgrp]][DUEL_GROUP[foe.eq.wgrp]]; }
+  special(s) {
+    const key = data()?.officers?.[this.side[s].id]?.duelSkill;
+    return typeof key === 'string' && Object.hasOwn(DUEL_SKILLS, key) ? DUEL_SKILLS[key] : null;
+  }
+  canSpecial(s) { return !!this.special(s) && !this.specialUsed[s]; }
   // `bank23:$B8D3` reads the striker's own 骂倒 counter (`$04B5,Y`, Y = `$04AA`) before it looks at the command: while
   // it runs, 20 is added to his hit roll and 3/10 to his damage, for 牵制, 攻击 and 舍身 alike (18,432 probe cases).
   cursed(s) { return this.curse[s] > 0; }
   // What the hit roll of s's blow is held under: 100 / the matrix / 30, less the 20 his own 骂倒 adds to the roll.
-  threshold(s, cmd) { return Math.max(0, (cmd === 'feint' ? 100 : cmd === 'desperate' ? 30 : this.hitChance(s)) - (this.cursed(s) ? 20 : 0)); }
+  threshold(s, cmd) {
+    const base = cmd === 'feint' ? 100 : cmd === 'desperate' ? 30 : this.hitChance(s) + (cmd === 'special' ? this.special(s)?.hit ?? 0 : 0);
+    return Math.min(100, Math.max(0, base - (this.cursed(s) ? 20 : 0)));
+  }
   // The chance in percent that it lands. The roll is the original's table roll (core/origrng.js), which comes under
   // p more often than p in 100: 舍身 lands 36.7% of the time, 14.5% under 骂倒. The menu shows this number.
   odds(s, cmd) { return realChance(this.threshold(s, cmd)); }
@@ -154,6 +163,7 @@ export class Duel {
   // The AI never retreats. Each stage draws before the flag checks that may still reject it.
   aiCommand(s) {
     const r = this.r, fs = s === 'a' ? 'd' : 'a', me = this.side[s], foe = this.side[fs], hp = me.hp, o = me.o, e = foe.o;
+    if (this.canSpecial(s)) return 'special';
     if (hp < Math.floor(maxHp(o, me.id) / 2) && hp + 30 < foe.hp && r(100) < s8(124 - hp - Math.max(o.war, o.int))) return 'desperate';
     if (hp < 30 && this.ram(hp ^ 1) >= 50 && r(100) < s8(50 - s8(o.war - e.war))) return 'attack';
     if (!this.curse[s]) {
@@ -176,6 +186,7 @@ export class Duel {
   canSurrender(s) { return !this.isRuler?.(this.side[s].id); }
   act(s, cmd) {
     const r = this.r, me = this.side[s], fs = s === 'a' ? 'd' : 'a', foe = this.side[fs];
+    if (cmd === 'special' && !this.canSpecial(s)) throw new Error(`单挑：special not allowed for ${s} now`);
     this.n++; this.last = CMD_CODE[cmd] ?? this.last;
     if ((cmd === 'persuade' && !this.canScheme(s)) || (cmd === 'taunt' && !this.canTaunt(s)) || (cmd === 'surrender' && !this.canSurrender(s))) throw new Error(`单挑：${cmd} not allowed for ${s} now`);
     if (cmd === 'surrender') {
@@ -214,11 +225,12 @@ export class Duel {
     const draw = tableDraws(r), hit = draw(100) < this.threshold(s, cmd);
     let d = Math.max(0, Math.floor((me.F + me.eq.atk) / 2) - foe.eq.def + draw(11, 15) - 5), self = 0;
     if (this.cursed(s)) d += Math.floor((3 * d) / 10);
-    let dmg = !hit ? 0 : cmd === 'feint' ? Math.floor(d / 3) : cmd === 'attack' ? d : 2 * d;
+    let dmg = !hit ? 0 : cmd === 'feint' ? Math.floor(d / 3) : cmd === 'attack' || cmd === 'special' ? d : 2 * d;
+    if (cmd === 'special') { this.specialUsed[s] = true; dmg = Math.min(127, Math.floor(dmg * this.special(s).damage / 100)); }
     if (cmd === 'desperate' && !hit) { self = 10 + draw(21, 31); me.hp = Math.max(0, me.hp - self); }
     if (dmg >= 128) dmg = 0; // `$B972 BMI`: a damage byte with the sign bit set skips the subtraction (舍身 under 骂倒 can reach it)
     foe.hp = Math.max(0, foe.hp - dmg);
-    const a = { by: me.id, cmd, hit, dmg, self }; this.actions.push(a);
+    const a = { by: me.id, cmd, hit, dmg, self, ...(cmd === 'special' ? { name: this.special(s).name } : {}) }; this.actions.push(a);
     if (foe.hp <= 0 || me.hp <= 0) this.result = { dead: foe.hp <= 0 ? foe.id : me.id, winner: foe.hp <= 0 ? me.id : foe.id };
     return a;
   }

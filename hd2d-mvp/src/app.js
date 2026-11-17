@@ -26,9 +26,10 @@ import { FLAT_INSET } from './warmap2d.js';
 import { PHONE, hint } from './phone.js';
 import { unitCard } from './warcard.js';
 import * as G from './core/game.js';
-import { listScenarios, selectScenario } from './core/scenario-store.js';
+import { hasLegacyRecords, listScenarios, selectScenario } from './core/scenario-store.js';
 import { ORIGINAL_SCENARIO } from './core/scenario.js';
-import { FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, visualUrl } from './core/visuals.js';
+import { FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, visualUrl } from './core/visuals.js';
+import { DUEL_SKILLS } from './core/duel-skills.js';
 import { aiTurn, aiDomestic } from './core/ai.js';
 import { suspend, peekSuspend, takeSuspend, dropSuspend, withSuspendLock } from './core/suspend.js';
 import { warFate } from './warreport.js';
@@ -891,6 +892,7 @@ function help() {
     h('p', {}, '智力越高可用计略越多（40/60/75/85分档，诸葛亮等名士随等级解锁特殊计）。命中率看双方智力、等级与距离（6格内）。'),
     h('h4', {}, '白兵与单挑'), h('p', {}, '攻击会进入16×10的白兵战场：先选阵形（长蛇、雁行、锥行、鱼鳞），每100兵一队，按步→弓→骑→将的顺序行动。交战中可分别给将、骑、弓、步下令前进、后退、待机或包围（「全军」一栏可一次令各兵种待机或包围），并用战术点施展咒缚、挑发、强弩、士气向上、火矢、爆炎；也可暂停、变速、交给自动或全军撤退。'),
     h('p', {}, '新版本中的弓将可向同一行或列两格远的敌军射击，地形和友军会遮挡；远射时战力和武器攻击分别按 55% 和 60% 计算，近身遇敌将仍进入单挑。强弩和火矢作用于弓兵，不改变弓将的射程或箭矢。'),
+    h('p', {}, '「群英新篇」中的部分武将拥有专属计略或单挑技。计略的使用次数随战场中断保存，单挑技每场单挑最多使用一次；具体效果和命中率在指令中显示。'),
     // Rules players asked about (feedback F13, F22a, F23, 2026-11-02).
     h('p', {}, '战术点每场按智力给出（智力×13÷100，用掉不回复）：爆炎需12点，即智力93以上；己方战术生效期间不能再用其他战术，只有爆炎可以照常施放。第4回合起，敌将体力低于45／40／30（LEVEL 1／2／3）且有两队以上与他相邻时，每回合有机会将他擒获；忠诚100的君主不会被围捕，开启不战死后体力归零仍会被俘。'),
     h('p', {}, '两将相邻即进入单挑，我方武将单挑时可选择攻击、牵制、舍身、说得、骂倒或退却，也可查看资料；体力归零通常阵亡，开启不战死后被俘。在单挑中斩杀君主有50%得到龙牙刀，全局只此一把；曹操、董卓、马腾、刘备各有专属宝物与条件。宝物只在单挑中斩杀时得到，俘虏、白兵中击杀或对方退却都不会得到；宝物会替换胜者原有的装备。'),
@@ -1035,16 +1037,23 @@ async function chooseScenario() {
     catch { unavailable = true; }
   }
   if (!Array.isArray(versions)) return toast('<em>游戏版本列表无效</em>', 3500);
-  const options = [{ id: ORIGINAL_SCENARIO, name: '原版' }, { id: FEMALE_SCENARIO_ID, name: FEMALE_SCENARIO_NAME }, ...versions.filter((v) => v?.id !== FEMALE_SCENARIO_ID && /^v-[a-f0-9]{32}$/.test(v?.id) && typeof v.name === 'string')];
+  const legacy = G.currentScenario() === FEMALE_SCENARIO_ID || hasLegacyRecords();
+  const options = [{ id: ORIGINAL_SCENARIO, name: '原版' }, { id: HERO_SCENARIO_ID, name: HERO_SCENARIO_NAME },
+    ...(legacy ? [{ id: FEMALE_SCENARIO_ID, name: `${FEMALE_SCENARIO_NAME}（旧存档兼容）` }] : []),
+    ...versions.filter((v) => /^v-[a-f0-9]{32}$/.test(v?.id) && typeof v.name === 'string')];
   const choice = await modal('选择游戏版本', (close) => [
     h('p', {}, '各版本的存档分开保存。切换版本后可在标题画面开始新游戏或读取该版本的记录。'),
+    legacy ? h('p', {}, '巾帼群英已合并至群英新篇；旧存档仍按原有规则继续，不能直接合并到新版本。') : null,
     unavailable ? h('p', {}, '无法读取服务器版本，仍可选择原版和内置版本。') : null,
     versions.skipped ? h('p', {}, `有 ${versions.skipped} 个已发布版本无法读取，请联系管理员。`) : null,
     h('div', { class: 'slots' }, options.map((v) => h('button', { class: 'btn slot', onclick: () => close(v.id) },
       h('b', {}, v.name), h('span', {}, v.id === G.currentScenario() ? '当前版本' : '选择此版本')))),
     h('div', { class: 'foot' }, h('button', { class: 'btn', onclick: () => close(null) }, '取消'))]);
   if (!choice || choice === G.currentScenario()) return;
-  try { selectScenario(choice); sessionStorage.setItem('hd2d-title-seen', '1'); location.reload(); }
+  changeScenario(choice);
+}
+function changeScenario(id) {
+  try { selectScenario(id); sessionStorage.setItem('hd2d-title-seen', '1'); location.reload(); }
   catch { toast('<em>无法切换游戏版本</em>', 3500); }
 }
 // ---------- Records (save slots) ----------
@@ -1226,7 +1235,8 @@ async function title() {
         if (!current || JSON.stringify(current) !== JSON.stringify(pick.record)) return toast('<em>记录已改变，请重新选择</em>', 3500);
         begin(pick.record, true);
       } }, '读取记录') : null,
-      h('button', { class: 'btn', onclick: () => { audio.unlock(); setup(); } }, '新的征程')],
+      h('button', { class: 'btn', onclick: () => { audio.unlock(); if (G.currentScenario() === FEMALE_SCENARIO_ID) changeScenario(HERO_SCENARIO_ID); else setup(); } },
+        G.currentScenario() === FEMALE_SCENARIO_ID ? '进入群英新篇' : '新的征程')],
     footnote: [h('p', { class: 'free' }, ['本游戏免费发布，', '仅供爱好者交流，', '请勿付费购买'].map((t) => h('span', {}, t))),
       h('p', { class: 'maker' }, '制作　tianlin ', h('small', {}, '@GitHub')),
       h('p', {}, '原作《三国志II 霸王的大陆》© 1992 NAMCO · 以FC日版规则为准 · 立绘由AI生成 · ' +
@@ -1671,6 +1681,8 @@ const expText = (o) => o.level >= 8 ? `${Math.floor(o.exp / 50)}（满级）` : 
 function officerSheet(id, { live = null, foot = null } = {}) {
   const o = g.officers[id], d = D.officers[id], eq = D.equipment, f = live?.faction ?? G.factionOf(g, id), w = eq[o.weapon], a = eq[24 + o.armor];
   const hp = live?.hp ?? o.hp, soldiers = live?.soldiers ?? o.soldiers;
+  const strategies = (d.skills ?? []).map((skillId) => D.customSkills?.find((skill) => skill.id === skillId)?.name).filter(Boolean);
+  const duelSkill = Object.hasOwn(DUEL_SKILLS, d.duelSkill) ? DUEL_SKILLS[d.duelSkill].name : null;
   const meter = (k, v, max = 100, cls = '') => h('div', { class: `meter ${cls}` }, h('span', {}, k), h('div', { class: 'track' }, h('i', { style: { width: `${Math.max(0, Math.min(100, (100 * v) / max))}%` } })), h('b', {}, max === 100 ? v : `${v}/${max}`));
   return h('div', { class: 'ocard' },
     face(id),
@@ -1686,6 +1698,7 @@ function officerSheet(id, { live = null, foot = null } = {}) {
         h('div', {}, h('span', {}, '武器'), h('b', {}, w ? h('img', { class: 'eqi', src: equipIcon(o.weapon), alt: '' }) : null, `${w?.name ?? '—'}`, w ? h('small', {}, ` 攻${w.atk}`) : null)),
         h('div', {}, h('span', {}, '防具'), h('b', {}, a ? h('img', { class: 'eqi', src: equipIcon(24 + o.armor), alt: '' }) : null, `${a?.name ?? '—'}`, a ? h('small', {}, ` 防${a.dfn}`) : null))),
       live ? null : h('p', { class: 'hint' }, d.birthYear != null ? `${d.birthYear}年出生　·　` : '', d.birthCity != null ? `出生于${cityName(d.birthCity)}　·　` : '', `${d.year}年登场`, debutShown(id) ? `　·　${debutText(id)}` : '', o.status === G.UNAPPEARED && talentMode === 'all' ? `　·　${waitText(id)[0]}` : ''),
+      strategies.length || duelSkill ? h('p', { class: 'hint' }, strategies.length ? `战场计略：${strategies.join('、')}` : '', strategies.length && duelSkill ? '　·　' : '', duelSkill ? `单挑技：${duelSkill}` : '') : null,
       live || !D.relationships?.some((r) => r.from === id || r.to === id) ? null : h('p', { class: 'hint' }, '人物关系：',
         D.relationships.filter((r) => r.from === id || r.to === id).map((r) => `${r.kind} ${name(r.from === id ? r.to : r.from)}`).join('　·　')),
       foot));

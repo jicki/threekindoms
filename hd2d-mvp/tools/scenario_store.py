@@ -19,7 +19,7 @@ MAX_PORTRAIT_BYTES = 64 * 1024
 MAX_PORTRAIT_SIDE = 384
 MAX_ASSET_BYTES = 1024 * 1024
 ASSET_ID = re.compile(r'^a-[a-f0-9]{64}$')
-BUILTIN_VISUAL = re.compile(r'^b-(sun|zhen|diao)-(portrait|calm|joy|angry|grief|motion)$')
+BUILTIN_VISUAL = re.compile(r'^b-(sun|zhen|diao|cai|wang|chen|gao)-(portrait|calm|joy|angry|grief|motion)$')
 MOODS = ('calm', 'joy', 'angry', 'grief')
 
 
@@ -257,17 +257,19 @@ def validate(s, base):
             integer(a.get(key), label, 0, maximum)
         check_icon(a.get('icon'), 'armor'); check_shops(a); check_requirements(a)
     for i, skill in enumerate(skills):
-        obj(skill, '技能', ['id', 'name', 'cost', 'soldiers', 'hp', 'stop', 'rice'])
+        obj(skill, '技能', ['id', 'name', 'cost', 'soldiers', 'hp', 'stop', 'rice', 'maxUses'])
         if type(skill.get('id')) is not int or skill['id'] != 16 + i:
             fail('新技能编号不连续')
         text(skill.get('name'), '技能名称')
         for key, label, minimum, maximum in [('cost', '技能机动力', 1, 60), ('soldiers', '损兵', 0, 1000), ('hp', '体力伤害', 0, 99), ('stop', '限制移动天数', 0, 10), ('rice', '粮草损失', 0, 9999)]:
             integer(skill.get(key), label, minimum, maximum)
+        if 'maxUses' in skill:
+            integer(skill['maxUses'], '每场使用次数', 1, 3)
         if not any(skill[key] for key in ('soldiers', 'hp', 'stop', 'rice')):
             fail('技能至少需要一种效果')
     seen, rosters = set(), [list(c['officers']) for c in base['cities']]
     for o in officers:
-        obj(o, '武将', ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'portraitData', 'appear', 'city', 'faction', 'skills', 'visual'])
+        obj(o, '武将', ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'portraitData', 'appear', 'city', 'faction', 'skills', 'duelSkill', 'visual'])
         integer(o.get('id'), '武将编号', 0, max_officer); oid = o['id']
         if oid in seen:
             fail('武将编号重复')
@@ -328,6 +330,8 @@ def validate(s, base):
             integer(sid, '技能编号', 16, 15 + len(skills))
         if len(set(selected)) != len(selected):
             fail('武将技能重复')
+        if 'duelSkill' in o and (not isinstance(o['duelSkill'], str) or o['duelSkill'] not in ('qinglong', 'longdan', 'yanren', 'gongyao', 'shoucheng', 'xianzhen')):
+            fail('单挑技无效')
         prior = base['officers'][oid] if oid < nbase else None
         if prior is None or any(prior[k] != o[k] for k in ('appear', 'city', 'faction')):
             for roster in rosters:

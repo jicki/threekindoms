@@ -434,18 +434,24 @@ export function equip(g, c, r, spend) {
   if (!D.cities[c.id].facilities.weapons) return false;
   const stock = D.cities[c.id].ai_shop; // its own table (0x164FE), not the player's shop with 关王刀 and 蛇矛
   for (let bought = false; ;) {
-    let best = null, item = null;
+    let best = null, item = null, fallback = null, fallbackItem = null;
     for (const id of c.officers) {
       const o = g.officers[id], grp = weaponGroup(o.weapon), currentAtk = D.equipment[o.weapon]?.atk ?? 0;
-      let it = stock.find((e) => e < 24 && Math.floor(e / 8) === grp && (o.weapon < 24 ? e > o.weapon : D.equipment[e].atk > currentAtk));
-      if (it == null) it = stock.find((e) => e >= 32 && D.equipment[e]?.kind === 'weapon' && weaponGroup(e) === grp && D.equipment[e].atk > currentAtk && D.equipment[e].price <= c.gold && !equipBlock(g, id, e));
       const currentDef = D.equipment[24 + o.armor]?.dfn ?? 0;
+      const customWeapon = stock.find((e) => e >= 32 && D.equipment[e]?.kind === 'weapon' && weaponGroup(e) === grp && D.equipment[e].atk > currentAtk && D.equipment[e].price <= c.gold && !equipBlock(g, id, e));
+      const customArmor = stock.find((e) => e >= 32 && D.equipment[e]?.kind === 'armor' && D.equipment[e].dfn > currentDef && D.equipment[e].price <= c.gold && !equipBlock(g, id, e));
+      const alternative = customWeapon ?? customArmor;
+      if (alternative != null && (fallback == null || o.war >= g.officers[fallback].war)) { fallback = id; fallbackItem = alternative; }
+      let it = stock.find((e) => e < 24 && Math.floor(e / 8) === grp && (o.weapon < 24 ? e > o.weapon : D.equipment[e].atk > currentAtk));
+      if ((it == null || D.equipment[it].price > c.gold) && customWeapon != null) it = customWeapon;
       if (it == null) it = stock.find((e) => e >= 24 && e < 32 && (o.armor < 8 ? e - 24 > o.armor : D.equipment[e].dfn > currentDef));
-      if (it == null) it = stock.find((e) => e >= 32 && D.equipment[e]?.kind === 'armor' && D.equipment[e].dfn > currentDef && D.equipment[e].price <= c.gold && !equipBlock(g, id, e));
+      const price = it == null ? 0 : it >= 24 && it < 32 ? 240 : D.equipment[it].price;
+      if ((it == null || price > c.gold) && customArmor != null) it = customArmor;
       if (it != null && (best == null || o.war >= g.officers[best].war)) { best = id; item = it; }
     }
     if (best == null) return bought;
-    const price = D.equipment[item].kind === 'weapon' || item >= 32 ? D.equipment[item].price : 240;
+    let price = D.equipment[item].kind === 'weapon' || item >= 32 ? D.equipment[item].price : 240;
+    if (c.gold < price && fallback != null) { best = fallback; item = fallbackItem; price = D.equipment[item].price; }
     if (c.gold < price) return bought;
     c.gold -= price;
     if (D.equipment[item].kind === 'weapon') g.officers[best].weapon = item; else g.officers[best].armor = item - 24;

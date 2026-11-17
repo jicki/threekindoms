@@ -27,7 +27,7 @@ test('女性角色支持分开上传立绘、表情和动作，导出素材包�
     await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
     const content = admin.locator('#content');
     await admin.getByLabel('版本名称').fill('女性角色素材测试');
-    await content.getByLabel('女性角色模板').selectOption('sun');
+    await content.getByLabel('角色模板').selectOption('sun');
     await content.getByRole('button', { name: '添加角色模板' }).click();
     await content.getByRole('heading', { name: /孙尚香/ }).waitFor();
     assert.equal(await content.getByAltText('立绘素材预览').isVisible(), true);
@@ -114,11 +114,12 @@ test('版本列表与可选旧动作不可用时仍可载入内置版本', async
     await admin.route('**/assets/ai/sprites/march/index.json', (route) => route.abort());
     await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
     await admin.getByText('无法读取服务器版本列表；仍可编辑草稿，发布前请检查服务器。').waitFor();
-    await admin.locator('#published').selectOption('builtin-female');
+    assert.equal(await admin.locator('#published option[value="builtin-female"]').count(), 0);
+    await admin.locator('#published').selectOption('builtin-heroes');
     await admin.getByRole('button', { name: '载入为新草稿' }).click();
     await admin.getByText('已载入新草稿').waitFor();
-    const names = await admin.evaluate(() => window.__admin.draft.officers.map((officer) => officer.name));
-    assert.deepEqual(names, ['孙尚香', '甄宓', '貂蝉']);
+    const names = await admin.evaluate(() => window.__admin.draft.officers.filter((officer) => officer.id >= 237).map((officer) => officer.name));
+    assert.deepEqual(names, ['孙尚香', '甄宓', '貂蝉', '蔡琰', '王异', '陈宫', '高顺']);
     assert.deepEqual(admin.errors, []);
   } finally { await admin.context().close(); }
 });
@@ -134,10 +135,10 @@ test('已发布版本列表返回时保留用户选择的内置版本', async ()
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id, name: '延迟版本' }]) });
     });
     await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
-    await admin.locator('#published').selectOption('builtin-female');
+    await admin.locator('#published').selectOption('builtin-heroes');
     release();
     await admin.waitForFunction((expected) => [...document.querySelector('#published').options].some((option) => option.value === expected), id);
-    assert.equal(await admin.locator('#published').inputValue(), 'builtin-female');
+    assert.equal(await admin.locator('#published').inputValue(), 'builtin-heroes');
     assert.deepEqual(admin.errors, []);
   } finally { release(); await admin.context().close(); }
 });
@@ -148,7 +149,7 @@ test('编辑器可添加扇、弓与新防具，发布后可在游戏和记录�
     await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
     const content = admin.locator('#content');
     await admin.getByLabel('版本名称').fill('巾帼装备测试');
-    await content.getByLabel('女性角色模板').selectOption('sun');
+    await content.getByLabel('角色模板').selectOption('sun');
     await content.getByRole('button', { name: '添加角色模板' }).click();
     await content.getByRole('heading', { name: /孙尚香/ }).waitFor();
     let draft = await admin.evaluate(() => window.__admin.draft);
@@ -220,8 +221,8 @@ test('编辑器可添加扇、弓与新防具，发布后可在游戏和记录�
   } finally { await admin.context().close(); }
 });
 
-test('巾帼版本的战场商店显示品级与条件，符合条件后可购买', async () => {
-  const player = await game.open('&flat', { setup: (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-female')) });
+test('合并版本的战场商店显示品级与条件，符合条件后可购买', async () => {
+  const player = await game.open('&flat', { setup: (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-heroes')) });
   try {
     await newCampaign(player);
     await player.evaluate(() => {

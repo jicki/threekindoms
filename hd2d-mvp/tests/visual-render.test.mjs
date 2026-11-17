@@ -91,7 +91,7 @@ test('弓、扇和女性轻甲图标可在浏览器中读取', async () => {
   } finally { await page.context().close(); }
 });
 
-test('版本服务暂不可用时仍能选择原版和内置女性版本', async () => {
+test('版本服务暂不可用时仍能选择原版和合并后的内置版本', async () => {
   const page = await game.open();
   try {
     await skipIntro(page);
@@ -99,18 +99,19 @@ test('版本服务暂不可用时仍能选择原版和内置女性版本', async
     await page.locator('.sysmenu-btn').click(); await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
     const dialog = page.getByRole('dialog', { name: '选择游戏版本' });
     await dialog.getByText('无法读取服务器版本，仍可选择原版和内置版本。').waitFor();
-    assert.equal(await dialog.getByRole('button', { name: /巾帼群英/ }).count(), 1);
+    assert.equal(await dialog.getByRole('button', { name: /群英新篇/ }).count(), 1);
+    assert.equal(await dialog.getByRole('button', { name: /巾帼群英/ }).count(), 0);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });
 
-test('标题可选择内置女性版本，角色立绘和表情正常加载', async () => {
+test('标题可选择合并后的内置版本，原有角色立绘和表情正常加载', async () => {
   const page = await game.open();
   try {
     await skipIntro(page); await page.locator('.sysmenu-btn').click();
     await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
-    await page.getByRole('button', { name: /巾帼群英/ }).click();
-    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-female', null, { timeout: 30000 });
+    await page.getByRole('button', { name: /群英新篇/ }).click();
+    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-heroes', null, { timeout: 30000 });
     const result = await page.evaluate(async () => {
       const { G } = window.__game, { face, figure } = await import('./src/ui.js');
       const officer = G.data().officers.find((o) => o.name === '孙尚香');
@@ -162,8 +163,8 @@ test('模拟桌面离线协议时仍可选择内置版本且不请求版本接�
   try {
     await skipIntro(page); await page.locator('.sysmenu-btn').click();
     await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
-    await page.getByRole('button', { name: /巾帼群英/ }).click();
-    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-female', null, { timeout: 30000 });
+    await page.getByRole('button', { name: /群英新篇/ }).click();
+    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-heroes', null, { timeout: 30000 });
     assert.equal(versionRequests, 0);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
@@ -194,7 +195,7 @@ test('女性角色动作可进入白兵与单挑，并完成一次攻击演出',
 });
 
 test('女性角色的行军动作可在战场使用', async () => {
-  const page = await game.open('', { setup: (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-female')) });
+  const page = await game.open('', { setup: (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-heroes')) });
   try {
     await page.evaluate(async () => (await import('./src/quality.js')).warView.set('3d'));
     await newCampaign(page);

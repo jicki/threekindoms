@@ -44,7 +44,7 @@ export function configureStrategies() {
     STRATS.push({ ...skill, ai: skill.cost, custom: true });
     const effects = [skill.soldiers ? `损兵 ${skill.soldiers}` : '', skill.hp ? `体力减少 ${skill.hp}` : '',
       skill.stop ? `限制移动 ${skill.stop} 日` : '', skill.rice ? `损失粮草 ${skill.rice}` : ''].filter(Boolean);
-    STRAT_INFO.push({ does: effects.join('，'), where: '5格内敌军' });
+    STRAT_INFO.push({ does: `${effects.join('，')}${skill.maxUses ? `，每场最多${skill.maxUses}次` : ''}`, where: '5格内敌军' });
   }
 }
 const SPECIAL = [ // unlock by level for named strategists (6.3 §1)
@@ -348,6 +348,7 @@ export class Field {
   // place (十面埋伏, 落石, 连弩), else no foe within reach that meets the 计略's condition.
   whyNot(u, id) {
     const S = STRATS[id], T = this.terr(u.x, u.y), o = this.O(u.id);
+    if (S.custom && S.maxUses && (u.skillUses?.[id] ?? 0) >= S.maxUses) return '本场使用次数已用完';
     if (this.pool[u.side] < S.cost) return `机动力不足（需 ${S.cost}，剩 ${this.pool[u.side]}）`;
     if (id === 11) return T !== FOREST ? '需自己位于森林' : o.soldiers < 100 ? '兵数不足100' : this.ambush?.[u.side] ? '我军已设下伏兵' : this.legal(u, 11) ? null : '现在无法施展';
     if (id === 9 && T !== MOUNT && T !== CASTLE) return '需自己位于山地或城中';
@@ -383,12 +384,15 @@ export class Field {
   // a legal target. The original admits a 计略 by its cost before it runs; a menu opened earlier does not count.
   canCast(u, id, t) {
     return !!u && !u.gone && !this.over && u.side === this.turn && this.pool[u.side] >= STRATS[id].cost
+      && !(STRATS[id].custom && STRATS[id].maxUses && (u.skillUses?.[id] ?? 0) >= STRATS[id].maxUses)
       && this.strategies(u).some((s) => s.id === id) && (id === 11 ? this.legal(u, 11) : this.legal(u, id, t));
   }
   cast(u, id, t, ai = false) {
     const S = STRATS[id], r = this.r, a = this.O(u.id), U = (n) => r(n), lines = [], hits = [];
+    if (S.custom && S.maxUses && (u.skillUses?.[id] ?? 0) >= S.maxUses) return { ok: false, hit: false, name: S.name, lines: ['本场使用次数已用完'], hits };
     if (!ai && !this.canCast(u, id, t)) return { ok: false, hit: false, name: S.name, lines: [this.pool[u.side] < S.cost ? '机动力不足' : `无法施展${S.name}`], hits };
     this.pool[u.side] = Math.max(0, this.pool[u.side] - (ai ? S.ai : S.cost));
+    if (S.custom && S.maxUses) (u.skillUses ||= {})[id] = (u.skillUses[id] ?? 0) + 1;
     // Each general hurt pays at once: `$B68B` adds his loss to the cast's running total and hands that total to `$D7FB`, which
     // halves it into the caster's experience and checks his level, one level a call. So a cast on several may raise him more than
     // once, and the effects read his level anew for every target (`$B070`, `$B1E3`: record byte 0B), as L() does.
@@ -596,7 +600,7 @@ export class Field {
     const adj = this.adjacentEnemies(u);
     const commanderFoe = this.side(foe).find((e) => e.commander);
     for (const skill of this.strategies(u).filter((item) => item.custom)) {
-      if (this.pool[s] < skill.cost) continue;
+      if (this.pool[s] < skill.cost || (skill.maxUses && (u.skillUses?.[skill.id] ?? 0) >= skill.maxUses)) continue;
       const target = this.side(foe).filter((e) => this.legal(u, skill.id, e))
         .find((e) => (skill.soldiers && this.O(e.id).soldiers) || (skill.hp && this.O(e.id).hp) || (skill.stop && !e.stop) || (skill.rice && this.chest(e.side).rice));
       if (target) return this.doCast(u, skill.id, target);

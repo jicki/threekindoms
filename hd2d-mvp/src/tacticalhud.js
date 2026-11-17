@@ -313,7 +313,7 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
     root.append(panel);
     const say = (a) => {
       const me = name(a.by), foe = name(a.by === duel.side[hs].id ? duel.side[es].id : duel.side[hs].id), mine = a.by === duel.side[hs].id;
-      const verb = { attack: '攻击', feint: '牵制', desperate: '舍身', taunt: '骂倒', persuade: '说得', retreat: '退却', surrender: '降参' }[a.cmd];
+      const verb = a.cmd === 'special' ? a.name : { attack: '攻击', feint: '牵制', desperate: '舍身', taunt: '骂倒', persuade: '说得', retreat: '退却', surrender: '降参' }[a.cmd];
       const what = a.cmd === 'surrender' ? `向${foe}投降` : a.cmd === 'taunt' ? (a.hit ? `成功，${foe}心神大乱` : '无效')
         : a.cmd === 'persuade' ? ['', '', `${foe}退出单挑`, '双方收兵', `${foe}投降`][a.out] || `${foe}不为所动`
         : a.cmd === 'retreat' ? (a.hit ? `被追击 <em>−${a.dmg}</em>` : '成功脱身')
@@ -333,7 +333,7 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
       persuade: '按双方智德、对手忠诚与体力判定：可能退出、收兵或投降（君主不降）；被骂倒期间不能用', taunt: '成功则对手数次出手内命中下降两成、命中后伤害加三成；用过后本场不能再用（被对手骂倒后恢复），被骂倒期间不能用', retreat: '尝试撤出单挑，失败会被追击',
       surrender: '向对手投降，成为俘虏；白兵战随之败北（君主不能投降）' };
     // Why a command is unavailable this action (the original greys out the 计略 submenu while a 骂倒 counter runs).
-    const blocked = (c) => (c === 'persuade' || c === 'taunt') && !duel.canScheme(hs) ? '受骂倒' : c === 'taunt' && !duel.canTaunt(hs) ? '已用过' : c === 'surrender' && !duel.canSurrender(hs) ? '君主不降' : null;
+    const blocked = (c) => (c === 'persuade' || c === 'taunt') && !duel.canScheme(hs) ? '受骂倒' : c === 'taunt' && !duel.canTaunt(hs) ? '已用过' : c === 'surrender' && !duel.canSurrender(hs) ? '君主不降' : c === 'special' && !duel.canSpecial(hs) ? '已用过' : null;
     // 降参 cannot be taken back, so it asks first; 取消 returns to the same action's menu.
     const confirmSurrender = () => new Promise((resolve) => {
       const box = h('div', { class: 'tq-ask' }, h('p', {}, `${name(duel.side[hs].id)} 向 ${name(duel.side[es].id)} 投降？`, h('br'), h('small', {}, '投降后成为俘虏，本场白兵战败北。')),
@@ -352,7 +352,9 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
         ...CMDS.map(([c, l, sub], i) => h('button', { class: `tq-btn dcmd ${c === 'attack' ? 'primary' : ''}`, disabled: !!blocked(c), title: `${c === 'attack' || c === 'feint' || c === 'desperate' ? atkTip(hs, c) : ''}${TIP[c]}（${i + 1}）`, onclick: () => pickCmd?.(c) },
           h('span', {}, l, h('kbd', {}, i + 1)), h('small', {}, ...[blocked(c) || sub(hs)].flat()))),
         // 资料 looks and comes back to this same menu, as in the original: no action and no draw of the dice.
-        profiles ? h('button', { class: 'tq-btn dcmd', title: '查看双方资料，不耗行动（8）', 'data-pad': 'x', onclick: () => showProfiles((s) => duel.side[s].hp) }, h('span', {}, '资料', h('kbd', {}, 8)), h('small', {}, '查看双方')) : null)
+        profiles ? h('button', { class: 'tq-btn dcmd', title: '查看双方资料，不耗行动（8）', 'data-pad': 'x', onclick: () => showProfiles((s) => duel.side[s].hp) }, h('span', {}, '资料', h('kbd', {}, 8)), h('small', {}, '查看双方')) : null,
+        duel.special(hs) ? h('button', { class: 'tq-btn dcmd tq-special', disabled: !!blocked('special'), title: '专属单挑技，每场最多使用一次（9）', onclick: () => pickCmd?.('special') },
+          h('span', {}, duel.special(hs).name, h('kbd', {}, 9)), h('small', {}, blocked('special') || `命中 ${pct(hs, 'special')}% · ${duel.special(hs).damage}%伤`)) : null)
         : h('div', { class: 'tq-hint' }, t == null ? '' : t === hs ? '自动应战…' : `${name(duel.side[es].id)} 出手…`), toggle());
     };
     let pickCmd = null;
@@ -363,6 +365,7 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
       const k = keyName(e);
       if (k === 't') { e.preventDefault(); return setDAuto(!dAuto); } // not A: WASD pans
       if (k === '8' && pickCmd && profiles) { e.preventDefault(); return showProfiles((s) => duel.side[s].hp); }
+      if (k === '9' && pickCmd && duel.canSpecial(hs)) { e.preventDefault(); return pickCmd('special'); }
       const i = Number(k) - 1; if (pickCmd && CMDS[i] && !blocked(CMDS[i][0])) { e.preventDefault(); pickCmd(CMDS[i][0]); }
     };
     addEventListener('keydown', keys);
@@ -389,7 +392,7 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
       const after = { [hs]: duel.side[hs].hp, [es]: duel.side[es].hp };
       const shown = { ...before };
       const reveal = (id, dmg) => { const s = sideOf(id); shown[s] = Math.max(after[s], shown[s] - dmg); cards[s].show(shown[s]); if (dmg > 0) cards[s].hit(); };
-      await stage.view.act(act, { hp: { [duel.side[hs].id]: after[hs], [duel.side[es].id]: after[es] }, onHit: reveal, onSelf: reveal });
+      await stage.view.act(act.cmd === 'special' ? { ...act, cmd: 'attack' } : act, { hp: { [duel.side[hs].id]: after[hs], [duel.side[es].id]: after[es] }, onHit: reveal, onSelf: reveal });
       cards[hs].show(after[hs]); cards[es].show(after[es]);
       say(act);
       for (const s of [hs, es]) { cards[s].mood(duel.curse?.[s] > 0 ? 'angry' : 'calm'); cards[s].fx(); } // 原版：被骂倒计数未消时怒容

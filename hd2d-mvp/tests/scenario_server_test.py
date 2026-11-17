@@ -44,6 +44,32 @@ class ValidationTest(unittest.TestCase):
         s = version(); s['relations'] = [{'from': 0, 'to': 999, 'kind': '朋友'}]
         with self.assertRaises(ScenarioError): validate(s, BASE)
 
+    def test_special_abilities_match_browser_validation(self):
+        officer = BASE['officers'][130]
+        fields = ('id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'appear', 'city', 'faction')
+        scenario = version()
+        scenario['skills'] = [{'id': 16, 'name': '奇谋', 'cost': 9, 'soldiers': 80, 'hp': 3, 'stop': 1, 'rice': 0, 'maxUses': 2}]
+        scenario['officers'] = [{**{key: officer[key] for key in fields}, 'birthYear': None, 'birthCity': None,
+                                 'portraitId': 130, 'skills': [16], 'duelSkill': 'qinglong',
+                                 'visual': {'portrait': 'b-chen-portrait', 'motion': 'b-chen-motion'}}]
+        cases = [version(), scenario]
+        for value in (0, 4, True, None, 1.5):
+            bad = copy.deepcopy(scenario); bad['skills'][0]['maxUses'] = value; cases.append(bad)
+        for value in ('__proto__', '', None, 4):
+            bad = copy.deepcopy(scenario); bad['officers'][0]['duelSkill'] = value; cases.append(bad)
+        code = """import {readFileSync} from 'node:fs';
+import {validateScenario} from './hd2d-mvp/src/core/scenario.js';
+const base = JSON.parse(readFileSync('hd2d-mvp/data/game-data.json'));
+const cases = JSON.parse(readFileSync(0, 'utf8'));
+console.log(JSON.stringify(cases.map((s) => { try { validateScenario(s, base); return true; } catch { return false; } })));"""
+        browser = json.loads(subprocess.check_output(['node', '--input-type=module', '-e', code], cwd=ROOT, input=json.dumps(cases), text=True))
+        server = []
+        for item in cases:
+            try: validate(item, BASE); server.append(True)
+            except ScenarioError: server.append(False)
+        self.assertEqual(server, [True, True] + [False] * (len(cases) - 2))
+        self.assertEqual(browser, server)
+
     def test_new_equipment_validation_matches_browser_and_preserves_old_versions(self):
         officer = BASE['officers'][130]
         fields = ('id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'appear', 'city', 'faction')
