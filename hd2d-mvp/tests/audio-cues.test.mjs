@@ -11,6 +11,41 @@ const cues = ['cue-land', 'cue-industry', 'cue-town', 'cue-st-fire', 'cue-st-rus
   'cue-move', 'cue-envoy', 'cue-record', 'cue-sortie', 'cue-conscript', 'cue-study', 'cue-disaster', 'cue-aiwar', 'cue-income', 'cue-levelup'];
 const effects = ['sfx-volley-land', 'sfx-duel-ride', 'sfx-duel-swing', 'sfx-chime', 'sfx-duel-desperate', 'sfx-duel-blow'];
 
+test('单挑攻击保留原声并叠加低频冲击，牵制使用独立音效', async () => {
+  const page = await game.open();
+  try {
+    const result = await page.evaluate(async () => {
+      const { Audio } = await import('./src/audio.js'), files = window.__game.audio.files;
+      const render = async (key) => {
+        const ctx = new OfflineAudioContext(1, 44100, 44100), a = new Audio({ [key]: files[key] });
+        a.ctx = ctx; a.sfxGain = ctx.createGain(); a.sfxGain.connect(ctx.destination);
+        const original = await a.preload(key);
+        a.sfx(key); await Promise.resolve();
+        const played = (await ctx.startRendering()).getChannelData(0), source = original.getChannelData(0);
+        let diff = 0;
+        for (let i = 0; i < 8000; i++) diff += (played[i] - source[i]) ** 2;
+        return { url: files[key], difference: Math.sqrt(diff / 8000) };
+      };
+      const fallbackLow = async (key) => {
+        const ctx = new OfflineAudioContext(1, 44100, 44100), a = new Audio({});
+        a.ctx = ctx; a.sfxGain = ctx.createGain();
+        const filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 250;
+        a.sfxGain.connect(filter).connect(ctx.destination); a.sfx(key);
+        const data = (await ctx.startRendering()).getChannelData(0);
+        let power = 0; for (let i = 0; i < 8000; i++) power += data[i] ** 2;
+        return Math.sqrt(power / 8000);
+      };
+      return { attack: await render('sfx-duel-blow'), feint: await render('sfx-chime'),
+        fallback: { attack: await fallbackLow('sfx-duel-blow'), feint: await fallbackLow('sfx-chime') } };
+    });
+    assert.notEqual(result.attack.url, result.feint.url);
+    assert.ok(result.attack.difference > 0.005, `攻击缺少可辨别的冲击层: ${result.attack.difference}`);
+    assert.ok(result.feint.difference < 0.001, `牵制不应附加攻击冲击层: ${result.feint.difference}`);
+    assert.ok(result.fallback.attack > result.fallback.feint * 3, '文件缺失时攻击和牵制仍有不同的低频特征');
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
 test('爆炎与碰撞音效能由浏览器解码播放', async () => {
   const page = await game.open(); await skipIntro(page);
   const result = await page.evaluate(async () => {

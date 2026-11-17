@@ -6,4 +6,5 @@ export const DUEL_SKILLS = {
   gongyao: { name: '弓腰迅击', hit: 10, damage: 105 },
   shoucheng: { name: '守城断锋', hit: 5, damage: 110 },
   xianzhen: { name: '陷阵突击', hit: 0, damage: 115 },
+  fangtian: { name: '方天破阵', hit: -10, damage: 120 },
 };

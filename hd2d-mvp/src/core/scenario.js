@@ -140,7 +140,7 @@ export function validateScenario(s, base, { draft = false } = {}) {
     if (!skill.soldiers && !skill.hp && !skill.stop && !skill.rice) fail('技能至少需要一种效果');
   }
   for (const o of s.officers) {
-    obj(o, '武将'); keys(o, ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'portraitData', 'appear', 'city', 'faction', 'skills', 'duelSkill', 'visual'], '武将');
+    obj(o, '武将'); keys(o, ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'portraitData', 'appear', 'city', 'faction', 'skills', 'duelSkill', 'visual', 'searchPriority'], '武将');
     integer(o.id, '武将编号', 0, maxOfficer);
     if (seenOfficers.has(o.id)) fail('武将编号重复'); seenOfficers.add(o.id);
     text(o.name, '武将姓名');
@@ -165,6 +165,8 @@ export function validateScenario(s, base, { draft = false } = {}) {
     if ((base.equipment[24 + o.armor]?.kind ?? equipmentKinds.get(24 + o.armor)) !== 'armor') fail('防具不能选择武器');
     if (!['平', '山', '水'].includes(o.army)) fail('兵种无效');
     if (!['initial', 'search_city', 'automatic_faction'].includes(o.appear)) fail('登场方式无效');
+    if (o.searchPriority !== undefined && typeof o.searchPriority !== 'boolean') fail('搜索优先设置无效');
+    if (o.searchPriority && o.appear !== 'search_city') fail('只有城市搜索登场的武将可以优先搜索');
     if (o.appear === 'automatic_faction') {
       if (o.city !== null) fail('自动出仕的武将不能指定登场城市');
       integer(o.faction, '出仕势力', 0, base.factions.length - 1);

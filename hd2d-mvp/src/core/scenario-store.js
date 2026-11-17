@@ -71,7 +71,7 @@ export async function loadScenario(id, base) {
   if (id === FEMALE_SCENARIO_ID || id === HERO_SCENARIO_ID) {
     const expanded = id === HERO_SCENARIO_ID, scenario = { ...newDraft(base), id, name: expanded ? HERO_SCENARIO_NAME : FEMALE_SCENARIO_NAME };
     const presets = expanded ? [...FEMALE_PRESETS, ...EXTRA_PRESETS] : FEMALE_PRESETS;
-    scenario.officers = presets.map((p, i) => femaleOfficer(base, p, base.officers.length + i, ensureFemaleGear(scenario, base, p.key)));
+    scenario.officers = presets.map((p, i) => femaleOfficer(base, p, base.officers.length + i, ensureFemaleGear(scenario, base, p.key, { balanced: expanded })));
     if (expanded) {
       scenario.skills = ['zhuge', 'zhou', 'chen', 'cai', 'wang'].map((key, i) => ({ id: 16 + i, ...HERO_STRATEGIES[key] }));
       const copy = (id, extra) => {
@@ -79,7 +79,7 @@ export async function loadScenario(id, base) {
         return { ...Object.fromEntries(fields.map((key) => [key, o[key]])), birthYear: null, birthCity: null, portraitId: id, skills: [], ...extra };
       };
       scenario.officers.push(copy(109, { skills: [16] }), copy(93, { skills: [17] }),
-        copy(38, { duelSkill: 'qinglong' }), copy(144, { duelSkill: 'longdan' }), copy(153, { duelSkill: 'yanren' }));
+        copy(38, { duelSkill: 'qinglong' }), copy(144, { duelSkill: 'longdan' }), copy(153, { duelSkill: 'yanren' }), copy(218, { duelSkill: 'fangtian' }));
       Object.assign(scenario.officers[0], { duelSkill: 'gongyao' });
       Object.assign(scenario.officers[3], { skills: [19] });
       Object.assign(scenario.officers[4], { skills: [20], duelSkill: 'shoucheng' });

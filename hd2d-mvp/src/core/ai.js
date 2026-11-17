@@ -1,9 +1,10 @@
 // Strategic AI (6.5). Budget = command books × 10 points; the main dispatch draws 0–15 against the
 // faction/difficulty/situation weights (`10:A19C` uses D4AD, so sums above 16 never reach the last
 // branches), then attack/vacant expansion, inner moves + BD7A reinforcement, diplomacy, or domestic work.
-import { data, rng, NONE, SERVING, UNAPPEARED, RONIN, roads, citiesOf, troopsOf, recruitLoyalty, books, isRuler, officerCity, searchQueue, maxHp, weaponGroup, equipBlock } from './game.js';
+import { data, currentScenario, rng, NONE, SERVING, UNAPPEARED, RONIN, roads, citiesOf, troopsOf, recruitLoyalty, books, isRuler, officerCity, searchOrder, maxHp, weaponGroup, equipBlock, wearEquip } from './game.js';
 import { setupWar, occupyEmpty, autoBattle } from './warcore.js';
 import { phantomWar } from './ahuinan.js';
+import { FEMALE_SCENARIO_ID } from './visuals.js';
 
 const KEEP = [[30, 60, 90], [20, 50, 80], [10, 40, 70]]; // cumulative cut-offs for keeping 4/3/2 (else 1)
 const REAR = [2, 3, 3, 2, 3, 3, 2], FRONT = [4, 5, 4, 3, 4, 5, 4]; // A303 thresholds by faction
@@ -100,7 +101,7 @@ export function housekeeping(g, f, r, spend) {
       // later one can come first (诸葛亮 194 before 徐庶 192 in 荆州). The head alone (F23, 2026-10-31) left an entry the
       // ruler does not favour holding back those he does, for years (devblog #98/#102, 2026-11-03). The player's 搜索 keeps
       // to the head (`$B964`, core/game.js), the original's own asymmetry.
-      for (const id of searchQueue(c.id)) {
+      for (const id of searchOrder(g, c.id)) {
         const o = g.officers[id];
         if (D.officers[id].year > g.year) break;
         if (o.status !== UNAPPEARED) continue;
@@ -427,12 +428,46 @@ function domestic(g, f, c, r, spend) {
   return spend(5) || true;
 }
 
+// 扩展装备按实际能力、价格和购买条件比较；首次换弓、扇后不再自动跨类，避免反复购买。
+function equipExtended(g, c, stock, spend) {
+  const D = data();
+  const price = (id) => id >= 24 && id < 32 ? 240 : D.equipment[id].price;
+  // 重量影响单挑先攻；以一点攻防抵消两点重量，再按攻击、防御和价格打破平局。
+  const quality = (gear, stat) => 2 * gear[stat] - gear.weight;
+  const better = (a, b, stat) => quality(D.equipment[b], stat) - quality(D.equipment[a], stat)
+    || D.equipment[b][stat] - D.equipment[a][stat]
+    || D.equipment[a].weight - D.equipment[b].weight || price(a) - price(b) || a - b;
+  for (let bought = false; ;) {
+    let best = null, item = null;
+    for (const id of c.officers) {
+      const o = g.officers[id], group = weaponGroup(o.weapon), current = D.equipment[o.weapon];
+      const available = stock.filter((e) => D.equipment[e] && price(e) <= c.gold && !equipBlock(g, id, e));
+      const weapons = available.filter((e) => {
+        const gear = D.equipment[e], next = weaponGroup(e);
+        if (gear.kind !== 'weapon') return false;
+        if (next === group) return gear.atk > current.atk && quality(gear, 'atk') > quality(current, 'atk');
+        if (group < 0 || group > 2 || e < 32 || gear.atk < current.atk || quality(gear, 'atk') < quality(current, 'atk')) return false;
+        return (next === 4 && o.war >= 70) || (next === 3 && o.int >= 75);
+      }).sort((a, b) => better(a, b, 'atk'));
+      const currentArmor = D.equipment[24 + o.armor];
+      const armor = available.filter((e) => D.equipment[e].kind === 'armor' && D.equipment[e].dfn > currentArmor.dfn && quality(D.equipment[e], 'dfn') > quality(currentArmor, 'dfn'))
+        .sort((a, b) => better(a, b, 'dfn'));
+      const candidate = weapons[0] ?? armor[0];
+      if (candidate != null && (best == null || o.war >= g.officers[best].war)) { best = id; item = candidate; }
+    }
+    if (best == null) return bought;
+    c.gold -= price(item); wearEquip(g, best, item); bought = true;
+    if (!spend(5)) return true;
+  }
+}
+
 // C337 equipment: highest-war officer with an upgrade in the AI stock; armour always charged 240. Repeats
 // (the same officer may upgrade again) until no candidate, short of gold, or out of budget.
 export function equip(g, c, r, spend) {
   const D = data();
   if (!D.cities[c.id].facilities.weapons) return false;
   const stock = D.cities[c.id].ai_shop; // its own table (0x164FE), not the player's shop with 关王刀 and 蛇矛
+  if (currentScenario() !== FEMALE_SCENARIO_ID && stock.some((id) => id >= 32)) return equipExtended(g, c, stock, spend);
   for (let bought = false; ;) {
     let best = null, item = null, fallback = null, fallbackItem = null;
     for (const id of c.officers) {

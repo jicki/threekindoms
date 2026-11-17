@@ -8,8 +8,8 @@ export const FEMALE_PRESETS = [
 export const EXTRA_PRESETS = [
   { key: 'cai', name: '蔡琰', hp: 70, war: 30, int: 90, virtue: 80, year: 207, birthYear: null, city: 8, death: 240, army: '平' },
   { key: 'wang', name: '王异', hp: 80, war: 80, int: 82, virtue: 86, year: 213, birthYear: null, city: 6, death: 240, army: '山' },
-  { key: 'chen', name: '陈宫', hp: 75, war: 55, int: 92, virtue: 76, year: 192, birthYear: null, city: 11, death: 198, army: '平' },
-  { key: 'gao', name: '高顺', hp: 85, war: 90, int: 73, virtue: 82, year: 192, birthYear: null, city: 12, death: 198, army: '平', weapon: 20, armor: 4 },
+  { key: 'chen', name: '陈宫', hp: 75, war: 55, int: 92, virtue: 76, year: 192, birthYear: null, city: 11, death: 198, army: '平', searchPriority: true },
+  { key: 'gao', name: '高顺', hp: 85, war: 90, int: 73, virtue: 82, year: 192, birthYear: null, city: 12, death: 198, army: '平', weapon: 20, armor: 4, searchPriority: true },
 ];
 export const CHARACTER_PRESETS = [...FEMALE_PRESETS, ...EXTRA_PRESETS];
 export const FEMALE_SCENARIO_ID = 'builtin-female';
@@ -46,5 +46,5 @@ export function femaleOfficer(base, preset, id, gear = {}) {
   return { id, name: preset.name, hp: preset.hp, war: preset.war, int: preset.int, virtue: preset.virtue,
     loyalty: 80, level: 1, exp: 0, soldiers: 0, weapon: preset.weapon ?? gear.weapon ?? o.weapon, armor: preset.armor ?? gear.armor ?? o.armor, army: preset.army,
     year: preset.year, death: preset.death, birthYear: preset.birthYear, birthCity: null, portraitId: 0,
-    appear: 'search_city', city: preset.city, faction: null, skills: [], visual: presetVisual(preset.key) };
+    appear: 'search_city', city: preset.city, faction: null, skills: [], ...(preset.searchPriority ? { searchPriority: true } : {}), visual: presetVisual(preset.key) };
 }

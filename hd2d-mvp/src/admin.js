@@ -106,7 +106,7 @@ if (base) {
   const editFields = ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'appear', 'city', 'faction'];
   const editable = (o) => ({ ...Object.fromEntries(editFields.map((key) => [key, o[key]])), birthYear: o.birthYear ?? null, birthCity: o.birthCity ?? null,
     portraitId: o.portraitId ?? (o.id < base.officers.length ? o.id : 0), portraitData: o.portraitData ?? null, skills: [...(o.skills ?? [])],
-    ...(o.duelSkill ? { duelSkill: o.duelSkill } : {}), visual: clone(o.visual ?? {}) });
+    ...(o.duelSkill ? { duelSkill: o.duelSkill } : {}), ...(o.searchPriority ? { searchPriority: true } : {}), visual: clone(o.visual ?? {}) });
   const currentData = () => applyScenario(base, draft, { draft: true });
   const hasChanges = () => formDirty || draftDirty || $('version-name').value !== draft.name;
   const abandonForm = () => !formDirty || confirm('当前表单尚未应用，确定放弃这些输入吗？');
@@ -163,7 +163,7 @@ if (base) {
       if (!abandonForm()) return;
       const preset = CHARACTER_PRESETS.find((p) => p.key === addPreset.value), id = data.officers.length;
       if (update((next) => {
-        const officer = femaleOfficer(base, preset, id, ensureFemaleGear(next, base, preset.key));
+        const officer = femaleOfficer(base, preset, id, ensureFemaleGear(next, base, preset.key, { balanced: true }));
         addPresetAbilities(next, preset, officer); next.officers.push(officer);
       }, `已添加 ${preset.name}`)) { selected.officers = id; render(); }
     } }, '添加角色模板');
@@ -173,7 +173,8 @@ if (base) {
     const city = select('city', base.cities.map((c) => [c.id, `${c.name}${c.faction === 7 ? '（无主）' : ''}`]), o.city ?? 0);
     const faction = select('faction', base.factions.map((f) => [f.id, f.name]), o.faction ?? 0);
     const cityField = field('登场城市', city), factionField = field('自动出仕势力', faction);
-    const showAppearance = () => { cityField.hidden = appearance.value === 'automatic_faction'; factionField.hidden = appearance.value !== 'automatic_faction'; };
+    const priorityField = field('登场后优先搜索', el('input', { type: 'checkbox', name: 'searchPriority', checked: !!o.searchPriority }));
+    const showAppearance = () => { cityField.hidden = appearance.value === 'automatic_faction'; factionField.hidden = appearance.value !== 'automatic_faction'; priorityField.hidden = appearance.value !== 'search_city'; };
     appearance.addEventListener('change', showAppearance); showAppearance();
     const born = el('input', { name: 'birthYear', type: 'number', min: 0, max: 9999, step: 1, value: o.birthYear ?? '', placeholder: '可留空' });
     const portraitSelect = select('portraitId', base.officers.map((p) => [p.id, `No.${p.id} ${p.name}`]), o.portraitId);
@@ -263,7 +264,7 @@ if (base) {
       field('专属单挑技', select('duelSkill', [['', '无'], ...Object.entries(DUEL_SKILLS).map(([key, skill]) => [key, `${skill.name}（命中${skill.hit >= 0 ? '+' : ''}${skill.hit}，伤害${skill.damage}%）`])], o.duelSkill ?? '')),
       ...stats.map(([key, label, lo, hi]) => field(label, input(key, o[key], lo, hi))),
       field('出生年份', born), field('出生地', select('birthCity', [['', '未知'], ...base.cities.map((c) => [c.id, c.name])], o.birthCity ?? '')),
-      field('登场方式', appearance), cityField, factionField,
+      field('登场方式', appearance), cityField, factionField, priorityField,
       el('div', { class: 'wide portrait-editor' }, preview, el('div', {}, field('上传人物图片', upload), note, clearImage)),
       el('div', { class: 'wide' }, el('h3', {}, '立绘、表情与动作'), el('div', { class: 'actions' }, stylePreset, applyPreset),
         el('p', { class: 'intro' }, '可选择内置素材或上传；上传前请填写管理员令牌。动作图为透明 4×4 网格，包含行军、转向、攻击与受伤帧。'),
@@ -283,7 +284,7 @@ if (base) {
         army: fd.get('army'), weapon: number(fd, 'weapon'), armor: number(fd, 'armor'), appear: mode,
         city: mode === 'automatic_faction' ? null : cid,
         faction: mode === 'automatic_faction' ? number(fd, 'faction') : mode === 'initial' ? base.cities[cid]?.faction : null,
-        skills: fd.getAll('skills').map(Number), ...(fd.get('duelSkill') ? { duelSkill: fd.get('duelSkill') } : {}), ...(customImage ? { portraitData: customImage } : {}), ...(Object.keys(visual).length ? { visual } : {}) };
+        skills: fd.getAll('skills').map(Number), ...(mode === 'search_city' && fd.get('searchPriority') ? { searchPriority: true } : {}), ...(fd.get('duelSkill') ? { duelSkill: fd.get('duelSkill') } : {}), ...(customImage ? { portraitData: customImage } : {}), ...(Object.keys(visual).length ? { visual } : {}) };
       update((d) => { const at = d.officers.findIndex((item) => item.id === o.id); if (at < 0) d.officers.push(next); else d.officers[at] = next; }, '人物修改已应用到草稿');
     });
     return workspace(side, panel('detail', el('h2', {}, `${o.name} · No.${o.id}`), form));

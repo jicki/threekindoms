@@ -37,12 +37,118 @@ test('内置动作网格产生可用的行军和单挑帧，并限制纹理尺�
   try {
     const result = await page.evaluate(async () => {
       const { loadGridMotion } = await import('./src/assets.js'), a = await loadGridMotion('assets/characters/sun/motion.png');
+      const image = a.march.tex.image, canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
+      const ctx = canvas.getContext('2d'); ctx.drawImage(image, 0, 0);
+      const pixels = ctx.getImageData(0, 0, 128, 128).data; let top = 128, bottom = -1;
+      for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++) if (pixels[(y * 128 + x) * 4 + 3] > 127) { top = Math.min(top, y); bottom = Math.max(bottom, y); }
       return { march: a.march.meta.frames, duel: a.duel.meta.frames, turn: a.duel.turn.meta.frames,
-        size: [a.duel.tex.image.width, a.duel.tex.image.height], cols: a.duel.meta.atlasCols };
+        size: [a.duel.tex.image.width, a.duel.tex.image.height], cols: a.duel.meta.atlasCols,
+        height: a.duel.meta.figH, pixels: [top, bottom], walk: a.duel.meta.clips.walk, gallop: a.duel.meta.clips.gallop,
+        front: a.duel.turn.meta.clips['front:charge'], back: a.duel.turn.meta.clips['back:charge'] };
     });
     assert.equal(result.march.length, 15); assert.ok(result.duel.includes('strike')); assert.ok(result.duel.includes('downed'));
     assert.ok(result.turn.includes('front_idle')); assert.ok(result.turn.includes('back_idle'));
     assert.ok(result.size.every((n) => n <= 2048)); assert.ok(result.cols > 0);
+    assert.equal(result.pixels[1], 127, '透明脚底不会令人物悬浮');
+    assert.equal(result.height, result.pixels[1] - result.pixels[0] + 1, '人物尺寸按真实可见高度计算');
+    for (const clip of [result.walk, result.gallop, result.front, result.back]) assert.ok(new Set(clip.map(([frame]) => frame)).size > 1, '移动方向均使用行军帧');
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
+test('动作网格首帧为空时仍可加载，其他帧不会越出自己的格子', async () => {
+  const page = await game.open();
+  try {
+    const result = await page.evaluate(async () => {
+      const { loadGridMotion } = await import('./src/assets.js'), source = document.createElement('canvas');
+      source.width = source.height = 512; const ctx = source.getContext('2d');
+      ctx.fillStyle = '#ff0000'; ctx.fillRect(128 + 30, 30, 60, 80);
+      const blob = await new Promise((resolve) => source.toBlob(resolve, 'image/png')), url = URL.createObjectURL(blob);
+      try {
+        const motion = await loadGridMotion(url), canvas = motion.march.tex.image, data = canvas.getContext('2d').getImageData(0, 0, 256, 128).data;
+        let first = 0, second = 0;
+        for (let y = 0; y < 128; y++) for (let x = 0; x < 256; x++) if (data[(y * 256 + x) * 4 + 3]) { if (x < 128) first++; else second++; }
+        return { first, second, height: motion.duel.meta.figH };
+      } finally { URL.revokeObjectURL(url); }
+    });
+    assert.deepEqual(result, { first: 0, second: 4800, height: 112 });
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
+test('七名内置角色的行军帧按同一脚底和角色比例显示', async () => {
+  const page = await game.open();
+  try {
+    const result = await page.evaluate(async () => {
+      const { loadGridMotion } = await import('./src/assets.js'), out = [];
+      for (const key of ['sun', 'zhen', 'diao', 'cai', 'wang', 'chen', 'gao']) {
+        const motion = await loadGridMotion(`assets/characters/${key}/motion.png`), image = motion.march.tex.image;
+        const ctx = image.getContext('2d'), pixels = ctx.getImageData(0, 0, 128 * 5, 128).data, boxes = [];
+        for (let i = 0; i < 5; i++) {
+          let top = 128, bottom = -1;
+          for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++) if (pixels[(y * 640 + i * 128 + x) * 4 + 3] > 127) { top = Math.min(top, y); bottom = Math.max(bottom, y); }
+          boxes.push({ top, bottom });
+        }
+        out.push({ key, height: motion.march.meta.standHeight, duelHeight: motion.duel.meta.figH, boxes });
+        motion.march.tex.dispose(); motion.duel.tex.dispose(); motion.duel.turn.tex.dispose();
+      }
+      return out;
+    });
+    for (const item of result) {
+      assert.ok(item.boxes.every((box) => box.bottom === 127), `${item.key} 行军脚底不一致`);
+      assert.equal(item.height, item.boxes[0].bottom - item.boxes[0].top + 1, `${item.key} 的比例不匹配`);
+      assert.equal(item.duelHeight, item.height);
+    }
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
+test('新角色进入单挑时实际播放多帧行军动作', async () => {
+  const page = await game.open('', { setup: (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-heroes')) });
+  try {
+    await page.evaluate(() => { window.__game.debug.quickTactical(237, 38, 2); });
+    await page.waitForSelector('.tq-form', { timeout: 60000 });
+    await page.locator('.tq-form').first().click(); await page.locator('.tq-deploy:not(.arming)').click();
+    await page.waitForSelector('.tq-start button', { timeout: 30000 });
+    const frames = await page.evaluate(async () => {
+      const { debug } = window.__game, view = debug.duelView, seen = new Set();
+      debug.show('dview');
+      const timer = setInterval(() => { const frame = view.probe(237)?.frame; if (frame) seen.add(frame); }, 20);
+      try { await view.enter(window.__tq, { a: 'attacker', d: 'defender' }); }
+      finally { clearInterval(timer); }
+      return [...seen];
+    });
+    assert.ok(frames.filter((frame) => frame.startsWith('gallop_')).length >= 2, `入场未播放多帧: ${frames}`);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
+test('新角色在白兵移动时实际播放侧面和正面行军帧', async () => {
+  const page = await game.open('', { setup: (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-heroes')) });
+  try {
+    await page.evaluate(() => { window.__game.debug.quickTactical(237, 38, 2); });
+    await page.waitForSelector('.tq-form', { timeout: 60000 });
+    await page.locator('.tq-form').first().click(); await page.locator('.tq-deploy:not(.arming)').click();
+    await page.waitForSelector('.tq-start button', { timeout: 30000 });
+    const frames = await page.evaluate(async () => {
+      const view = window.__game.tview, unit = window.__tq.gen('a'), label = document.querySelector('.tk.attacker.gen');
+      let group; view.scene.traverse((o) => { if (o.isCSS2DObject && o.element === label) group = o.parent; });
+      const maps = [];
+      group.traverse((o) => { const t = o.material?.map; if (t?.image?.width === 2048 && !maps.includes(t)) maps.push(t); });
+      const side = maps.find((t) => t.image.height === 256), turn = maps.find((t) => t.image.height === 128);
+      if (!side || !turn) throw new Error('未找到人物白兵动作图');
+      const seen = { side: new Set(), front: new Set() }, index = (t) => Math.round(t.offset.x * 16) + (t.offset.y < 0.25 && t.image.height === 256 ? 16 : 0);
+      const timer = setInterval(() => { seen.side.add(index(side)); seen.front.add(index(turn)); }, 20);
+      view.setSpeed(0.25); const [x, y] = [unit.x, unit.y];
+      try {
+        for (let i = 0; i < 4; i++) await view.play({ type: 'move', u: unit, from: [x + (i % 2), y], to: [x + (1 - i % 2), y] }, {});
+        for (let i = 0; i < 4; i++) await view.play({ type: 'move', u: unit, from: [x, y + (i % 2)], to: [x, y + (1 - i % 2)] }, {});
+        await view.settle();
+      } finally { clearInterval(timer); }
+      return { side: [...seen.side], front: [...seen.front] };
+    });
+    assert.ok(frames.side.filter((i) => i >= 2 && i <= 5).length >= 2, `侧面未行军: ${frames.side}`);
+    assert.ok(frames.front.filter((i) => i === 1 || i === 2).length >= 2, `正面未行军: ${frames.front}`);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });

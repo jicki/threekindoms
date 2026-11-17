@@ -32,9 +32,21 @@ test('扩展版本可在编辑器配置专属技能并发布供玩家使用', as
     await content.getByLabel('搜索武将').fill('陈宫');
     await content.getByRole('button', { name: /No\.242\s+陈宫/ }).click();
     assert.equal(await content.getByRole('checkbox', { name: '公台奇谋' }).isChecked(), true);
+    assert.equal(await content.getByLabel('登场后优先搜索').isChecked(), true);
+    await content.getByLabel('登场后优先搜索').uncheck();
+    await content.getByRole('button', { name: '应用修改' }).click();
+    assert.equal(await content.getByLabel('登场后优先搜索').isChecked(), false);
+    await content.getByLabel('登场后优先搜索').check();
     await content.getByLabel('专属单挑技').selectOption('longdan');
     await content.getByRole('button', { name: '应用修改' }).click();
     await admin.getByText('人物修改已应用到草稿').waitFor();
+    await content.getByLabel('搜索武将').fill('吕布');
+    await content.getByRole('button', { name: /No\.218\s+吕布/ }).click();
+    assert.equal(await content.getByLabel('专属单挑技').inputValue(), 'fangtian');
+    await content.getByLabel('专属单挑技').selectOption('');
+    await content.getByRole('button', { name: '应用修改' }).click();
+    await content.getByLabel('专属单挑技').selectOption('fangtian');
+    await content.getByRole('button', { name: '应用修改' }).click();
     await admin.getByRole('tab', { name: '新技能' }).click();
     await content.getByRole('button', { name: '公台奇谋', exact: true }).click();
     await content.getByLabel('每场使用次数').fill('1');
@@ -47,12 +59,53 @@ test('扩展版本可在编辑器配置专属技能并发布供玩家使用', as
     try {
       const result = await player.evaluate(() => {
         const data = window.__game.G.data();
-        return { name: data.officers[242].name, skill: data.officers[242].duelSkill, strategies: data.officers[242].skills,
+        return { name: data.officers[242].name, priority: data.officers[242].searchPriority, skill: data.officers[242].duelSkill, strategies: data.officers[242].skills, lubu: data.officers[218].duelSkill,
           uses: data.customSkills.find((skill) => skill.id === 18).maxUses };
       });
-      assert.deepEqual(result, { name: '陈宫', skill: 'longdan', strategies: [18], uses: 1 });
+      assert.deepEqual(result, { name: '陈宫', priority: true, skill: 'longdan', strategies: [18], lubu: 'fangtian', uses: 1 });
       assert.deepEqual(player.errors, []);
     } finally { await player.context().close(); }
+    assert.deepEqual(admin.errors, []);
+  } finally { await admin.context().close(); }
+});
+
+test('人物志按年份显示优先寻访和实际可寻访状态', async () => {
+  const page = await game.open('&flat', { setup: (context) => context.addInitScript(() => {
+    sessionStorage.setItem('haou-hd2d-scenario', 'builtin-heroes');
+    localStorage.setItem('hd2d-talent', 'all');
+  }) });
+  try {
+    await newCampaign(page);
+    await page.evaluate(() => { window.__game.g.year = 191; });
+    await page.keyboard.press('r');
+    const row = page.locator('tr[data-id="242"]');
+    assert.match(await row.innerText(), /兖州搜索\s*优先/);
+    assert.match(await row.innerText(), /192年起优先/);
+    await page.evaluate(() => { window.__game.g.year = 192; });
+    await page.getByLabel('查找武将').fill('陈宫');
+    assert.match(await row.innerText(), /可寻访/);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
+test('修改登场方式时编辑器隐藏并清除不适用的搜索优先设置', async () => {
+  const admin = await game.open();
+  try {
+    await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
+    await admin.locator('#published').selectOption('builtin-heroes');
+    await admin.getByRole('button', { name: '载入为新草稿' }).click();
+    const content = admin.locator('#content');
+    await content.getByLabel('搜索武将').fill('陈宫');
+    await content.getByRole('button', { name: /No\.242\s+陈宫/ }).click();
+    await content.getByLabel('登场方式').selectOption('automatic_faction');
+    assert.equal(await content.getByLabel('登场后优先搜索').isVisible(), false);
+    await content.getByRole('button', { name: '应用修改' }).click();
+    assert.equal(await admin.evaluate(() => Object.hasOwn(window.__admin.draft.officers.find((o) => o.id === 242), 'searchPriority')), false);
+    await content.getByLabel('登场方式').selectOption('search_city');
+    await content.getByLabel('登场城市').selectOption('11');
+    await content.getByLabel('登场后优先搜索').check();
+    await content.getByRole('button', { name: '应用修改' }).click();
+    assert.equal(await admin.evaluate(() => window.__admin.draft.officers.find((o) => o.id === 242).searchPriority), true);
     assert.deepEqual(admin.errors, []);
   } finally { await admin.context().close(); }
 });
@@ -164,6 +217,29 @@ test('新增人物素材可解码，单挑技在页面显示、使用后禁用',
   } finally { await page.context().close(); }
 });
 
+test('吕布可在单挑页面使用方天破阵且每场只有一次', async () => {
+  const page = await game.open('', { setup: (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-heroes')) });
+  try {
+    await page.evaluate(() => { window.__game.debug.quickTactical(218, 38, 2); });
+    await page.waitForSelector('.tq-form', { timeout: 60000 });
+    await page.locator('.tq-form').first().click(); await page.locator('.tq-deploy:not(.arming)').click();
+    await page.waitForSelector('.tq-start button', { timeout: 30000 });
+    await page.evaluate(() => {
+      const battle = window.__tq; battle.startDuel('a');
+      battle.duel.side.a.hp = battle.duel.side.d.hp = 100;
+      battle.duel.side.a.F = 10; battle.duel.side.a.eq.atk = 0; battle.duel.aiCommand = () => 'feint';
+    });
+    await page.locator('.tq-start button:not(.arming)').click();
+    const skill = page.locator('.tq-duel-acts .tq-special', { hasText: '方天破阵' });
+    await skill.waitFor({ timeout: 30000 }); assert.equal(await skill.isEnabled(), true);
+    assert.match(await skill.textContent(), /120%伤/);
+    await skill.click();
+    await page.waitForFunction(() => window.__tq.duel?.specialUsed.a === true, null, { timeout: 30000 });
+    await skill.waitFor({ timeout: 30000 }); assert.equal(await skill.isDisabled(), true);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
 test('手机横屏中专属单挑技可见且可以点击', async () => {
   const page = await game.open('&phone', { setup: (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-heroes')) });
   try {
@@ -195,6 +271,9 @@ test('添加新角色模板时自动加入对应的受限计略和单挑技', as
     assert.equal(await content.getByRole('checkbox', { name: '坚城奇策' }).isChecked(), true);
     const draft = await admin.evaluate(() => window.__admin.draft);
     assert.deepEqual(draft.officers[0].skills, [16]); assert.equal(draft.skills[0].maxUses, 2);
+    assert.equal(draft.weapons.find((e) => e.name === '落日弓').atk, 14);
+    const armor = draft.armors.find((e) => e.name === '凤羽宝衣');
+    assert.deepEqual([armor.dfn, armor.weight, armor.price, armor.requirements.virtue], [11, 5, 480, 85]);
     assert.deepEqual(admin.errors, []);
   } finally { await admin.context().close(); }
 });

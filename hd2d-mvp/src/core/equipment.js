@@ -17,7 +17,7 @@ export function equipmentIconUrl(value) {
 }
 
 // 角色模板复用同名同类型的装备；缺少时在版本内追加，编号不因之后添加装备而移动。
-export function ensureFemaleGear(draft, base, character) {
+export function ensureFemaleGear(draft, base, character, { balanced = false } = {}) {
   const armors = draft.armors ??= [];
   const cityIds = (ids) => base.cities.filter((c) => c.facilities.weapons && (!ids || ids.includes(c.id))).map((c) => c.id);
   const nextId = () => base.equipment.length + draft.weapons.length + armors.length;
@@ -36,7 +36,7 @@ export function ensureFemaleGear(draft, base, character) {
     { name: '木弓', cat: '弓', atk: 3, weight: 3, price: 70, icon: 'b-bow', grade: 1 },
     { name: '角弓', cat: '弓', atk: 6, weight: 4, price: 130, icon: 'b-bow', grade: 2 },
     { name: '穿云弓', cat: '弓', atk: 13, weight: 5, price: 300, icon: 'b-bow', grade: 4, requirements: { war: 70 }, cities: [4, 8, 12, 15, 20, 26] },
-    { name: '落日弓', cat: '弓', atk: 15, weight: 6, price: 400, icon: 'b-bow', grade: 5, requirements: { war: 85 }, cities: [15, 20] },
+    { name: '落日弓', cat: '弓', atk: balanced ? 14 : 15, weight: 6, price: 400, icon: 'b-bow', grade: 5, requirements: { war: 85 }, cities: [15, 20] },
     { name: '竹扇', cat: '扇', atk: 3, weight: 2, price: 60, icon: 'b-fan', grade: 1 },
     { name: '轻羽扇', cat: '扇', atk: 5, weight: 2, price: 110, icon: 'b-fan', grade: 2 },
     { name: '玄策扇', cat: '扇', atk: 11, weight: 4, price: 260, icon: 'b-fan', grade: 4, requirements: { int: 75 }, cities: [4, 8, 12, 26] },
@@ -46,7 +46,7 @@ export function ensureFemaleGear(draft, base, character) {
     { name: '绫罗轻衣', dfn: 3, weight: 2, price: 80, icon: 'b-female-armor', grade: 1 },
     { name: '银纹战衣', dfn: 5, weight: 3, price: 140, icon: 'b-female-armor', grade: 2 },
     { name: '凤纹轻铠', dfn: 10, weight: 5, price: 300, icon: 'b-female-armor', grade: 4, requirements: { virtue: 70 }, cities: [4, 8, 12, 15, 26] },
-    { name: '凤羽宝衣', dfn: 12, weight: 4, price: 420, icon: 'b-female-armor', grade: 5, requirements: { virtue: 80 }, cities: [4, 12, 15] },
+    { name: '凤羽宝衣', dfn: balanced ? 11 : 12, weight: balanced ? 5 : 4, price: balanced ? 480 : 420, icon: 'b-female-armor', grade: 5, requirements: { virtue: balanced ? 85 : 80 }, cities: [4, 12, 15] },
   ];
   for (const item of weapons) add('weapon', item);
   for (const item of protection) add('armor', item);

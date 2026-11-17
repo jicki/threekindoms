@@ -52,11 +52,18 @@ class ValidationTest(unittest.TestCase):
         scenario['officers'] = [{**{key: officer[key] for key in fields}, 'birthYear': None, 'birthCity': None,
                                  'portraitId': 130, 'skills': [16], 'duelSkill': 'qinglong',
                                  'visual': {'portrait': 'b-chen-portrait', 'motion': 'b-chen-motion'}}]
-        cases = [version(), scenario]
+        priority = copy.deepcopy(scenario)
+        priority['officers'][0].update({'appear': 'search_city', 'faction': None, 'searchPriority': True})
+        disabled = copy.deepcopy(scenario); disabled['officers'][0]['searchPriority'] = False
+        lubu = copy.deepcopy(scenario); lubu['officers'][0]['duelSkill'] = 'fangtian'
+        cases = [version(), scenario, priority, disabled, lubu]
         for value in (0, 4, True, None, 1.5):
             bad = copy.deepcopy(scenario); bad['skills'][0]['maxUses'] = value; cases.append(bad)
         for value in ('__proto__', '', None, 4):
             bad = copy.deepcopy(scenario); bad['officers'][0]['duelSkill'] = value; cases.append(bad)
+        for value in (1, 'true', None):
+            bad = copy.deepcopy(priority); bad['officers'][0]['searchPriority'] = value; cases.append(bad)
+        bad = copy.deepcopy(scenario); bad['officers'][0]['searchPriority'] = True; cases.append(bad)
         code = """import {readFileSync} from 'node:fs';
 import {validateScenario} from './hd2d-mvp/src/core/scenario.js';
 const base = JSON.parse(readFileSync('hd2d-mvp/data/game-data.json'));
@@ -67,7 +74,7 @@ console.log(JSON.stringify(cases.map((s) => { try { validateScenario(s, base); r
         for item in cases:
             try: validate(item, BASE); server.append(True)
             except ScenarioError: server.append(False)
-        self.assertEqual(server, [True, True] + [False] * (len(cases) - 2))
+        self.assertEqual(server, [True] * 5 + [False] * (len(cases) - 5))
         self.assertEqual(browser, server)
 
     def test_new_equipment_validation_matches_browser_and_preserves_old_versions(self):

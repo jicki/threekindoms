@@ -269,7 +269,7 @@ def validate(s, base):
             fail('技能至少需要一种效果')
     seen, rosters = set(), [list(c['officers']) for c in base['cities']]
     for o in officers:
-        obj(o, '武将', ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'portraitData', 'appear', 'city', 'faction', 'skills', 'duelSkill', 'visual'])
+        obj(o, '武将', ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'portraitData', 'appear', 'city', 'faction', 'skills', 'duelSkill', 'visual', 'searchPriority'])
         integer(o.get('id'), '武将编号', 0, max_officer); oid = o['id']
         if oid in seen:
             fail('武将编号重复')
@@ -307,6 +307,10 @@ def validate(s, base):
         appear = o.get('appear')
         if appear not in ('initial', 'search_city', 'automatic_faction'):
             fail('登场方式无效')
+        if 'searchPriority' in o and type(o['searchPriority']) is not bool:
+            fail('搜索优先设置无效')
+        if o.get('searchPriority') and appear != 'search_city':
+            fail('只有城市搜索登场的武将可以优先搜索')
         if appear == 'automatic_faction':
             if 'city' not in o or o['city'] is not None:
                 fail('自动出仕的武将不能指定登场城市')
@@ -330,7 +334,7 @@ def validate(s, base):
             integer(sid, '技能编号', 16, 15 + len(skills))
         if len(set(selected)) != len(selected):
             fail('武将技能重复')
-        if 'duelSkill' in o and (not isinstance(o['duelSkill'], str) or o['duelSkill'] not in ('qinglong', 'longdan', 'yanren', 'gongyao', 'shoucheng', 'xianzhen')):
+        if 'duelSkill' in o and (not isinstance(o['duelSkill'], str) or o['duelSkill'] not in ('qinglong', 'longdan', 'yanren', 'gongyao', 'shoucheng', 'xianzhen', 'fangtian')):
             fail('单挑技无效')
         prior = base['officers'][oid] if oid < nbase else None
         if prior is None or any(prior[k] != o[k] for k in ('appear', 'city', 'faction')):

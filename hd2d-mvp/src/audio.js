@@ -201,7 +201,12 @@ export class Audio {
     if (url) {
       this.preload(key).then((b) => {
         const s = this.ctx.createBufferSource(); s.buffer = b;
-        if (!VARIED.has(key)) { s.connect(this.sfxGain); s.start(); return; }
+        if (!VARIED.has(key)) {
+          s.connect(this.sfxGain); s.start();
+          // 两种原版单挑声听感接近；攻击保留原声，并在出手接触时加短促低频冲击。
+          if (key === 'sfx-duel-blow') this.sweep(180, 55, 0.18, 'sine', 0.16);
+          return;
+        }
         const gv = this.ctx.createGain(); gv.gain.value = 10 ** ((Math.random() * 3 - 1.5) / 20); s.playbackRate.value = 0.97 + Math.random() * 0.06;
         s.connect(gv).connect(this.sfxGain); s.start();
       }).catch(() => this.sfxFallback(key));
@@ -235,7 +240,7 @@ export class Audio {
       'sfx-duel-swing': () => { this.sweep(1800, 520, 0.18, 'square', 0.03); this.noise(0.14, 2600, 0.08); },
       'sfx-chime': () => { this.tone(88, 0.12, 'square', 0.05); this.tone(95, 0.1, 'square', 0.03); this.noise(0.08, 4000, 0.12); },
       'sfx-duel-desperate': () => { this.noise(0.35, 1800, 0.3); this.sweep(300, 60, 0.3, 'sawtooth', 0.1); },
-      'sfx-duel-blow': () => { this.noise(0.22, 3000, 0.26); this.tone(45, 0.15, 'sawtooth', 0.08); },
+      'sfx-duel-blow': () => { this.noise(0.22, 3000, 0.26); this.sweep(180, 55, 0.18, 'sine', 0.16); },
     };
     S[key]?.();
   }

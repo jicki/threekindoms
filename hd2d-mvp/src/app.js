@@ -1554,14 +1554,15 @@ function debutText(id) {
   const d = G.debutInfo(id);
   if (d.kind === 'initial') return `开局 · ${cityName(d.city)}`;
   if (d.kind === 'phantom') return '流落自王莆';
-  if (d.kind === 'search') return `${cityName(d.city)}搜索${talentMode === 'all' ? ` 第${d.order}` : ''}`;
+  if (d.kind === 'search') return `${cityName(d.city)}搜索${talentMode === 'all' ? (d.priority ? ' 优先' : ` 第${G.searchOrder(g, d.city).indexOf(id) + 1}`) : ''}`;
   return `自动出仕 · ${factionName(d.faction)}军`;
 }
 function waitText(id) {
   const d = G.debutInfo(id);
   if (d.kind === 'auto' && g.factions[d.faction].ruler == null) return ['势力已灭', 'bad'];
-  const list = d.kind === 'search' ? G.searchQueue(d.city) : G.joinQueue(d.faction), head = G.queueHead(g, list);
-  if (head?.id !== id) return [`前有 ${list.slice(0, d.order - 1).filter((i) => g.officers[i].status === G.UNAPPEARED).length} 人`, ''];
+  if (d.priority && g.year < d.year) return [`${d.year}年起优先`, ''];
+  const list = d.kind === 'search' ? G.searchOrder(g, d.city) : G.joinQueue(d.faction), head = G.queueHead(g, list);
+  if (head?.id !== id) return [`前有 ${list.slice(0, list.indexOf(id)).filter((i) => g.officers[i].status === G.UNAPPEARED).length} 人`, ''];
   if (!head.ready) return [`${d.year}年起`, ''];
   if (d.kind === 'search') return g.cities[d.city].officers.length >= 10 ? ['城已满10人', 'bad'] : ['可寻访', 'go'];
   const c = g.cities[g.factions[d.faction].city];

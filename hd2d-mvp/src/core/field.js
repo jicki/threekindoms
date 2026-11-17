@@ -317,6 +317,11 @@ export class Field {
   dist(a, b) { return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)); }
   adjacent(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1; }
   enemyNeighbours(t, pred = () => true) { return DIRS.map(([dx, dy]) => this.unitAt(t.x + dx, t.y + dy)).filter((e) => e && e.side === t.side && pred(e)); }
+  // 守方行动结束会先换日；比较实际剩余的目标回合，而不是直接比较计数器。
+  stopTurnsWhenNext(t) {
+    const tick = this.turn === 'def' && t.side === 'att' && !t.stopSkipTick;
+    return Math.max(0, (t.stop || 0) - (tick ? 1 : 0));
+  }
   strategies(u) {
     const normal = STRATS.slice(0, stratCount(u.id, this.O(u.id)));
     const custom = (data().officers[u.id]?.skills ?? []).map((id) => STRATS[id]).filter((s) => s?.custom);
@@ -418,10 +423,12 @@ export class Field {
       if (S.soldiers) loss(t, S.soldiers);
       if (S.hp) hp(t, S.hp);
       if (S.stop && !t.gone) {
-        t.stop = S.stop; t.stopBy = S.name;
-        // 守方施放后立即换日，但目标尚未行动，首次换日不消耗限制天数。
-        if (u.side === 'def') t.stopSkipTick = true; else delete t.stopSkipTick;
-        lines.push(`${nm(t)} 无法移动 ${S.stop} 日`);
+        if (S.stop > this.stopTurnsWhenNext(t)) {
+          t.stop = S.stop; t.stopBy = S.name;
+          // 守方施放后立即换日，但目标尚未行动，首次换日不消耗限制天数。
+          if (u.side === 'def') t.stopSkipTick = true; else delete t.stopSkipTick;
+          lines.push(`${nm(t)} 无法移动 ${S.stop} 日`);
+        } else lines.push(`${nm(t)} 保持原有移动限制`);
       }
       if (S.rice) {
         const ch = this.chest(t.side), amount = Math.min(ch.rice, S.rice);
@@ -599,12 +606,17 @@ export class Field {
     if (u.role === 7) return null;
     const adj = this.adjacentEnemies(u);
     const commanderFoe = this.side(foe).find((e) => e.commander);
+    let custom = null;
     for (const skill of this.strategies(u).filter((item) => item.custom)) {
       if (this.pool[s] < skill.cost || (skill.maxUses && (u.skillUses?.[skill.id] ?? 0) >= skill.maxUses)) continue;
-      const target = this.side(foe).filter((e) => this.legal(u, skill.id, e))
-        .find((e) => (skill.soldiers && this.O(e.id).soldiers) || (skill.hp && this.O(e.id).hp) || (skill.stop && !e.stop) || (skill.rice && this.chest(e.side).rice));
-      if (target) return this.doCast(u, skill.id, target);
+      for (const target of this.side(foe).filter((e) => this.legal(u, skill.id, e))) {
+        const o = this.O(target.id), value = Math.min(skill.soldiers, o.soldiers) + 20 * Math.min(skill.hp, o.hp)
+          + 40 * Math.max(0, skill.stop - this.stopTurnsWhenNext(target)) + Math.min(skill.rice, this.chest(target.side).rice) / 5;
+        const score = value * realChance(this.hitChance(u, target)) * (target.commander ? 1.2 : 1);
+        if (score > (custom?.score ?? 0)) custom = { skill, target, score };
+      }
     }
+    if (custom) return this.doCast(u, custom.skill.id, custom.target);
     const special = this.aiStrategy(u, true);
     if (special) return special;
     if (u.role === 0) {

@@ -8,6 +8,8 @@ import { FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, visualUrl } from '../src/core/vis
 import { Field, PLAIN } from '../src/core/field.js';
 import { Tactical } from '../src/core/tactical.js';
 import { Duel } from '../src/core/skirmish.js';
+import { equip, housekeeping } from '../src/core/ai.js';
+import { suspend, peekSuspend } from '../src/core/suspend.js';
 
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
 const expanded = await loadScenario(HERO_SCENARIO_ID, base);
@@ -86,6 +88,142 @@ test('旧巾帼存档中的动态武将与扩展角色不会共用同一版本�
   } finally { G.setData(base); }
 });
 
+test('合并版旧存档、快速存档及中断战斗保留动态武将和装备编号', () => {
+  const savedLocal = Object.getOwnPropertyDescriptor(globalThis, 'localStorage'), records = new Map();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key) => records.get(key) ?? null, setItem: (key, value) => records.set(key, String(value)), removeItem: (key) => records.delete(key),
+  } });
+  const previous = structuredClone(expanded);
+  Object.assign(previous.weapons.find((e) => e.name === '落日弓'), { atk: 15 });
+  Object.assign(previous.armors.find((e) => e.name === '凤羽宝衣'), { dfn: 12, weight: 4, price: 420, requirements: { virtue: 80 } });
+  previous.officers = previous.officers.filter((officer) => officer.id !== 218);
+  for (const officer of previous.officers) delete officer.searchPriority;
+  G.setData(applyScenario(base, previous), HERO_SCENARIO_ID);
+  try {
+    const g = G.newGame(4, 1, 1); g.year = 200;
+    g.officers.push({ ...g.officers[0], id: 244, debut: 200 }); g.clones = [244]; G.registerClones(g);
+    g.officers[237].weapon = 38; g.officers[237].armor = 22;
+    const { f, war } = fieldFor(g);
+    assert.equal(G.save(g, 1), true); assert.equal(G.saveQuick(g), true); assert.equal(G.saveAuto(g), true);
+    assert.equal(suspend(g, war, f, { side: 'att', start: { 242: 500, 38: 500 }, after: { kind: 'att' } }), true);
+    G.setData(data(), HERO_SCENARIO_ID);
+    const normal = G.load(1), quick = G.loadQuick(), auto = G.loadAuto(), held = peekSuspend();
+    for (const saved of [normal, quick, auto, held?.g]) {
+      assert.ok(saved); assert.equal(saved.year, 200); assert.equal(saved.officers[237].weapon, 38);
+      assert.equal(saved.officers[237].armor, 22); assert.deepEqual(saved.clones, [244]);
+    }
+    assert.equal(G.data().officers[244].clone, true);
+    assert.equal(G.data().equipment[38].atk, 14); assert.equal(G.data().equipment[46].dfn, 11);
+    assert.equal(G.data().officers[218].duelSkill, 'fangtian');
+    const restored = Field.restore(held.g, held.war, held.field);
+    assert.deepEqual(restored.units.map((unit) => unit.id).sort((a, b) => a - b), [38, 242]);
+  } finally {
+    G.setData(base);
+    if (savedLocal) Object.defineProperty(globalThis, 'localStorage', savedLocal); else delete globalThis.localStorage;
+  }
+});
+
+test('吕布只在合并版拥有方天破阵，每场单挑限用一次', async () => {
+  const current = data(), legacy = applyScenario(base, await loadScenario(FEMALE_SCENARIO_ID, base));
+  assert.equal(base.officers[218].duelSkill, undefined);
+  assert.equal(legacy.officers[218].duelSkill, undefined);
+  assert.equal(current.officers[218].duelSkill, 'fangtian');
+  G.setData(current, HERO_SCENARIO_ID);
+  try {
+    const g = G.newGame(4, 1, 1), battle = new Tactical(g, 218, 38, 2, () => 0, { human: 'a' });
+    battle.side.a.F = 60; battle.side.a.eq.atk = 12; battle.side.d.eq.def = 2; battle.side.d.hp = 99;
+    const duel = new Duel(battle.side, (n) => n === 256 ? 13 : 0, g, 'a');
+    assert.equal(duel.special('a').name, '方天破阵');
+    assert.equal(duel.threshold('a', 'special'), duel.hitChance('a') - 10);
+    assert.equal(duel.canSpecial('a'), true); assert.equal(duel.aiCommand('a'), 'special');
+    assert.equal(duel.act('a', 'special').hit, true); assert.equal(duel.canSpecial('a'), false);
+    assert.throws(() => duel.act('a', 'special'), /not allowed/);
+    assert.equal(new Duel(battle.side, () => 0, g, 'a').canSpecial('a'), true, '新单挑重新可用');
+  } finally { G.setData(base); }
+});
+
+test('陈宫和高顺在登场年份优先搜索，之前不阻挡其他人，玩家和电脑均可寻访', () => {
+  G.setData(data(), HERO_SCENARIO_ID);
+  try {
+    for (const [id, city] of [[242, 11], [243, 12]]) {
+      const g = G.newGame(4, 1, 1), original = G.searchQueue(city), first = original[0];
+      g.year = 191; assert.equal(G.searchOrder(g, city)[0], first);
+      g.year = 192; assert.equal(G.searchOrder(g, city)[0], id);
+      assert.equal(G.cityTalent(g, city).head.id, id);
+      g.sangu = true; g.cities[city].officers = [0];
+      for (let n = 0; n < 3 && g.officers[id].status === G.UNAPPEARED; n++) G.search(g, city, 0);
+      assert.equal(g.officers[id].status, G.SERVING);
+      assert.equal(G.searchOrder(g, city)[0], first, '原有未登场武将仍可搜索');
+
+      const ai = G.newGame(4, 1, 1), faction = ai.cities[city].faction;
+      ai.year = 192; housekeeping(ai, faction, () => 0, () => true);
+      assert.equal(ai.officers[id].status, G.SERVING, '电脑可按相同优先顺序搜索');
+    }
+  } finally { G.setData(base); }
+});
+
+test('合并版装备平衡调整不改变旧巾帼版本的装备和编号', async () => {
+  const legacy = applyScenario(base, await loadScenario(FEMALE_SCENARIO_ID, base)), current = data();
+  for (const name of ['落日弓', '凤羽宝衣']) {
+    const a = legacy.equipment.find((e) => e.name === name), b = current.equipment.find((e) => e.name === name);
+    assert.equal(a.id, b.id);
+    if (name === '落日弓') assert.deepEqual([a.atk, a.weight, b.atk, b.weight], [15, 6, 14, 6]);
+    else assert.deepEqual([a.dfn, a.weight, a.price, a.requirements.virtue, b.dfn, b.weight, b.price, b.requirements.virtue], [12, 4, 420, 80, 11, 5, 480, 85]);
+  }
+});
+
+test('电脑在合并版购买最优可负担的弓，并可为合适武将首次购入弓或扇', () => {
+  const d = data(); G.setData(d, HERO_SCENARIO_ID);
+  try {
+    const g = G.newGame(4, 1, 1), c = g.cities[15], bow = d.equipment.find((e) => e.name === '落日弓');
+    c.officers = [237]; c.gold = 400;
+    assert.equal(equip(g, c, () => 0, () => false), true);
+    assert.equal(g.officers[237].weapon, bow.id); assert.equal(c.gold, 0);
+    const g2 = G.newGame(4, 1, 1), c2 = g2.cities[15]; c2.officers = [38]; c2.gold = 400;
+    g2.officers[38].weapon = 0; g2.officers[38].armor = 7;
+    assert.equal(equip(g2, c2, () => 0, () => false), true);
+    assert.equal(g2.officers[38].weapon, bow.id); assert.equal(c2.gold, 0);
+    const g3 = G.newGame(4, 1, 1), c3 = g3.cities[8], fan = d.equipment.find((e) => e.name === '玄策扇');
+    c3.officers = [109]; c3.gold = 260; g3.officers[109].weapon = 0; g3.officers[109].armor = 7;
+    assert.equal(equip(g3, c3, () => 0, () => false), true);
+    assert.equal(g3.officers[109].weapon, fan.id); assert.equal(c3.gold, 0);
+  } finally { G.setData(base); }
+});
+
+test('电脑购买遵守价格和属性条件，持弓后不会来回更换武器类别', () => {
+  const d = data(); G.setData(d, HERO_SCENARIO_ID);
+  try {
+    const g = G.newGame(4, 1, 1), c = g.cities[15]; c.officers = [38]; c.gold = 400;
+    Object.assign(g.officers[38], { weapon: 0, armor: 7, war: 84 });
+    assert.equal(equip(g, c, () => 0, () => false), true);
+    assert.equal(d.equipment[g.officers[38].weapon].name, '穿云弓'); assert.equal(c.gold, 100);
+    const g2 = G.newGame(4, 1, 1), c2 = g2.cities[4]; c2.officers = [109]; c2.gold = 360;
+    Object.assign(g2.officers[109], { weapon: 37, armor: 7 });
+    assert.equal(equip(g2, c2, () => 0, () => false), false);
+    assert.equal(g2.officers[109].weapon, 37); assert.equal(c2.gold, 360);
+    c2.gold = 1; assert.equal(equip(g2, c2, () => 0, () => true), false); assert.equal(c2.gold, 1);
+
+    d.equipment[38].requirements.officers = [237];
+    const g3 = G.newGame(4, 1, 1), c3 = g3.cities[15]; c3.officers = [38]; c3.gold = 400;
+    Object.assign(g3.officers[38], { weapon: 0, armor: 7, war: 99 });
+    assert.equal(equip(g3, c3, () => 0, () => false), true);
+    assert.equal(d.equipment[g3.officers[38].weapon].name, '穿云弓', '指定武将条件必须生效');
+
+    const g4 = G.newGame(4, 1, 1), c4 = g4.cities[8]; c4.officers = [38, 109]; c4.gold = 70;
+    Object.assign(g4.officers[38], { weapon: 6, armor: 7 });
+    Object.assign(g4.officers[109], { weapon: 0, armor: 7 });
+    assert.equal(equip(g4, c4, () => 0, () => false), true);
+    assert.equal(g4.officers[38].weapon, 6); assert.notEqual(g4.officers[109].weapon, 0);
+    assert.ok(c4.gold >= 0, '高武力武将没有可负担升级时不阻挡其他武将');
+
+    const g5 = G.newGame(4, 1, 1), c5 = g5.cities[8]; c5.officers = [38]; c5.gold = 300;
+    Object.assign(g5.officers[38], { weapon: 2, armor: 7 });
+    d.cities[8].ai_shop = [37]; d.equipment[37].weight = 20;
+    assert.equal(equip(g5, c5, () => 0, () => true), false, '过重的高攻击弓不应被视为升级');
+    assert.equal(g5.officers[38].weapon, 2); assert.equal(c5.gold, 300);
+  } finally { G.setData(base); }
+});
+
 test('专属单挑技只供配置者使用，每场一次且不改变普通攻击的随机结算', () => {
   G.setData(data(), HERO_SCENARIO_ID);
   try {
@@ -144,6 +282,51 @@ function fieldFor(g) {
   f.turn = 'att'; f.pool.att = 99; f.r = () => 0;
   return { f, me, foe, war };
 }
+
+test('专属计略不会缩短已有控制，换日与中断恢复保留正确的目标行动次数', () => {
+  G.setData(data(), HERO_SCENARIO_ID);
+  try {
+    const g = G.newGame(4, 1, 1), { f, me, foe, war } = fieldFor(g);
+    f.map[foe.y][foe.x] = 0; // 虚兵的目标需要森林
+    assert.equal(f.cast(me, 2, foe).hit, true); assert.equal(foe.stop, 3);
+    assert.equal(f.cast(me, 18, foe).hit, true); assert.equal(foe.stop, 3); assert.equal(foe.stopBy, '虚兵');
+    f.endTurn(); assert.equal(f.turn, 'def'); assert.equal(foe.stop, 3);
+    f.endTurn(); assert.equal(foe.stop, 2);
+
+    const other = fieldFor(G.newGame(4, 1, 1)), defender = other.foe, attacker = other.me;
+    other.f.turn = 'def'; other.f.pool.def = 99; other.f.map[attacker.y][attacker.x] = 0;
+    assert.equal(other.f.cast(defender, 2, attacker, true).hit, true); assert.equal(attacker.stop, 2);
+    assert.equal(other.f.cast(defender, 18, attacker, true).hit, true); assert.equal(attacker.stop, 2);
+    let resumed = Field.restore(other.f.g, other.war, other.f.snapshot());
+    let restored = resumed.units.find((u) => u.id === attacker.id);
+    resumed.endTurn(); assert.equal(restored.stop, 1, '原限制下一次换日后仍生效一回合');
+
+    const expires = fieldFor(G.newGame(4, 1, 1)); expires.f.turn = 'def'; expires.f.pool.def = 99;
+    Object.assign(expires.me, { stop: 1, stopBy: '虚兵' });
+    assert.equal(expires.f.cast(expires.foe, 18, expires.me, true).hit, true);
+    assert.equal(expires.me.stopSkipTick, true, '原限制即将失效时新限制仍需生效');
+    resumed = Field.restore(expires.f.g, expires.war, expires.f.snapshot());
+    restored = resumed.units.find((u) => u.id === expires.me.id);
+    resumed.endTurn(); assert.equal(restored.stop, 1);
+    resumed.endTurn(); resumed.endTurn(); assert.equal(restored.stop, 0);
+  } finally { G.setData(base); }
+});
+
+test('电脑专属计略按预期效果和命中率选择目标，不按武将队列盲选', () => {
+  G.setData(data(), HERO_SCENARIO_ID);
+  try {
+    const g = G.newGame(4, 0, 1), war = { city: 8, from: 12, attacker: 4, defender: 2,
+      att: { ids: [242], gold: 100, rice: 500 }, def: { ids: [22, 93, 9], gold: 100, rice: 500 } };
+    const f = new Field(g, war, 'def'); f.map = Array.from({ length: 19 }, () => Array(32).fill(PLAIN));
+    const me = f.units.find((u) => u.id === 242), far = f.units.find((u) => u.id === 93), near = f.units.find((u) => u.id === 9);
+    Object.assign(me, { x: 10, y: 10 }); Object.assign(f.units.find((u) => u.id === 22), { x: 20, y: 10 });
+    Object.assign(far, { x: 15, y: 10, stop: 3 }); Object.assign(near, { x: 11, y: 10 });
+    g.officers[93].soldiers = g.officers[9].soldiers = 500; f.pool.att = 99; f.r = () => 0;
+    assert.ok(f.odds(me, 18, near) > f.odds(me, 18, far));
+    const action = f.aiDecide(me); assert.equal(action.type, 'strategy'); assert.equal(action.t.id, 9);
+    assert.equal(far.stop, 3); assert.equal(me.skillUses[18], 1);
+  } finally { G.setData(base); }
+});
 
 test('专属计略限制每场次数，命中和失败均计数，中断恢复后仍保持', () => {
   G.setData(data(), HERO_SCENARIO_ID);

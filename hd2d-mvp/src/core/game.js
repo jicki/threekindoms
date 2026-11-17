@@ -164,6 +164,14 @@ export function riots(g) {
 // An AI faction's 搜索 reads the same table its own way (C5D2, core/ai.js housekeeping).
 export const searchQueue = (cid) => D.search_table[String(cid)] || [];
 export const joinQueue = (f) => D.join_table[String(f)] || [];
+// 指定优先的武将到达登场年份后才排到队首；其他武将仍按原队列顺序寻访。
+export function searchOrder(g, cid) {
+  const list = searchQueue(cid);
+  const priority = list.filter((id) => D.officers[id].searchPriority && g.officers[id].status === UNAPPEARED && D.officers[id].year <= g.year);
+  if (!priority.length) return list;
+  const selected = new Set(priority);
+  return [...priority, ...list.filter((id) => !selected.has(id))];
+}
 export function queueHead(g, list) {
   const id = list.find((i) => g.officers[i].status === UNAPPEARED);
   return id == null ? null : { id, ready: D.officers[id].year <= g.year };
@@ -176,14 +184,14 @@ export function debutInfo(id) {
   if (o.clone) return { year: o.year, prefer: null, kind: 'phantom' };
   const prefer = Object.entries(D.rules.search_preference).find(([, ids]) => ids.includes(id))?.[0];
   const base = { year: o.year, prefer: prefer == null ? null : Number(prefer) };
-  for (const [k, list] of Object.entries(D.search_table)) { const i = list.indexOf(id); if (i >= 0) return { ...base, kind: 'search', city: Number(k), order: i + 1 }; }
+  for (const [k, list] of Object.entries(D.search_table)) { const i = list.indexOf(id); if (i >= 0) return { ...base, kind: 'search', city: Number(k), order: i + 1, ...(o.searchPriority ? { priority: true } : {}) }; }
   for (const [k, list] of Object.entries(D.join_table)) { const i = list.indexOf(id); if (i >= 0) return { ...base, kind: 'auto', faction: Number(k), order: i + 1 }; }
   return { ...base, kind: 'initial', city: o.city };
 }
 // What 搜索 in this city can turn up now: the queue head (ready or waiting for his year), how many are still
 // to come, whether the city is too full to take anyone, and the ronin a search could find instead.
 export function cityTalent(g, cid) {
-  const list = searchQueue(cid), near = [cid, ...roads(cid)];
+  const list = searchOrder(g, cid), near = [cid, ...roads(cid)];
   return {
     list, head: queueHead(g, list), left: list.filter((i) => g.officers[i].status === UNAPPEARED).length,
     full: g.cities[cid].officers.length >= 10, ronin: g.officers.filter((o) => o.status === RONIN && near.includes(o.loc)).map((o) => o.id),
@@ -628,7 +636,7 @@ export function search(g, cid, executor) {
   const n = Math.min(10, c.officers.length);
   const row = D.search_outcomes[`${Math.max(1, n)},${band(o.int)},${band(o.virtue)}`];
   const full = c.officers.length >= 10;
-  const head = g.sangu && !full ? queueHead(g, searchQueue(cid)) : null;
+  const head = g.sangu && !full ? queueHead(g, searchOrder(g, cid)) : null;
   if (head?.ready) {
     const v = g.visits ||= {};
     v[head.id] = (v[head.id] || 0) + 1;
@@ -657,7 +665,7 @@ export function search(g, cid, executor) {
   return { ok: true, msg: `${name(cand)} 拒绝了出仕`, refused: cand };
 }
 function searchCandidate(g, cid) {
-  const head = queueHead(g, searchQueue(cid));
+  const head = queueHead(g, searchOrder(g, cid));
   if (head?.ready) return head.id;
   const near = [cid, ...roads(cid)];
   return g.officers.find((o) => o.status === RONIN && near.includes(o.loc))?.id ?? null;
