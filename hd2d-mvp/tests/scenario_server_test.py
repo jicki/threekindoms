@@ -1,4 +1,6 @@
+import base64
 import concurrent.futures
+import copy
 import json
 import os
 import shutil
@@ -15,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'hd2d-mvp/tools'))
-from scenario_store import ScenarioError, VersionRepository, base_signature, validate
+from scenario_store import MAX_PORTRAIT_BYTES, MAX_PORTRAIT_SIDE, ScenarioError, VersionRepository, base_signature, validate
 
 BASE_PATH = ROOT / 'hd2d-mvp/data/game-data.json'
 BASE = json.loads(BASE_PATH.read_text(encoding='utf-8'))
@@ -41,6 +43,30 @@ class ValidationTest(unittest.TestCase):
         with self.assertRaises(ScenarioError): validate(s, BASE)
         s = version(); s['relations'] = [{'from': 0, 'to': 999, 'kind': '朋友'}]
         with self.assertRaises(ScenarioError): validate(s, BASE)
+
+    def test_portraits_relations_and_candidates_match_browser_validation(self):
+        code = "import {MAX_PORTRAIT_BYTES,MAX_PORTRAIT_SIDE} from './hd2d-mvp/src/core/scenario.js'; console.log(JSON.stringify([MAX_PORTRAIT_BYTES,MAX_PORTRAIT_SIDE]));"
+        maximum, side = json.loads(subprocess.check_output(['node', '--input-type=module', '-e', code], cwd=ROOT, text=True))
+        self.assertEqual(maximum, MAX_PORTRAIT_BYTES); self.assertEqual(side, MAX_PORTRAIT_SIDE)
+        officer = BASE['officers'][130]
+        fields = ('id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'appear', 'city', 'faction')
+        png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='
+        s = version(); s['officers'] = [{**{key: officer[key] for key in fields}, 'birthYear': None, 'birthCity': None, 'portraitId': 130, 'portraitData': png, 'skills': []}]
+        s['relations'] = [{'from': 130, 'to': 131, 'kind': '同乡'}]; s['rulers'] = [{'faction': 2, 'officer': 130}]
+        self.assertTrue(validate(s, BASE))
+        for bad in ('<img>', ' ', '朋友\n', '关' * 17, []):
+            invalid = copy.deepcopy(s); invalid['relations'][0]['kind'] = bad
+            with self.assertRaises(ScenarioError): validate(invalid, BASE)
+        oversized = bytearray(base64.b64decode(png.split(',')[1])); oversized[16:20] = (385).to_bytes(4, 'big')
+        oversized_url = 'data:image/png;base64,' + base64.b64encode(oversized).decode('ascii')
+        for bad in ('data:image/svg+xml;base64,PHN2Zz4=', png + '\n', 'data:image/png;base64,YWJj', 'data:image/png;base64,' + 'A' * 90000, oversized_url):
+            invalid = copy.deepcopy(s); invalid['officers'][0]['portraitData'] = bad
+            with self.assertRaises(ScenarioError): validate(invalid, BASE)
+        for candidate in ({'faction': 2, 'officer': 131}, {'faction': 2, 'officer': 0}, {'faction': 4, 'officer': 130}):
+            invalid = copy.deepcopy(s); invalid['rulers'] = [candidate]
+            with self.assertRaises(ScenarioError): validate(invalid, BASE)
+        invalid = copy.deepcopy(s); invalid['rulers'].append({'faction': 2, 'officer': 130})
+        with self.assertRaises(ScenarioError): validate(invalid, BASE)
 
     def test_atomic_publication_never_overwrites_a_version(self):
         with tempfile.TemporaryDirectory() as temp:

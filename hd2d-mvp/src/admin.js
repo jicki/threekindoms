@@ -1,4 +1,4 @@
-import { applyScenario, newDraft, newScenarioId, RELATION_KINDS, validateScenario } from './core/scenario.js';
+import { applyScenario, MAX_PORTRAIT_BYTES, MAX_PORTRAIT_SIDE, newDraft, newScenarioId, RELATION_KINDS, validateScenario } from './core/scenario.js';
 import { addScenario, listScenarios, loadScenario } from './core/scenario-store.js';
 
 const $ = (id) => document.getElementById(id);
@@ -21,6 +21,23 @@ const select = (name, choices, value) => {
   control.value = String(value); return control;
 };
 const report = (message, error = false) => { $('status').textContent = message; $('status').classList.toggle('error', error); };
+async function preparePortrait(file) {
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) throw new Error('请选择不超过 5 MB 的 PNG、JPEG 或 WebP 图片');
+  let image;
+  try { image = await createImageBitmap(file); } catch { throw new Error('无法读取图片，请选择有效的图片文件'); }
+  try {
+    if (!image.width || !image.height || image.width * image.height > 16_000_000) throw new Error('图片尺寸过大');
+    const scale = Math.min(1, MAX_PORTRAIT_SIDE / image.width, MAX_PORTRAIT_SIDE / image.height), canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.width * scale)); canvas.height = Math.max(1, Math.round(image.height * scale));
+    const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('浏览器无法处理图片');
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    for (const quality of [0.85, 0.7, 0.55, 0.4, 0.25]) {
+      const data = canvas.toDataURL('image/webp', quality), parts = data.split(',');
+      if (/^data:image\/(png|webp);base64$/.test(parts[0]) && parts[1].length * 3 / 4 <= MAX_PORTRAIT_BYTES) return data;
+    }
+    throw new Error('图片压缩后仍超过 64 KB，请选择更简单的图片');
+  } finally { image.close(); }
+}
 const base = await (async () => {
   try { const response = await fetch('data/game-data.json', { cache: 'no-store' }); if (!response.ok) throw new Error('基础数据无法读取'); return await response.json(); }
   catch { report('无法读取游戏基础数据。请通过游戏服务器打开管理页面。', true); return null; }
@@ -30,7 +47,7 @@ if (base) {
   let draft = newDraft(base), tab = 'officers', selected = { officers: 0, weapons: null, skills: null }, formDirty = false, draftDirty = false, lastPublished = null, leaving = false, inFlight = false;
   const editFields = ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'appear', 'city', 'faction'];
   const editable = (o) => ({ ...Object.fromEntries(editFields.map((key) => [key, o[key]])), birthYear: o.birthYear ?? null, birthCity: o.birthCity ?? null,
-    portraitId: o.portraitId ?? (o.id < base.officers.length ? o.id : 0), skills: [...(o.skills ?? [])] });
+    portraitId: o.portraitId ?? (o.id < base.officers.length ? o.id : 0), portraitData: o.portraitData ?? null, skills: [...(o.skills ?? [])] });
   const currentData = () => applyScenario(base, draft, { draft: true });
   const hasChanges = () => formDirty || draftDirty || $('version-name').value !== draft.name;
   const abandonForm = () => !formDirty || confirm('当前表单尚未应用，确定放弃这些输入吗？');
@@ -90,6 +107,27 @@ if (base) {
     const showAppearance = () => { cityField.hidden = appearance.value === 'automatic_faction'; factionField.hidden = appearance.value !== 'automatic_faction'; };
     appearance.addEventListener('change', showAppearance); showAppearance();
     const born = el('input', { name: 'birthYear', type: 'number', min: 0, max: 9999, step: 1, value: o.birthYear ?? '', placeholder: '可留空' });
+    const portraitSelect = select('portraitId', base.officers.map((p) => [p.id, `No.${p.id} ${p.name}`]), o.portraitId);
+    const upload = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', 'aria-label': '上传人物图片' });
+    const preview = el('img', { class: 'portrait-preview-image', alt: '人物图像预览' });
+    const note = el('span', { class: 'portrait-note' });
+    const buttons = formButtons(), submit = buttons.querySelector('button');
+    let customImage = o.portraitData, imageRequest = 0, imageBusy = false;
+    const showPortrait = () => { preview.src = customImage || `assets/ai/portraits/${portraitSelect.value}.webp`; note.textContent = customImage ? '使用自定义图片（各表情共用）' : '使用已有的立绘和表情'; };
+    preview.addEventListener('error', () => { if (customImage && preview.src === customImage) { preview.src = `assets/ai/portraits/${portraitSelect.value}.webp`; note.textContent = '自定义图片无法显示，预览已回退到已有图像'; } });
+    const clearImage = el('button', { type: 'button', onclick: () => { imageRequest++; imageBusy = false; submit.disabled = false; customImage = null; upload.value = ''; formDirty = true; showPortrait(); } }, '使用已有图像');
+    portraitSelect.addEventListener('change', () => { imageRequest++; imageBusy = false; submit.disabled = false; customImage = null; upload.value = ''; showPortrait(); });
+    upload.addEventListener('change', async () => {
+      const file = upload.files[0], request = ++imageRequest; if (!file) return;
+      imageBusy = true; submit.disabled = true;
+      try {
+        const data = await preparePortrait(file);
+        if (request !== imageRequest || !form.isConnected) return;
+        customImage = data; showPortrait(); report('图片已准备，请应用人物修改');
+      } catch (error) { if (request === imageRequest && form.isConnected) report(error.message, true); }
+      finally { if (request === imageRequest && form.isConnected) { imageBusy = false; submit.disabled = false; } }
+    });
+    showPortrait();
     const weapons = data.equipment.filter((e) => e.kind === 'weapon').map((e) => [e.id, `${e.name}（攻${e.atk}）`]);
     const armors = data.equipment.filter((e) => e.kind === 'armor').map((e) => [e.id - 24, `${e.name}（防${e.dfn}）`]);
     const stats = [['hp', '体力', 1, 99], ['war', '武力', 1, 99], ['int', '智力', 1, 99], ['virtue', '人德', 1, 99],
@@ -98,23 +136,24 @@ if (base) {
     const checks = el('div', { class: 'checks' }, draft.skills.length ? draft.skills.map((s) => el('label', {},
       el('input', { type: 'checkbox', name: 'skills', value: s.id, checked: o.skills.includes(s.id) }), s.name)) : el('span', { class: 'empty' }, '尚无新技能，可先在“技能”中添加。'));
     form.append(el('div', { class: 'form-grid' }, field('姓名', string('name', o.name)),
-      field('人物图像', select('portraitId', base.officers.map((p) => [p.id, `No.${p.id} ${p.name}`]), o.portraitId)),
+      field('人物图像', portraitSelect),
       field('兵种', select('army', [['平', '平军'], ['山', '山军'], ['水', '水军']], o.army)),
       field('武器', select('weapon', weapons, o.weapon)), field('防具', select('armor', armors, o.armor)),
       ...stats.map(([key, label, lo, hi]) => field(label, input(key, o[key], lo, hi))),
       field('出生年份', born), field('出生地', select('birthCity', [['', '未知'], ...base.cities.map((c) => [c.id, c.name])], o.birthCity ?? '')),
       field('登场方式', appearance), cityField, factionField,
+      el('div', { class: 'wide portrait-editor' }, preview, el('div', {}, field('上传人物图片', upload), note, clearImage)),
       el('div', { class: 'wide' }, '分配新技能', checks)),
-      el('p', { class: 'intro' }, '开局武将必须放在所属势力的城市；君主的开局位置保持不变。移走城中最后一名武将后，该城开局无主。出生年份用于人物资料，登场年份决定出仕时机。'), formButtons());
+      el('p', { class: 'intro' }, '自定义图片会随版本发布，最大 64 KB；各表情共用该图。开局武将必须放在所属势力的城市；原君主的开局位置保持不变。移走城中最后一名武将后，该城开局无主。'), buttons);
     markForm(form);
     form.addEventListener('submit', (event) => {
-      event.preventDefault(); const fd = new FormData(form), mode = fd.get('appear'), cid = number(fd, 'city');
+      event.preventDefault(); if (imageBusy) return; const fd = new FormData(form), mode = fd.get('appear'), cid = number(fd, 'city');
       const next = { id: o.id, name: String(fd.get('name')).trim(), ...Object.fromEntries(stats.map(([key]) => [key, number(fd, key)])),
         birthYear: fd.get('birthYear') === '' ? null : number(fd, 'birthYear'), birthCity: fd.get('birthCity') === '' ? null : number(fd, 'birthCity'), portraitId: number(fd, 'portraitId'),
         army: fd.get('army'), weapon: number(fd, 'weapon'), armor: number(fd, 'armor'), appear: mode,
         city: mode === 'automatic_faction' ? null : cid,
         faction: mode === 'automatic_faction' ? number(fd, 'faction') : mode === 'initial' ? base.cities[cid]?.faction : null,
-        skills: fd.getAll('skills').map(Number) };
+        skills: fd.getAll('skills').map(Number), ...(customImage ? { portraitData: customImage } : {}) };
       update((d) => { const at = d.officers.findIndex((item) => item.id === o.id); if (at < 0) d.officers.push(next); else d.officers[at] = next; }, '人物修改已应用到草稿');
     });
     return workspace(side, panel('detail', el('h2', {}, `${o.name} · No.${o.id}`), form));
@@ -134,10 +173,14 @@ if (base) {
     selected.weapons = w.id;
     const form = el('form'), shops = el('div', { class: 'checks' }, base.cities.filter((c) => c.facilities.weapons).map((c) => el('label', {},
       el('input', { type: 'checkbox', name: 'shops', value: c.id, checked: w.shops.includes(c.id) }), c.name)));
+    const icon = select('icon', base.equipment.filter((e) => e.kind === 'weapon').map((e) => [e.id, e.name]), w.icon);
+    const iconPreview = el('img', { class: 'weapon-preview', alt: '武器图标预览' });
+    const showIcon = () => { iconPreview.src = `assets/ai/icon/equip/${icon.value}.webp`; };
+    icon.addEventListener('change', showIcon); showIcon();
     form.append(el('div', { class: 'form-grid' }, field('名称', string('name', w.name)),
       field('类型', select('cat', [['剑', '剑'], ['刀', '刀'], ['枪', '长兵']], w.cat)),
       field('攻击', input('atk', w.atk, 0, 99)), field('重量', input('weight', w.weight, 0, 99)), field('价格', input('price', w.price, 0, 9999)),
-      field('沿用图标', select('icon', base.equipment.filter((e) => e.kind === 'weapon').map((e) => [e.id, e.name]), w.icon)),
+      field('沿用图标', icon), iconPreview,
       el('div', { class: 'wide' }, '售卖城市', shops)),
       el('p', { class: 'intro' }, '所选城市的武器屋和战场商店可购买此武器；电脑也可按原有换装规则选择。'), formButtons());
     markForm(form);
@@ -177,25 +220,70 @@ if (base) {
 
   function renderRelations() {
     const data = currentData(), choices = data.officers.map((o) => [o.id, `${o.name} · ${o.id}`]), form = el('form');
-    form.append(el('div', { class: 'form-grid' }, field('人物', select('from', choices, 0)), field('关系', select('kind', RELATION_KINDS.map((k) => [k, k]), RELATION_KINDS[0])),
-      field('相关人物', select('to', choices, 1))), formButtons('添加关系'));
+    const relationKind = select('kind', [...RELATION_KINDS.map((k) => [k, k]), ['__custom__', '自定义关系']], RELATION_KINDS[0]);
+    const customKind = el('input', { name: 'customKind', maxlength: 16, placeholder: '例如：同乡' }), customField = field('自定义关系名称', customKind);
+    const showCustom = () => { customField.hidden = relationKind.value !== '__custom__'; customKind.required = !customField.hidden; };
+    relationKind.addEventListener('change', showCustom); showCustom();
+    form.append(el('div', { class: 'form-grid' }, field('人物', select('from', choices, 0)), field('关系', relationKind),
+      customField, field('相关人物', select('to', choices, 1))), formButtons('添加关系'));
     markForm(form);
     form.addEventListener('submit', (event) => {
-      event.preventDefault(); const fd = new FormData(form), relation = { from: number(fd, 'from'), to: number(fd, 'to'), kind: fd.get('kind') };
+      event.preventDefault(); const fd = new FormData(form), relation = { from: number(fd, 'from'), to: number(fd, 'to'), kind: fd.get('kind') === '__custom__' ? String(fd.get('customKind')).trim() : fd.get('kind') };
+      if (draft.relations.some((r) => r.kind === relation.kind && ((r.from === relation.from && r.to === relation.to) || (r.from === relation.to && r.to === relation.from)))) {
+        report('这两人已有相同关系', true); return;
+      }
       update((d) => d.relations.push(relation), '人物关系已添加到草稿');
     });
-    const rows = draft.relations.map((r, i) => el('div', { class: 'relation' },
-      el('span', {}, `${data.officers[r.from].name} → ${r.kind} → ${data.officers[r.to].name}`),
-      el('button', { type: 'button', onclick: () => { if (abandonForm()) update((d) => d.relations.splice(i, 1), '人物关系已移除'); } }, '移除')));
-    return panel('detail', el('h2', {}, '人物关系'), el('p', { class: 'intro' }, '关系会显示在人物资料中；不会自动改变招募、忠诚或战斗规则。'), form,
-      el('div', { class: 'relations' }, rows.length ? rows : el('p', { class: 'empty' }, '尚未添加关系。')));
+    const search = el('input', { type: 'search', placeholder: '搜索人物姓名或编号', 'aria-label': '搜索人物关系' });
+    const kinds = [...new Set([...RELATION_KINDS, ...draft.relations.map((r) => r.kind)])];
+    const kind = select('relationFilter', [['', '全部关系类型'], ...kinds.map((k) => [k, k])], '');
+    const count = el('p', { class: 'intro', 'aria-live': 'polite' }), rows = el('div', { class: 'relations' });
+    const fill = () => {
+      const query = search.value.trim(), wanted = kind.value;
+      const found = draft.relations.map((r, i) => ({ r, i })).filter(({ r }) => (!wanted || r.kind === wanted)
+        && (!query || [data.officers[r.from].name, data.officers[r.to].name, String(r.from), String(r.to)].some((s) => s.includes(query))));
+      count.textContent = `当前关系 ${draft.relations.length} 条${found.length === draft.relations.length ? '' : `，符合筛选 ${found.length} 条`}`;
+      rows.replaceChildren(...(found.length ? found.map(({ r, i }) => el('div', { class: 'relation' },
+        el('span', {}, `${data.officers[r.from].name} · ${r.kind} · ${data.officers[r.to].name}`),
+        el('button', { type: 'button', onclick: () => { if (abandonForm()) update((d) => d.relations.splice(i, 1), '人物关系已移除'); } }, '移除')))
+        : [el('p', { class: 'empty' }, draft.relations.length ? '没有符合条件的关系。' : '原版没有内置人物关系；可在此添加。')]));
+    };
+    search.addEventListener('input', fill); kind.addEventListener('change', fill); fill();
+    return panel('detail', el('h2', {}, '人物关系'), el('p', { class: 'intro' }, `可用关系：${RELATION_KINDS.join('、')}，也可自定义。关系在双方资料中使用相同名称，不自动改变招募、忠诚或战斗规则。`), form,
+      el('div', { class: 'form-grid' }, field('搜索人物关系', search), field('筛选关系类型', kind)), count, rows);
+  }
+
+  function renderRulers() {
+    const data = currentData(), items = draft.rulers ?? [], form = el('form');
+    const faction = select('faction', data.factions.map((f) => [f.id, `${data.officers[f.ruler].name}势力`]), 0);
+    const officer = select('officer', [], ''), buttons = formButtons('添加君主候选'), submit = buttons.querySelector('button');
+    const fill = () => {
+      const f = Number(faction.value), choices = data.officers.filter((o) => o.appear === 'initial' && o.faction === f
+        && data.cities[o.city]?.faction === f && o.id !== data.factions[f].ruler && !items.some((r) => r.officer === o.id));
+      officer.replaceChildren(...choices.map((o) => el('option', { value: o.id }, `${o.name} · No.${o.id} · ${data.cities[o.city].name}`)));
+      officer.disabled = submit.disabled = !choices.length;
+    };
+    faction.addEventListener('change', fill); fill();
+    form.append(el('div', { class: 'form-grid' }, field('所属势力', faction), field('候选武将', officer)), buttons);
+    markForm(form);
+    form.addEventListener('submit', (event) => {
+      event.preventDefault(); if (officer.disabled) return;
+      const fd = new FormData(form), candidate = { faction: number(fd, 'faction'), officer: number(fd, 'officer') };
+      update((d) => { (d.rulers ||= []).push(candidate); }, '君主候选已添加到草稿');
+    });
+    const rows = items.map((r, i) => el('div', { class: 'relation' },
+      el('span', {}, `${data.officers[r.officer].name} · ${data.officers[data.factions[r.faction].ruler].name}势力 · ${data.cities[data.officers[r.officer].city].name}`),
+      el('button', { type: 'button', onclick: () => { if (abandonForm()) update((d) => d.rulers.splice(i, 1), '君主候选已移除'); } }, '移除')));
+    return panel('detail', el('h2', {}, '君主候选'), el('p', { class: 'intro' }, '原有七位君主始终可选。可将本势力的开局武将增加为候选；玩家选中后由该武将统领原势力，原君主留在该势力。候选不会创建新势力。'),
+      el('p', { class: 'intro' }, `原有君主：${data.factions.map((f) => data.officers[f.ruler].name).join('、')}`), form,
+      el('h3', {}, `已添加候选 · ${items.length}`), el('div', { class: 'relations' }, rows.length ? rows : el('p', { class: 'empty' }, '尚未添加额外候选。')));
   }
 
   function render() {
-    const tabs = [['officers', '人物与登场'], ['weapons', '新武器'], ['skills', '新技能'], ['relations', '人物关系']];
+    const tabs = [['officers', '人物与登场'], ['weapons', '新武器'], ['skills', '新技能'], ['relations', '人物关系'], ['rulers', '君主候选']];
     $('tabs').replaceChildren(...tabs.map(([id, label]) => el('button', { id: `tab-${id}`, type: 'button', role: 'tab', 'aria-selected': id === tab ? 'true' : 'false', onclick: () => changeTab(id) }, label)));
     $('content').setAttribute('aria-labelledby', `tab-${tab}`);
-    $('content').replaceChildren(({ officers: renderOfficers, weapons: renderWeapons, skills: renderSkills, relations: renderRelations })[tab]());
+    $('content').replaceChildren(({ officers: renderOfficers, weapons: renderWeapons, skills: renderSkills, relations: renderRelations, rulers: renderRulers })[tab]());
   }
   let listRequest = 0;
   async function refreshPublished() {
@@ -240,7 +328,9 @@ if (base) {
     const next = clone(draft), name = $('version-name').value.trim();
     if (next.name !== name) { next.name = name; next.id = null; }
     next.id ||= newScenarioId();
-    validateScenario(next, base); applyScenario(base, next); return next;
+    validateScenario(next, base); applyScenario(base, next);
+    if (new TextEncoder().encode(JSON.stringify(next, null, 2)).byteLength > 1024 * 1024) throw new Error('版本文件超过 1 MB，请减少自定义图片');
+    return next;
   }
   $('export').onclick = () => {
     try {

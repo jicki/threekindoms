@@ -20,6 +20,128 @@ after(async () => {
   if (directory) rmSync(directory, { recursive: true, force: true });
 });
 
+test('上传人物图像、管理关系并发布额外君主供玩家开局', async () => {
+  const admin = await game.open();
+  try {
+    await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
+    const content = admin.locator('#content');
+    await admin.getByLabel('版本名称').fill('新君主测试');
+    await admin.getByRole('button', { name: /新建武将/ }).click();
+    await content.getByLabel('姓名').fill('自定义君主');
+    await content.getByLabel('登场方式').selectOption('initial'); await content.getByLabel('登场城市').selectOption('2');
+    const upload = content.getByLabel('上传人物图片');
+    await upload.setInputFiles({ name: 'bad.png', mimeType: 'image/png', buffer: Buffer.from('not an image') });
+    await admin.getByText('无法读取图片，请选择有效的图片文件').waitFor();
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64');
+    await upload.setInputFiles({ name: 'portrait.png', mimeType: 'image/png', buffer: png });
+    await admin.getByText('图片已准备，请应用人物修改').waitFor();
+    assert.match(await content.getByAltText('人物图像预览').getAttribute('src'), /^data:image\/(webp|png);base64,/);
+    await content.getByRole('button', { name: '应用修改' }).click();
+    await admin.getByText('人物修改已应用到草稿').waitFor();
+
+    await admin.getByRole('tab', { name: '人物关系' }).click();
+    await content.getByText('原版没有内置人物关系；可在此添加。').waitFor();
+    await content.getByLabel('人物', { exact: true }).selectOption('237');
+    await content.getByLabel('关系', { exact: true }).selectOption('结义');
+    await content.getByLabel('相关人物').selectOption('222');
+    await content.getByRole('button', { name: '添加关系' }).click();
+    await content.getByText('自定义君主 · 结义 · 刘备').waitFor();
+    await content.getByLabel('搜索人物关系').fill('刘备');
+    assert.match(await content.getByText(/当前关系/).textContent(), /1 条/);
+    await content.getByLabel('搜索人物关系').fill('不存在');
+    await content.getByText('没有符合条件的关系。').waitFor();
+    await content.getByLabel('搜索人物关系').fill('');
+    await content.getByLabel('人物', { exact: true }).selectOption('222');
+    await content.getByLabel('相关人物').selectOption('237');
+    await content.getByLabel('关系', { exact: true }).selectOption('结义');
+    await content.getByRole('button', { name: '添加关系' }).click();
+    await admin.getByText('这两人已有相同关系').waitFor();
+    await content.getByLabel('人物', { exact: true }).selectOption('237');
+    await content.getByLabel('相关人物').selectOption('38');
+    await content.getByLabel('关系', { exact: true }).selectOption('兄弟');
+    await content.getByRole('button', { name: '添加关系' }).click();
+    await content.getByText('自定义君主 · 兄弟 · 关羽').waitFor();
+    await content.getByLabel('人物', { exact: true }).selectOption('237');
+    await content.getByLabel('相关人物').selectOption('173');
+    await content.getByLabel('关系', { exact: true }).selectOption('__custom__');
+    await content.getByLabel('自定义关系名称').fill('盟友');
+    await content.getByRole('button', { name: '添加关系' }).click();
+    await content.getByText('自定义君主 · 盟友 · 董卓').waitFor();
+    await content.getByLabel('筛选关系类型').selectOption('盟友');
+    assert.equal(await content.locator('.relation').count(), 1);
+
+    await admin.getByRole('tab', { name: '君主候选' }).click();
+    await content.getByLabel('所属势力').selectOption('4'); await content.getByLabel('候选武将').selectOption('237');
+    await content.getByRole('button', { name: '添加君主候选' }).click();
+    await content.getByText('自定义君主 · 刘备势力 · 并州').waitFor();
+    await admin.getByLabel('管理员令牌').fill(token); await admin.getByRole('button', { name: '发布新版本' }).click();
+    await admin.getByText(/已发布“新君主测试”/).waitFor({ timeout: 10000 });
+    const id = await admin.evaluate(() => window.__admin.lastPublished);
+    const published = await (await admin.request.get(new URL(`/api/versions/${id}`, game.url).href)).json();
+    assert.deepEqual(published.rulers, [{ faction: 4, officer: 237 }]);
+    const custom = published.officers.find((o) => o.id === 237).portraitData;
+    assert.match(custom, /^data:image\/(webp|png);base64,/);
+    assert.deepEqual(published.relations.map((r) => r.kind), ['结义', '兄弟', '盟友']);
+    await admin.getByRole('button', { name: '载入为新草稿' }).click(); await admin.getByText('已载入新草稿').waitFor();
+    await admin.getByRole('tab', { name: '人物与登场' }).click();
+    await content.getByLabel('搜索武将').fill('自定义君主'); await content.getByRole('button', { name: /No\.237/ }).click();
+    assert.equal(await content.getByAltText('人物图像预览').getAttribute('src'), custom);
+    await content.getByLabel('人物图像').selectOption('38');
+    assert.match(await content.getByAltText('人物图像预览').getAttribute('src'), /\/portraits\/38\.webp$/);
+    await content.getByRole('button', { name: '应用修改' }).click();
+    await admin.getByText('人物修改已应用到草稿').waitFor();
+    assert.equal(await admin.evaluate(() => window.__admin.draft.officers.find((o) => o.id === 237).portraitData), undefined);
+
+    const player = await game.open();
+    try {
+      await player.evaluate(async () => { (await import('./src/pace.js')).setPace(4); (await import('./src/vignette.js')).setVignettes(false); });
+      await skipIntro(player); await player.click('.sysmenu-btn');
+      await player.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
+      await player.locator('.shade .slot', { hasText: '新君主测试' }).click();
+      await player.waitForFunction((expected) => window.__game?.debug && window.__game.G.currentScenario() === expected, id, { timeout: 60000 });
+      await skipIntro(player); await player.getByText('新的征程').click(); await player.locator('.level', { hasText: 'LEVEL 1' }).click();
+      assert.equal(await player.locator('.ruler').count(), 8);
+      const candidate = player.locator('.ruler', { hasText: '自定义君主' });
+      assert.equal(await candidate.locator('img').first().getAttribute('src'), custom);
+      await candidate.click(); await candidate.click(); await player.waitForFunction(() => document.body.dataset.screen === 'strategy');
+      const stop = closeMessages(player, { aiTurns: true });
+      try { await player.waitForFunction(() => { const g = window.__game.g; return g.current === g.player && !document.querySelector('.aiturn, .panel.msg'); }, null, { timeout: 90000 }); }
+      finally { stop(); }
+      const actual = await player.evaluate(() => {
+        const { g, G } = window.__game, f = g.factions[g.player];
+        const saved = G.save(g, 1), restored = G.load(1);
+        return { ruler: f.ruler, city: f.city, first: g.cities[f.city].officers[0], loyalty: g.officers[237].loyalty,
+          former: g.cities[2].officers.includes(222), saved, restored: restored?.factions[restored.player].ruler };
+      });
+      assert.deepEqual(actual, { ruler: 237, city: 2, first: 237, loyalty: 100, former: true, saved: true, restored: 237 });
+      await player.click('.wikibtn'); await player.getByLabel('查找武将').fill('自定义君主');
+      await player.locator('.wikitable tr[data-id="237"]').click(); await player.getByText(/结义 刘备/).waitFor();
+      await player.getByText(/盟友 董卓/).waitFor();
+      assert.equal(await player.locator('.ocard > img[alt="自定义君主"]').getAttribute('src'), custom);
+      assert.deepEqual(player.errors, []);
+    } finally { await player.context().close(); }
+    assert.deepEqual(admin.errors, []);
+  } finally { await admin.context().close(); }
+});
+
+test('人物图片无法解码时回退到已有立绘和表情', async () => {
+  const page = await game.open();
+  try {
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64');
+    const damaged = `data:image/png;base64,${png.subarray(0, 33).toString('base64')}`;
+    await page.evaluate(async (data) => {
+      const { G } = window.__game, copy = structuredClone(G.data()); copy.officers[0].portraitData = data; G.setData(copy);
+      const { face, figure } = await import('./src/ui.js');
+      const row = document.createElement('div'); row.id = 'portrait-fallback-check'; row.append(face(0), face(0, '', 'angry'), figure(0)); document.body.append(row);
+    }, damaged);
+    await page.waitForFunction(() => [...document.querySelectorAll('#portrait-fallback-check img')].every((img) => img.complete && img.naturalWidth > 0 && !img.src.startsWith('data:')));
+    const sources = await page.locator('#portrait-fallback-check img').evaluateAll((images) => images.map((img) => img.getAttribute('src')));
+    assert.match(sources[0], /\/portraits\/0\.webp$/); assert.match(sources[1], /\/faces\/0-angry\.webp$/);
+    assert.match(sources[2], /\/(halfbody|portraits)\/0\.webp$/);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
 test('an administrator publishes a playable version for another browser context', async () => {
   const admin = await game.open();
   try {
@@ -108,6 +230,8 @@ test('an administrator publishes a playable version for another browser context'
     const [download] = await Promise.all([admin.waitForEvent('download'), admin.getByRole('button', { name: '导出草稿' }).click()]);
     const exported = readFileSync(await download.path());
     assert.equal(JSON.parse(exported).id, revision);
+    const beforeRestore = await (await admin.request.get(new URL('/api/versions', game.url).href)).json();
+    assert.ok(beforeRestore.some((v) => v.id === id) && beforeRestore.some((v) => v.id === revision));
     const importer = await admin.context().newPage();
     try {
       await importer.goto(new URL('admin.html?mute', game.url).href); await importer.waitForFunction(() => window.__admin);
@@ -117,7 +241,8 @@ test('an administrator publishes a playable version for another browser context'
       await importer.getByText(/已发布“群雄修订”/).waitFor({ timeout: 10000 });
       assert.equal(await importer.evaluate(() => window.__admin.lastPublished), revision);
       const versions = await (await importer.request.get(new URL('/api/versions', game.url).href)).json();
-      assert.equal(versions.length, 2, 'restoring the same version is idempotent');
+      assert.equal(versions.length, beforeRestore.length, 'restoring the same version is idempotent');
+      assert.equal(versions.filter((v) => v.id === revision).length, 1);
     } finally { await importer.close(); }
 
     const player = await game.open();

@@ -1,4 +1,6 @@
 """校验并原子保存发布后的游戏版本。已发布的编号不可覆盖。"""
+import base64
+import binascii
 import json
 import logging
 import os
@@ -8,8 +10,9 @@ import tempfile
 from pathlib import Path
 
 ID = re.compile(r'^v-[a-f0-9]{32}$')
-KINDS = {'亲属', '夫妻', '朋友', '对手', '师徒'}
 MAX_BYTES = 1024 * 1024
+MAX_PORTRAIT_BYTES = 64 * 1024
+MAX_PORTRAIT_SIDE = 384
 
 
 class ScenarioError(ValueError):
@@ -63,8 +66,39 @@ def array(value, label, maximum):
         fail(f'{label}数量或格式错误')
 
 
+def portrait(value):
+    if value is None:
+        return
+    if not isinstance(value, str) or len(value) > ((MAX_PORTRAIT_BYTES + 2) // 3) * 4 + 32:
+        fail('人物图像大小或格式错误')
+    match = re.fullmatch(r'data:image/(png|webp);base64,([A-Za-z0-9+/]+={0,2})', value)
+    if not match:
+        fail('人物图像只支持 PNG 或 WebP')
+    encoded = match.group(2)
+    try:
+        data = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        fail('人物图像编码无效')
+    if len(data) > MAX_PORTRAIT_BYTES or base64.b64encode(data).decode('ascii') != encoded:
+        fail('人物图像大小或编码无效')
+    width = height = 0
+    if match.group(1) == 'png' and len(data) >= 33 and data.startswith(b'\x89PNG\r\n\x1a\n') and int.from_bytes(data[8:12], 'big') == 13 and data[12:16] == b'IHDR':
+        width, height = int.from_bytes(data[16:20], 'big'), int.from_bytes(data[20:24], 'big')
+    elif match.group(1) == 'webp' and len(data) >= 30 and data.startswith(b'RIFF') and data[8:12] == b'WEBP' and int.from_bytes(data[4:8], 'little') == len(data) - 8:
+        tag, size = data[12:16], int.from_bytes(data[16:20], 'little')
+        if size <= len(data) - 20:
+            if tag == b'VP8 ' and size >= 10 and data[23:26] == b'\x9d\x01\x2a':
+                width, height = int.from_bytes(data[26:28], 'little') & 0x3fff, int.from_bytes(data[28:30], 'little') & 0x3fff
+            elif tag == b'VP8L' and size >= 5 and data[20] == 0x2f:
+                bits = int.from_bytes(data[21:25], 'little'); width, height = (bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1
+            elif tag == b'VP8X' and size >= 10:
+                width, height = int.from_bytes(data[24:27], 'little') + 1, int.from_bytes(data[27:30], 'little') + 1
+    if not width or not height or width > MAX_PORTRAIT_SIDE or height > MAX_PORTRAIT_SIDE:
+        fail('人物图像内容或尺寸无效')
+
+
 def validate(s, base):
-    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'skills', 'relations'])
+    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'skills', 'relations', 'rulers'])
     if type(s.get('format')) is not int or s['format'] != 1:
         fail('不支持的版本文件格式')
     if not isinstance(s.get('id'), str) or not ID.fullmatch(s['id']):
@@ -77,6 +111,8 @@ def validate(s, base):
     array(weapons, '新武器', 64)
     array(skills, '新技能', 64)
     array(relations, '人物关系', 1000)
+    rulers = s.get('rulers', [])
+    array(rulers, '君主候选', len(base['officers']) + 100)
     for i, w in enumerate(weapons):
         obj(w, '武器', ['id', 'name', 'cat', 'atk', 'weight', 'price', 'icon', 'shops'])
         if type(w.get('id')) is not int or w['id'] != len(base['equipment']) + i:
@@ -106,13 +142,14 @@ def validate(s, base):
     max_officer = nbase + sum(isinstance(o, dict) and type(o.get('id')) is int and o['id'] >= nbase for o in officers) - 1
     seen, rosters = set(), [list(c['officers']) for c in base['cities']]
     for o in officers:
-        obj(o, '武将', ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'appear', 'city', 'faction', 'skills'])
+        obj(o, '武将', ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'portraitData', 'appear', 'city', 'faction', 'skills'])
         integer(o.get('id'), '武将编号', 0, max_officer); oid = o['id']
         if oid in seen:
             fail('武将编号重复')
         seen.add(oid); text(o.get('name'), '武将姓名')
         for key, label, minimum, maximum in [('hp', '体力', 1, 99), ('war', '武力', 1, 99), ('int', '智力', 1, 99), ('virtue', '人德', 1, 99), ('loyalty', '忠诚', 0, 100), ('level', '等级', 1, 8), ('exp', '经验', 0, 49999), ('soldiers', '兵数', 0, 1000), ('armor', '防具', 0, 7), ('year', '登场年份', 0, 9999), ('death', '寿命年份', 0, 9999), ('portraitId', '人物图像', 0, nbase - 1)]:
             integer(o.get(key), label, minimum, maximum)
+        portrait(o.get('portraitData'))
         if 'birthYear' not in o:
             fail('出生年份格式错误')
         if 'birthCity' not in o:
@@ -172,12 +209,26 @@ def validate(s, base):
     for r in relations:
         obj(r, '人物关系', ['from', 'to', 'kind'])
         integer(r.get('from'), '关系起点', 0, max_officer); integer(r.get('to'), '关系终点', 0, max_officer)
-        if r['from'] == r['to'] or not isinstance(r.get('kind'), str) or r['kind'] not in KINDS:
+        if r['from'] == r['to']:
             fail('人物关系无效')
+        text(r.get('kind'), '关系名称', 16)
         key = (r['from'], r['to'], r['kind'])
         if key in pairs:
             fail('人物关系重复')
         pairs.add(key)
+    seen_rulers = set()
+    edited = {o['id']: o for o in officers}
+    for r in rulers:
+        obj(r, '君主候选', ['faction', 'officer'])
+        integer(r.get('faction'), '候选所属势力', 0, len(base['factions']) - 1)
+        integer(r.get('officer'), '候选武将', 0, max_officer)
+        oid, faction = r['officer'], r['faction']
+        officer = edited.get(oid) or (base['officers'][oid] if oid < nbase else None)
+        if officer is None or officer['appear'] != 'initial' or officer['faction'] != faction or base['cities'][officer['city']]['faction'] != faction:
+            fail('君主候选必须为该势力开局武将')
+        if base['factions'][faction]['ruler'] == oid or oid in seen_rulers:
+            fail('君主候选重复')
+        seen_rulers.add(oid)
     return True
 
 

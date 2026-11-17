@@ -45,7 +45,9 @@ export const setPortraits = (p) => (portraitFiles = p);
 // 阿会喃's portrait is only a last resort, never the original pixel art.
 const art = (id) => (data().officers[id]?.clone ? 0 : data().officers[id]?.portraitId ?? id);
 const FALLBACK = 'assets/ai/portraits/0.webp';
-export const portrait = (id) => portraitFiles[art(id)] || portraitFiles[0] || FALLBACK;
+const customPortrait = (id) => data().officers[id]?.clone ? null : data().officers[id]?.portraitData;
+const builtInPortrait = (id) => portraitFiles[art(id)] || portraitFiles[0] || FALLBACK;
+export const portrait = (id) => customPortrait(id) || builtInPortrait(id);
 // Expressions. The original's selector $00A4 takes 0–4, but 0 and 1 share pixels for every face, so there
 // are four: 0 calm, 2 angry (going to war, enemy attacks, taunted in a duel), 3 joy (good news, the victor),
 // 4 grief (bad news, the loser). Painted busts load from assets/ai/faces/<id>-<mood>.webp.
@@ -61,15 +63,21 @@ export const setFaces = (f) => (faceFiles = f);
 let halfbodyFiles = {};
 export const setHalfbody = (f) => (halfbodyFiles = f);
 export const avatar = (id, mood = 'calm', cls = '') => face(id, `${cls} avatar`, mood);
+function officerImage(id, cls, fallback) {
+  const custom = customPortrait(id);
+  let recovered = false;
+  return h('img', { src: custom || fallback, class: `${cls} ai`, alt: name(id),
+    onerror: custom ? (event) => { if (!recovered) { recovered = true; event.currentTarget.src = fallback; } } : null });
+}
 export function figure(id, cls = '') {
-  if (halfbodyFiles[art(id)]) return h('img', { src: halfbodyFiles[art(id)], class: `${cls} figure ai`, alt: name(id) });
+  if (customPortrait(id) || halfbodyFiles[art(id)]) return officerImage(id, `${cls} figure`, halfbodyFiles[art(id)] || builtInPortrait(id));
   return avatar(id, 'calm', `${cls} figure`);
 }
 // face(id) is the officer's portrait; face(id, cls, mood) is the dialog bust with that expression.
 export function face(id, cls = '', mood = null) {
-  if (mood == null) return h('img', { src: portrait(id), class: `${cls} ai`, alt: name(id) });
+  if (mood == null) return officerImage(id, cls, builtInPortrait(id));
   const f = faceFiles[art(id)];
-  return h('img', { src: f?.[mood] || f?.calm || portrait(id), class: `${cls} ai`, alt: name(id) });
+  return officerImage(id, cls, f?.[mood] || f?.calm || builtInPortrait(id));
 }
 
 // Modal: build(close) returns content; close(value) resolves. Esc / backdrop click resolves null.

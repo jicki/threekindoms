@@ -33,7 +33,7 @@ import { suspend, peekSuspend, takeSuspend, dropSuspend, withSuspendLock } from 
 import { warFate } from './warreport.js';
 import { setupWar, occupyEmpty, resolveWar, loserQueue, winnerQueue, retreatOptions } from './core/warcore.js';
 import { Field, STRAT_INFO } from './core/field.js';
-import { $, $$, keyName, h, pressable, clear, root, layer, modal, message, toast, banner, officerRow, officerTable, pickOfficers, sliders, confirmBox, face, avatar, figure, setHalfbody, portrait, setPortraits, setFaces, blocking } from './ui.js';
+import { $, $$, keyName, h, pressable, clear, root, layer, modal, message, toast, banner, officerRow, officerTable, pickOfficers, sliders, confirmBox, face, avatar, figure, setHalfbody, setPortraits, setFaces, blocking } from './ui.js';
 import { MONTH_NAMES, SEASON_OF, WEATHER_OF } from './seasons.js';
 import { ORIGINAL, PACES, paceSpeed, paceLabel, setPace, paced, hold } from './pace.js';
 import { shakeLevel, setShakeLevel, onShake } from './fx.js';
@@ -1258,16 +1258,18 @@ async function setup() {
   };
   addEventListener('keydown', onCode);
   const rulers = h('div', { class: 'rulers' });
-  const start = h('button', { class: 'btn primary', disabled: true, style: { fontSize: '20px', padding: '10px 40px', letterSpacing: '8px' }, onclick: () => { if (start.disabled) return; start.disabled = true; const ng = G.newGame(ruler, level); if (cheat && level === 0) G.maxRulerCity(ng); if (ageless) ng.ageless = true; if (noWarDeath) ng.noWarDeath = true; if (sangu) ng.sangu = true; if (freeSave) ng.freeSave = true; if (warlike) ng.warlike = true; if (noStudy) ng.noStudy = true; begin(ng, false); } }, '开始');
-  const drawRulers = () => rulers.replaceChildren(...[4, 2, 3, 1, 6, 5, 0].map((f) => {
+  const start = h('button', { class: 'btn primary', disabled: true, style: { fontSize: '20px', padding: '10px 40px', letterSpacing: '8px' }, onclick: () => { if (start.disabled) return; start.disabled = true; const ng = G.newGame(ruler.faction, level, undefined, { ruler: ruler.officer }); if (cheat && level === 0) G.maxRulerCity(ng); if (ageless) ng.ageless = true; if (noWarDeath) ng.noWarDeath = true; if (sangu) ng.sangu = true; if (freeSave) ng.freeSave = true; if (warlike) ng.warlike = true; if (noStudy) ng.noStudy = true; begin(ng, false); } }, '开始');
+  const choices = [4, 2, 3, 1, 6, 5, 0].flatMap((faction) => [D.factions[faction].ruler,
+    ...(D.rulerCandidates ?? []).filter((candidate) => candidate.faction === faction).map((candidate) => candidate.officer)].map((officer) => ({ faction, officer })));
+  const drawRulers = () => rulers.replaceChildren(...choices.map(({ faction: f, officer }) => {
     const fac = D.factions[f], cs = D.cities.filter((c) => c.faction === f), offs = cs.reduce((a, c) => a + c.officers.length, 0);
-    const o = D.officers[fac.ruler];
-    return h('div', { class: `panel ruler ${ruler === f ? 'on' : ''}`, style: { '--c': colorOf(f) }, 'aria-pressed': ruler === f ? 'true' : 'false', title: ruler === f ? '再次点击开始' : `选择${name(fac.ruler)}`,
-      ...pressable(() => { if (ruler === f) return start.click(); ruler = f; start.disabled = false; start.textContent = `${name(fac.ruler)} · 出征`; keep(rulers, drawRulers); }) },
-      figure(fac.ruler), h('i', { class: 'chip' }),
-      h('div', { class: 'meta' }, h('b', {}, name(fac.ruler)),
+    const o = D.officers[officer], on = ruler?.faction === f && ruler?.officer === officer;
+    return h('div', { class: `panel ruler ${on ? 'on' : ''}`, style: { '--c': colorOf(f) }, 'aria-pressed': on ? 'true' : 'false', title: on ? '再次点击开始' : `选择${name(officer)}`,
+      ...pressable(() => { if (on) return start.click(); ruler = { faction: f, officer }; start.disabled = false; start.textContent = `${name(officer)} · 出征`; keep(rulers, drawRulers); }) },
+      figure(officer), h('i', { class: 'chip' }),
+      h('div', { class: 'meta' }, h('b', {}, name(officer)),
         h('div', { class: 'rstat' }, h('span', {}, '武', h('em', {}, o.war)), h('span', {}, '智', h('em', {}, o.int)), h('span', {}, '德', h('em', {}, o.virtue))),
-        h('small', {}, `${cs.length}城 · ${offs}将`), h('small', { class: 'towns' }, cs.map((c) => c.name).join(' · '))));
+        h('small', {}, `${cs.length}城 · ${offs}将${officer === fac.ruler ? '' : ` · ${name(fac.ruler)}势力`}`), h('small', { class: 'towns' }, cs.map((c) => c.name).join(' · '))));
   }));
   drawRulers();
   root().append(sysButtons(), files.titleArt ? h('div', { class: 'title-art', style: { backgroundImage: `url(${files.titleArt})`, position: 'fixed', filter: 'blur(3px) brightness(.55)' } }) : null, h('div', { class: 'setup' }, h('h2', {}, '选择难度'), levels, h('div', { class: 'setup-opts' }, agelessBtn, noDeathBtn, sanguBtn, warlikeBtn, noStudyBtn, freeSaveBtn), optNote, h('h2', {}, '选择君主'), rulers,
@@ -1639,7 +1641,7 @@ function officerSheet(id, { live = null, foot = null } = {}) {
   const hp = live?.hp ?? o.hp, soldiers = live?.soldiers ?? o.soldiers;
   const meter = (k, v, max = 100, cls = '') => h('div', { class: `meter ${cls}` }, h('span', {}, k), h('div', { class: 'track' }, h('i', { style: { width: `${Math.max(0, Math.min(100, (100 * v) / max))}%` } })), h('b', {}, max === 100 ? v : `${v}/${max}`));
   return h('div', { class: 'ocard' },
-    h('img', { src: portrait(id), alt: name(id) }),
+    face(id),
     h('div', { class: 'ocard-info' },
       live ? h('h4', { class: 'ocard-name' }, name(id)) : null,
       h('div', { class: 'ocard-tags' },

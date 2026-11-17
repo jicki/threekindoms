@@ -40,7 +40,7 @@ export function rng(g) {
 }
 
 // ---------- New game ----------
-export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random() * 1e9)) >>> 0) {
+export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random() * 1e9)) >>> 0, { ruler = null } = {}) {
   const g = { version: 1, level, player: playerFaction, year: 189, month: 0, seed, turnIdx: -1, monthDone: false, current: null, books: 0, over: null };
   if (scenarioId !== ORIGINAL_SCENARIO) g.scenarioId = scenarioId;
   const r = rng(g);
@@ -55,6 +55,14 @@ export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random(
   }));
   g.factions = D.factions.map((f) => ({ id: f.id, ruler: f.ruler, city: D.officers[f.ruler].city, ai: f.id !== playerFaction, alliance: [0, 0, 0, 0, 0, 0, 0] }));
   g.aiCursor = [0, 0, 0, 0, 0, 0, 0];
+  if (ruler != null && ruler !== g.factions[playerFaction]?.ruler) {
+    const allowed = D.rulerCandidates?.some((r) => r.faction === playerFaction && r.officer === ruler);
+    const city = g.cities.find((c) => c.faction === playerFaction && c.officers.includes(ruler));
+    if (!allowed || !city || g.officers[ruler]?.status !== SERVING) throw new Error('君主候选不属于该势力的开局武将');
+    g.factions[playerFaction].ruler = ruler; g.factions[playerFaction].city = city.id;
+    city.officers = [ruler, ...city.officers.filter((id) => id !== ruler)];
+    g.officers[ruler].loyalty = 100;
+  }
   return g;
 }
 

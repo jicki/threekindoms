@@ -14,6 +14,61 @@ import { listScenarios } from '../src/core/scenario-store.js';
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
 const editable = (o) => Object.fromEntries(['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'appear', 'city', 'faction'].map((k) => [k, o[k]]));
 const draft = () => ({ ...newDraft(base), id: `v-${'a'.repeat(32)}` });
+const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+
+test('旧版本兼容，新关系与受限的人物图片可安全应用', () => {
+  const old = draft(); delete old.rulers;
+  assert.equal(validateScenario(old, base), true); assert.deepEqual(applyScenario(base, old).rulerCandidates, []);
+  const s = draft(), officer = base.officers[130];
+  s.officers.push({ ...editable(officer), birthYear: null, birthCity: null, portraitId: officer.id, portraitData: tinyPng, skills: [] });
+  s.relations.push({ from: 130, to: 131, kind: '兄弟' });
+  assert.equal(validateScenario(s, base), true);
+  const result = applyScenario(base, s);
+  assert.equal(result.officers[130].portraitData, tinyPng); assert.equal(result.relationships[0].kind, '兄弟');
+  const custom = structuredClone(s); custom.relations[0].kind = '同乡'; assert.equal(validateScenario(custom, base), true);
+  for (const bad of ['<img>', ' ', '朋友\n', '关'.repeat(17), []]) {
+    const invalid = structuredClone(s); invalid.relations[0].kind = bad;
+    assert.throws(() => validateScenario(invalid, base), /关系名称/);
+  }
+  const oversized = Buffer.from(tinyPng.split(',')[1], 'base64'); oversized.writeUInt32BE(385, 16);
+  for (const bad of ['data:image/svg+xml;base64,PHN2Zz4=', tinyPng + '\n', 'data:image/png;base64,YWJj', `data:image/png;base64,${'A'.repeat(90000)}`, `data:image/png;base64,${oversized.toString('base64')}`]) {
+    const invalid = structuredClone(s); invalid.officers[0].portraitData = bad;
+    assert.throws(() => validateScenario(invalid, base), /人物图像/);
+  }
+});
+
+test('额外君主候选仅替换玩家君主，并保持城市、忠诚和存档一致', () => {
+  const s = draft(); s.rulers.push({ faction: 2, officer: 130 });
+  const result = applyScenario(base, s), previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage'), values = new Map();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key) => values.has(key) ? values.get(key) : null,
+    setItem: (key, value) => values.set(key, String(value)), removeItem: (key) => values.delete(key),
+  } });
+  try {
+    G.setData(result, s.id);
+    const original = G.newGame(2, 1, 5);
+    assert.equal(original.factions[2].ruler, 131);
+    const g = G.newGame(2, 1, 5, { ruler: 130 }), home = result.officers[130].city;
+    assert.equal(g.factions[2].ruler, 130); assert.equal(g.factions[2].city, home);
+    assert.equal(g.cities[home].officers[0], 130); assert.equal(g.officers[130].loyalty, 100);
+    assert.ok(g.cities[result.officers[131].city].officers.includes(131));
+    assert.equal(G.isRuler(g, 130), true); assert.equal(G.isRuler(g, 131), false);
+    assert.equal(G.factionName(g, 2), '曹仁');
+    assert.equal(G.save(g, 1), true); assert.equal(G.load(1).factions[2].ruler, 130);
+    assert.throws(() => G.newGame(2, 1, 5, { ruler: 26 }), /君主候选/);
+  } finally {
+    G.setData(base);
+    if (previous) Object.defineProperty(globalThis, 'localStorage', previous); else delete globalThis.localStorage;
+  }
+  for (const candidate of [{ faction: 2, officer: 131 }, { faction: 2, officer: 0 }, { faction: 4, officer: 130 }]) {
+    const bad = draft(); bad.rulers.push(candidate); assert.throws(() => validateScenario(bad, base), /君主候选/);
+  }
+  const duplicated = structuredClone(s); duplicated.rulers.push({ faction: 2, officer: 130 });
+  assert.throws(() => validateScenario(duplicated, base), /君主候选重复/);
+  const moved = structuredClone(s), o = base.officers[130];
+  moved.officers.push({ ...editable(o), appear: 'search_city', faction: null, birthYear: null, birthCity: null, portraitId: o.id, skills: [] });
+  assert.throws(() => validateScenario(moved, base), /君主候选/);
+});
 
 test('a version applies new officers, weapons, skills and relationships without changing the original data', () => {
   const before = JSON.stringify(base), s = draft(), id = base.officers.length;
