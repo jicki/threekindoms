@@ -7,4 +7,11 @@ export const DUEL_SKILLS = {
   shoucheng: { name: '守城断锋', hit: 5, damage: 110 },
   xianzhen: { name: '陷阵突击', hit: 0, damage: 115 },
   fangtian: { name: '方天破阵', hit: -10, damage: 120 },
+  xiaoyao: { name: '逍遥突击', hit: 5, damage: 115 },
+  huchi: { name: '虎痴猛击', hit: -10, damage: 125 },
+  laojiang: { name: '老将劲击', hit: 5, damage: 110 },
+  baier: { name: '白毦突击', hit: -5, damage: 120 },
+  baima: { name: '白马突击', hit: 5, damage: 110 },
+  sanjian: { name: '三尖奋击', hit: -5, damage: 115 },
+  zhenjiang: { name: '镇江拒敌', hit: 5, damage: 110 },
 };

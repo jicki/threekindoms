@@ -56,7 +56,10 @@ class ValidationTest(unittest.TestCase):
         priority['officers'][0].update({'appear': 'search_city', 'faction': None, 'searchPriority': True})
         disabled = copy.deepcopy(scenario); disabled['officers'][0]['searchPriority'] = False
         lubu = copy.deepcopy(scenario); lubu['officers'][0]['duelSkill'] = 'fangtian'
-        cases = [version(), scenario, priority, disabled, lubu]
+        new_skills = []
+        for skill in ('xiaoyao', 'huchi', 'laojiang', 'baier', 'baima', 'sanjian', 'zhenjiang'):
+            item = copy.deepcopy(scenario); item['officers'][0]['duelSkill'] = skill; new_skills.append(item)
+        cases = [version(), scenario, priority, disabled, lubu, *new_skills]
         for value in (0, 4, True, None, 1.5):
             bad = copy.deepcopy(scenario); bad['skills'][0]['maxUses'] = value; cases.append(bad)
         for value in ('__proto__', '', None, 4):
@@ -74,7 +77,38 @@ console.log(JSON.stringify(cases.map((s) => { try { validateScenario(s, base); r
         for item in cases:
             try: validate(item, BASE); server.append(True)
             except ScenarioError: server.append(False)
-        self.assertEqual(server, [True] * 5 + [False] * (len(cases) - 5))
+        self.assertEqual(server, [True] * 12 + [False] * (len(cases) - 12))
+        self.assertEqual(browser, server)
+
+    def test_new_factions_match_browser_and_reject_inconsistent_rosters(self):
+        build = """import {readFileSync} from 'node:fs';
+import {loadScenario} from './hd2d-mvp/src/core/scenario-store.js';
+const base = JSON.parse(readFileSync('hd2d-mvp/data/game-data.json'));
+const s = await loadScenario('builtin-warlords', base); s.id = 'v-' + 'a'.repeat(32); console.log(JSON.stringify(s));"""
+        scenario = json.loads(subprocess.check_output(['node', '--input-type=module', '-e', build], cwd=ROOT, text=True))
+        candidate = copy.deepcopy(scenario); candidate['rulers'].append({'faction': 7, 'officer': 65})
+        cases = [version(), scenario, candidate]
+        for key in ('id', 'duplicate_home', 'occupied_home', 'profile', 'duplicate_ruler', 'ruler_city', 'unowned_city', 'missing_ruler', 'null'):
+            item = copy.deepcopy(scenario)
+            if key == 'id': item['factions'][0]['id'] = 8
+            if key == 'duplicate_home': item['factions'][1]['city'] = item['factions'][0]['city']
+            if key == 'occupied_home': item['factions'][0]['city'] = 1
+            if key == 'profile': item['factions'][0]['aiProfile'] = 9
+            if key == 'duplicate_ruler': item['factions'][0]['ruler'] = item['factions'][1]['ruler']
+            if key == 'ruler_city': next(o for o in item['officers'] if o['id'] == 246)['city'] = 5
+            if key == 'unowned_city': next(o for o in item['officers'] if o['id'] == 249)['city'] = 5
+            if key == 'missing_ruler': next(o for o in item['officers'] if o['id'] == 246)['appear'] = 'search_city'
+            if key == 'null': item['factions'] = None
+            cases.append(item)
+        check = """import {readFileSync} from 'node:fs'; import {validateScenario} from './hd2d-mvp/src/core/scenario.js';
+const base=JSON.parse(readFileSync('hd2d-mvp/data/game-data.json')); const cases=JSON.parse(readFileSync(0,'utf8'));
+console.log(JSON.stringify(cases.map((s)=>{try {validateScenario(s,base); return true;} catch {return false;}})));"""
+        browser = json.loads(subprocess.check_output(['node', '--input-type=module', '-e', check], cwd=ROOT, input=json.dumps(cases), text=True))
+        server = []
+        for item in cases:
+            try: validate(item, BASE); server.append(True)
+            except ScenarioError: server.append(False)
+        self.assertEqual(server, [True] * 3 + [False] * (len(cases) - 3))
         self.assertEqual(browser, server)
 
     def test_new_equipment_validation_matches_browser_and_preserves_old_versions(self):

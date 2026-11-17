@@ -1,6 +1,6 @@
 import { applyScenario, MAX_PORTRAIT_BYTES, MAX_PORTRAIT_SIDE, newDraft, newScenarioId, RELATION_KINDS, validateScenario } from './core/scenario.js';
 import { addScenario, addPresetAbilities, listScenarios, loadScenario, uploadVisualAsset, readVisualAsset } from './core/scenario-store.js';
-import { CHARACTER_PRESETS, FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, MOODS, femaleOfficer, presetVisual, visualRefs, visualUrl } from './core/visuals.js';
+import { CHARACTER_PRESETS, OFFICER_PRESETS, FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, ROSTER_SCENARIO_ID, ROSTER_SCENARIO_NAME, WARLORD_SCENARIO_ID, WARLORD_SCENARIO_NAME, MOODS, femaleOfficer, presetVisual, visualRefs, visualUrl } from './core/visuals.js';
 import { EQUIPMENT_ICONS, ensureFemaleGear, equipmentIconUrl } from './core/equipment.js';
 import { DUEL_SKILLS } from './core/duel-skills.js';
 
@@ -79,6 +79,8 @@ const existingMotions = await (async () => {
 
 if (base) {
   $('published').append(el('option', { value: HERO_SCENARIO_ID }, `${HERO_SCENARIO_NAME}（内置）`));
+  $('published').append(el('option', { value: ROSTER_SCENARIO_ID }, `${ROSTER_SCENARIO_NAME}（内置）`));
+  $('published').append(el('option', { value: WARLORD_SCENARIO_ID }, `${WARLORD_SCENARIO_NAME}（内置）`));
   let draft = newDraft(base), tab = 'officers', selected = { officers: 0, weapons: null, armors: null, skills: null }, formDirty = false, draftDirty = false, lastPublished = null, leaving = false, inFlight = false;
   const equipmentId = () => base.equipment.length + draft.weapons.length + (draft.armors?.length ?? 0);
   const iconValue = (value) => /^\d+$/.test(value) ? Number(value) : value;
@@ -157,11 +159,11 @@ if (base) {
         death: 240, birthYear: null, birthCity: null, portraitId: 0, appear: 'search_city', city: 0, faction: null, skills: [] };
       if (update((next) => next.officers.push(actor), `已添加 ${actor.name}`)) { selected.officers = id; render(); }
     } }, '＋ 新建武将');
-    const addPreset = select('characterPreset', CHARACTER_PRESETS.map((p) => [p.key, p.name]), CHARACTER_PRESETS[0].key);
+    const addPreset = select('characterPreset', OFFICER_PRESETS.map((p) => [p.key, p.name]), OFFICER_PRESETS[0].key);
     addPreset.setAttribute('aria-label', '角色模板');
     const addFemale = el('button', { type: 'button', onclick: () => {
       if (!abandonForm()) return;
-      const preset = CHARACTER_PRESETS.find((p) => p.key === addPreset.value), id = data.officers.length;
+      const preset = OFFICER_PRESETS.find((p) => p.key === addPreset.value), id = data.officers.length;
       if (update((next) => {
         const officer = femaleOfficer(base, preset, id, ensureFemaleGear(next, base, preset.key, { balanced: true }));
         addPresetAbilities(next, preset, officer); next.officers.push(officer);
@@ -170,8 +172,12 @@ if (base) {
     const side = panel('list', el('h2', {}, `武将 · ${all.length}`), search, el('div', { class: 'actions' }, add, addPreset, addFemale), list);
     const o = editable(all[selected.officers] ?? all[0]), form = el('form');
     const appearance = select('appear', [['initial', '开局已有'], ['search_city', '城市搜索'], ['automatic_faction', '自动出仕']], o.appear);
-    const city = select('city', base.cities.map((c) => [c.id, `${c.name}${c.faction === 7 ? '（无主）' : ''}`]), o.city ?? 0);
-    const faction = select('faction', base.factions.map((f) => [f.id, f.name]), o.faction ?? 0);
+    const ownerForCity = (id) => {
+      const home = (draft.factions ?? []).find((f) => f.city === id), owner = base.cities[id]?.faction;
+      return home?.id ?? (owner === base.factions.length ? data.factions.length : owner);
+    };
+    const city = select('city', base.cities.map((c) => [c.id, `${c.name}${ownerForCity(c.id) === data.factions.length ? '（无主）' : ''}`]), o.city ?? 0);
+    const faction = select('faction', data.factions.map((f) => [f.id, f.name]), o.faction ?? 0);
     const cityField = field('登场城市', city), factionField = field('自动出仕势力', faction);
     const priorityField = field('登场后优先搜索', el('input', { type: 'checkbox', name: 'searchPriority', checked: !!o.searchPriority }));
     const showAppearance = () => { cityField.hidden = appearance.value === 'automatic_faction'; factionField.hidden = appearance.value !== 'automatic_faction'; priorityField.hidden = appearance.value !== 'search_city'; };
@@ -283,7 +289,7 @@ if (base) {
         birthYear: fd.get('birthYear') === '' ? null : number(fd, 'birthYear'), birthCity: fd.get('birthCity') === '' ? null : number(fd, 'birthCity'), portraitId: number(fd, 'portraitId'),
         army: fd.get('army'), weapon: number(fd, 'weapon'), armor: number(fd, 'armor'), appear: mode,
         city: mode === 'automatic_faction' ? null : cid,
-        faction: mode === 'automatic_faction' ? number(fd, 'faction') : mode === 'initial' ? base.cities[cid]?.faction : null,
+        faction: mode === 'automatic_faction' ? number(fd, 'faction') : mode === 'initial' ? ownerForCity(cid) : null,
         skills: fd.getAll('skills').map(Number), ...(mode === 'search_city' && fd.get('searchPriority') ? { searchPriority: true } : {}), ...(fd.get('duelSkill') ? { duelSkill: fd.get('duelSkill') } : {}), ...(customImage ? { portraitData: customImage } : {}), ...(Object.keys(visual).length ? { visual } : {}) };
       update((d) => { const at = d.officers.findIndex((item) => item.id === o.id); if (at < 0) d.officers.push(next); else d.officers[at] = next; }, '人物修改已应用到草稿');
     });
@@ -436,7 +442,7 @@ if (base) {
     const rows = items.map((r, i) => el('div', { class: 'relation' },
       el('span', {}, `${data.officers[r.officer].name} · ${data.officers[data.factions[r.faction].ruler].name}势力 · ${data.cities[data.officers[r.officer].city].name}`),
       el('button', { type: 'button', onclick: () => { if (abandonForm()) update((d) => d.rulers.splice(i, 1), '君主候选已移除'); } }, '移除')));
-    return panel('detail', el('h2', {}, '君主候选'), el('p', { class: 'intro' }, '原有七位君主始终可选。可将本势力的开局武将增加为候选；玩家选中后由该武将统领原势力，原君主留在该势力。候选不会创建新势力。'),
+    return panel('detail', el('h2', {}, '君主候选'), el('p', { class: 'intro' }, '本版本各势力的君主始终可选。可将本势力的开局武将增加为候选；玩家选中后由该武将统领原势力，原君主留在该势力。候选不会创建新势力。'),
       el('p', { class: 'intro' }, `原有君主：${data.factions.map((f) => data.officers[f.ruler].name).join('、')}`), form,
       el('h3', {}, `已添加候选 · ${items.length}`), el('div', { class: 'relations' }, rows.length ? rows : el('p', { class: 'empty' }, '尚未添加额外候选。')));
   }
@@ -457,8 +463,9 @@ if (base) {
     if (!Array.isArray(versions)) throw new Error('版本列表格式错误');
     const old = $('published').value;
     $('published').replaceChildren(el('option', { value: '' }, '从原版开始'), el('option', { value: HERO_SCENARIO_ID }, `${HERO_SCENARIO_NAME}（内置）`),
-      ...versions.filter((v) => ![FEMALE_SCENARIO_ID, HERO_SCENARIO_ID].includes(v.id)).map((v) => el('option', { value: v.id }, v.name)));
-    if (old === HERO_SCENARIO_ID || versions.some((v) => v.id === old)) $('published').value = old;
+      el('option', { value: ROSTER_SCENARIO_ID }, `${ROSTER_SCENARIO_NAME}（内置）`), el('option', { value: WARLORD_SCENARIO_ID }, `${WARLORD_SCENARIO_NAME}（内置）`),
+      ...versions.filter((v) => ![FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID].includes(v.id)).map((v) => el('option', { value: v.id }, v.name)));
+    if ([HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID].includes(old) || versions.some((v) => v.id === old)) $('published').value = old;
     const warning = $('version-warning');
     warning.hidden = !versions.skipped;
     warning.textContent = versions.skipped ? `有 ${versions.skipped} 个已发布版本无法读取，已跳过；请检查服务器日志和版本文件。` : '';

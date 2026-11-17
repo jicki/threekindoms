@@ -8,6 +8,7 @@ import { FEMALE_SCENARIO_ID } from './visuals.js';
 
 const KEEP = [[30, 60, 90], [20, 50, 80], [10, 40, 70]]; // cumulative cut-offs for keeping 4/3/2 (else 1)
 const REAR = [2, 3, 3, 2, 3, 3, 2], FRONT = [4, 5, 4, 3, 4, 5, 4]; // A303 thresholds by faction
+const aiProfile = (f) => data().factions[f]?.aiProfile ?? f;
 
 export async function aiTurn(g, f, io) {
   const r = rng(g);
@@ -67,7 +68,7 @@ function weights(g, f) {
     if (nc.faction === f || nc.faction === NONE) { den++; if (c.officers.length < 4) { num++; break; } }
   }
   const ratio = den ? Math.floor((100 * num) / den) : 0, bucket = ratio < 31 ? 0 : ratio < 71 ? 1 : 2;
-  const e = D.rules.ai_dispatch.find((d) => d.difficulty_index === g.level && d.faction_id === f && d.ratio_bucket === bucket);
+  const e = D.rules.ai_dispatch.find((d) => d.difficulty_index === g.level && d.faction_id === aiProfile(f) && d.ratio_bucket === bucket);
   return e ? e.weights : [6, 4, 6];
 }
 
@@ -199,7 +200,7 @@ function outCount(g, n, r, eager = 0) {
 function gather(g, f, dst, need, mode, spend) {
   const ruler = g.factions[f].ruler, home = capitalOf(g, f), link = linker(g, f);
   for (const pass of [0, 1]) {
-    const th = Math.max(2, (pass ? FRONT : REAR)[f] - warlike(g));
+    const th = Math.max(2, (pass ? FRONT : REAR)[aiProfile(f)] - warlike(g));
     for (const c of g.cities) {
       if (c === dst || c.faction !== f || (c === home || isFront(g, f, c)) !== (pass === 1) || !link(dst.id, c.id)) continue;
       while (c.officers.length >= th) {
@@ -389,7 +390,7 @@ function reinforce(g, f, spend) {
 // One BEC7 action in the selected city: faction threshold out of 80, then the sub-draw.
 function domestic(g, f, c, r, spend) {
   const D = data(), K = D.rules.ai_domestic.development_multiplier_tenths[g.level];
-  if (r(80) < D.rules.ai_domestic.faction_development_threshold_out_of_80[f]) {
+  if (r(80) < D.rules.ai_domestic.faction_development_threshold_out_of_80[aiProfile(f)]) {
     const x = r(100);
     if (x < 70) {
       const cost = 10 + r(14);

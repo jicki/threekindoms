@@ -1,5 +1,5 @@
 // 版本文件只包含受校验的修改，不接受可执行脚本，也不修改原始数据。
-import { FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, MOODS, validVisualRef } from './visuals.js';
+import { FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID, MOODS, validVisualRef } from './visuals.js';
 import { WEAPON_CATEGORIES, validEquipmentIcon } from './equipment.js';
 import { DUEL_SKILLS } from './duel-skills.js';
 export const SCENARIO_FORMAT = 1;
@@ -77,9 +77,9 @@ export function newScenarioId() {
 // 只接受已知结构；读取时也要验证，不能假定本地存储或导入文件可信。
 export function validateScenario(s, base, { draft = false } = {}) {
   obj(s, '版本');
-  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers'], '版本');
+  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions'], '版本');
   if (s.format !== SCENARIO_FORMAT) fail('不支持的版本文件格式');
-  if (!(draft && s.id === null) && s.id !== FEMALE_SCENARIO_ID && s.id !== HERO_SCENARIO_ID && (typeof s.id !== 'string' || !ID.test(s.id))) fail('版本编号无效');
+  if (!(draft && s.id === null) && s.id !== FEMALE_SCENARIO_ID && s.id !== HERO_SCENARIO_ID && s.id !== ROSTER_SCENARIO_ID && s.id !== WARLORD_SCENARIO_ID && (typeof s.id !== 'string' || !ID.test(s.id))) fail('版本编号无效');
   text(s.name, '版本名称', 40);
   if (s.base !== baseSignature(base)) fail('版本所需的基础数据与当前游戏不一致');
   array(s.officers, '武将', base.officers.length + 100);
@@ -87,6 +87,24 @@ export function validateScenario(s, base, { draft = false } = {}) {
   array(s.weapons, '新武器', 64); array(armors, '新防具', 64); array(s.skills, '新技能', 64); array(s.relations, '人物关系', 1000);
   if (s.rulers !== undefined) array(s.rulers, '君主候选', base.officers.length + 100);
   const maxOfficer = base.officers.length + s.officers.filter((o) => Number.isInteger(o?.id) && o.id >= base.officers.length).length - 1;
+  const factions = s.factions === undefined ? [] : s.factions;
+  array(factions, '新势力', 3);
+  const homes = new Set(), factionRulers = new Set(base.factions.map((f) => f.ruler));
+  for (const [i, f] of factions.entries()) {
+    obj(f, '新势力'); keys(f, ['id', 'name', 'ruler', 'city', 'aiProfile'], '新势力');
+    if (f.id !== base.factions.length + i) fail('新势力编号不连续');
+    text(f.name, '势力名称');
+    integer(f.ruler, '势力君主', 0, maxOfficer); integer(f.city, '势力开局城市', 0, base.cities.length - 1);
+    integer(f.aiProfile, '势力电脑策略', 0, base.factions.length - 1);
+    if (base.cities[f.city].faction !== base.factions.length || base.cities[f.city].officers.length || homes.has(f.city)) fail('新势力须占用不同的原版无主空城');
+    if (factionRulers.has(f.ruler)) fail('势力君主重复');
+    homes.add(f.city); factionRulers.add(f.ruler);
+  }
+  const allFactions = [...base.factions, ...factions];
+  const ownerForCity = (id) => {
+    const home = factions.find((f) => f.city === id), owner = base.cities[id]?.faction;
+    return home?.id ?? (owner === base.factions.length ? allFactions.length : owner);
+  };
   const seenOfficers = new Set(), seenRelations = new Set();
   const equipment = [...s.weapons.map((item) => ({ item, kind: 'weapon' })), ...armors.map((item) => ({ item, kind: 'armor' }))];
   const equipmentKinds = new Map();
@@ -169,24 +187,28 @@ export function validateScenario(s, base, { draft = false } = {}) {
     if (o.searchPriority && o.appear !== 'search_city') fail('只有城市搜索登场的武将可以优先搜索');
     if (o.appear === 'automatic_faction') {
       if (o.city !== null) fail('自动出仕的武将不能指定登场城市');
-      integer(o.faction, '出仕势力', 0, base.factions.length - 1);
+      integer(o.faction, '出仕势力', 0, allFactions.length - 1);
     } else {
       integer(o.city, '登场城市', 0, base.cities.length - 1);
       if (o.appear === 'search_city') { if (o.faction !== null) fail('搜索登场的武将不能预设势力'); }
       else {
-        integer(o.faction, '所属势力', 0, base.factions.length - 1);
-        if (base.cities[o.city].faction !== o.faction) fail('开局城市不属于所选势力');
+        integer(o.faction, '所属势力', 0, allFactions.length - 1);
+        if (ownerForCity(o.city) !== o.faction) fail('开局城市不属于所选势力');
         if (o.year > 189) fail('开局登场的年份不能晚于 189 年');
       }
     }
-    const ruler = base.factions.find((f) => f.ruler === o.id);
-    if (ruler && (o.appear !== 'initial' || o.city !== base.officers[o.id].city || o.faction !== ruler.id)) fail('君主的开局城市和势力不能改变');
+    const ruler = allFactions.find((f) => f.ruler === o.id);
+    if (ruler && (o.appear !== 'initial' || o.city !== (ruler.city ?? base.officers[o.id].city) || o.faction !== ruler.id)) fail('君主的开局城市和势力不能改变');
     array(o.skills, '武将技能', 64);
     for (const id of o.skills) integer(id, '技能编号', 16, 15 + s.skills.length);
     if (new Set(o.skills).size !== o.skills.length) fail('武将技能重复');
     if (o.duelSkill !== undefined && (typeof o.duelSkill !== 'string' || !Object.hasOwn(DUEL_SKILLS, o.duelSkill))) fail('单挑技无效');
   }
   for (let id = base.officers.length; id <= maxOfficer; id++) if (!seenOfficers.has(id)) fail('新武将编号不连续');
+  for (const f of factions) {
+    const ruler = s.officers.find((o) => o.id === f.ruler) ?? base.officers[f.ruler];
+    if (!ruler || ruler.appear !== 'initial' || ruler.city !== f.city || ruler.faction !== f.id) fail('新势力君主必须在该势力开局城市');
+  }
   for (const r of s.relations) {
     obj(r, '人物关系'); keys(r, ['from', 'to', 'kind'], '人物关系');
     integer(r.from, '关系起点', 0, maxOfficer); integer(r.to, '关系终点', 0, maxOfficer);
@@ -197,11 +219,11 @@ export function validateScenario(s, base, { draft = false } = {}) {
   const seenRulers = new Set();
   for (const r of s.rulers ?? []) {
     obj(r, '君主候选'); keys(r, ['faction', 'officer'], '君主候选');
-    integer(r.faction, '候选所属势力', 0, base.factions.length - 1);
+    integer(r.faction, '候选所属势力', 0, allFactions.length - 1);
     integer(r.officer, '候选武将', 0, maxOfficer);
     const officer = s.officers.find((o) => o.id === r.officer) ?? base.officers[r.officer];
-    if (!officer || officer.appear !== 'initial' || officer.faction !== r.faction || base.cities[officer.city]?.faction !== r.faction) fail('君主候选必须为该势力开局武将');
-    if (base.factions[r.faction].ruler === r.officer || seenRulers.has(r.officer)) fail('君主候选重复');
+    if (!officer || officer.appear !== 'initial' || officer.faction !== r.faction || ownerForCity(officer.city) !== r.faction) fail('君主候选必须为该势力开局武将');
+    if (allFactions[r.faction].ruler === r.officer || seenRulers.has(r.officer)) fail('君主候选重复');
     seenRulers.add(r.officer);
   }
   return true;
@@ -210,6 +232,16 @@ export function validateScenario(s, base, { draft = false } = {}) {
 export function applyScenario(base, scenario, { draft = false } = {}) {
   validateScenario(scenario, base, { draft });
   const d = clone(base), modifiedQueues = new Set();
+  const extraFactions = scenario.factions ?? [];
+  if (extraFactions.length) {
+    const neutral = base.factions.length + extraFactions.length;
+    for (const city of d.cities) if (city.faction === base.factions.length) city.faction = neutral;
+    for (const f of extraFactions) { d.factions.push({ id: f.id, name: f.name, ruler: f.ruler, aiProfile: f.aiProfile }); d.cities[f.city].faction = f.id; }
+    d.rules.turn_orders = d.rules.turn_orders.map((order, index) => order.flatMap((id, at) => {
+      const next = extraFactions.findIndex((_, n) => at === Math.floor((n + 1) * order.length / (extraFactions.length + 1)));
+      return next < 0 ? [id] : [id, extraFactions[(next + index) % extraFactions.length].id];
+    }));
+  }
   d.customSkills = clone(scenario.skills);
   d.relationships = clone(scenario.relations);
   d.rulerCandidates = clone(scenario.rulers ?? []);
@@ -238,10 +270,14 @@ export function applyScenario(base, scenario, { draft = false } = {}) {
     }
     d.officers[o.id] = { ...(prior || { id: o.id, jp: o.name }), ...clone(o) };
   }
+  // 君主是所在城市的太守；旧武将编号可能排在新君主之前。
+  for (const f of extraFactions) {
+    const city = d.cities[f.city]; city.officers = [f.ruler, ...city.officers.filter((id) => id !== f.ruler)];
+  }
   for (const c of d.cities) {
     if (c.officers.length > 10) fail(`${c.name}的开局武将超过 10 人`);
     // 与游戏中武将全部离城时一致：空城不再属于原势力。
-    if (!c.officers.length) c.faction = 7;
+    if (!c.officers.length) c.faction = d.factions.length;
   }
   for (const item of modifiedQueues) {
     const [kind, key] = item.split(':'), ids = (kind === 'search' ? d.search_table : d.join_table)[key];

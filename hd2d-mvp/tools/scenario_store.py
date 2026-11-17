@@ -184,7 +184,7 @@ def image_info(data):
 
 
 def validate(s, base):
-    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers'])
+    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions'])
     if type(s.get('format')) is not int or s['format'] != 1:
         fail('不支持的版本文件格式')
     if not isinstance(s.get('id'), str) or not ID.fullmatch(s['id']):
@@ -203,6 +203,29 @@ def validate(s, base):
     array(rulers, '君主候选', len(base['officers']) + 100)
     nbase = len(base['officers'])
     max_officer = nbase + sum(isinstance(o, dict) and type(o.get('id')) is int and o['id'] >= nbase for o in officers) - 1
+    factions = s.get('factions', []); array(factions, '新势力', 3)
+    homes, faction_rulers = set(), {f['ruler'] for f in base['factions']}
+    for i, faction in enumerate(factions):
+        obj(faction, '新势力', ['id', 'name', 'ruler', 'city', 'aiProfile'])
+        if type(faction.get('id')) is not int or faction['id'] != len(base['factions']) + i:
+            fail('新势力编号不连续')
+        text(faction.get('name'), '势力名称')
+        integer(faction.get('ruler'), '势力君主', 0, max_officer)
+        integer(faction.get('city'), '势力开局城市', 0, len(base['cities']) - 1)
+        integer(faction.get('aiProfile'), '势力电脑策略', 0, len(base['factions']) - 1)
+        city = base['cities'][faction['city']]
+        if city['faction'] != len(base['factions']) or city['officers'] or faction['city'] in homes:
+            fail('新势力须占用不同的原版无主空城')
+        if faction['ruler'] in faction_rulers:
+            fail('势力君主重复')
+        homes.add(faction['city']); faction_rulers.add(faction['ruler'])
+    all_factions = [*base['factions'], *factions]
+
+    def owner_for_city(city):
+        home = next((f['id'] for f in factions if f['city'] == city), None)
+        owner = base['cities'][city]['faction']
+        return home if home is not None else len(all_factions) if owner == len(base['factions']) else owner
+
     kinds = {}
     for item, kind in [(w, 'weapon') for w in weapons] + [(a, 'armor') for a in armors]:
         obj(item, '武器' if kind == 'weapon' else '防具', ['id', 'name', 'cat', 'atk', 'dfn', 'weight', 'price', 'icon', 'shops', 'grade', 'requirements'])
@@ -314,27 +337,28 @@ def validate(s, base):
         if appear == 'automatic_faction':
             if 'city' not in o or o['city'] is not None:
                 fail('自动出仕的武将不能指定登场城市')
-            integer(o.get('faction'), '出仕势力', 0, len(base['factions']) - 1)
+            integer(o.get('faction'), '出仕势力', 0, len(all_factions) - 1)
         else:
             integer(o.get('city'), '登场城市', 0, len(base['cities']) - 1)
             if appear == 'search_city':
                 if 'faction' not in o or o['faction'] is not None:
                     fail('搜索登场的武将不能预设势力')
             else:
-                integer(o.get('faction'), '所属势力', 0, len(base['factions']) - 1)
-                if base['cities'][o['city']]['faction'] != o['faction']:
+                integer(o.get('faction'), '所属势力', 0, len(all_factions) - 1)
+                if owner_for_city(o['city']) != o['faction']:
                     fail('开局城市不属于所选势力')
                 if o['year'] > 189:
                     fail('开局登场的年份不能晚于 189 年')
-        ruler = next((f for f in base['factions'] if f['ruler'] == oid), None)
-        if ruler and (appear != 'initial' or o['city'] != base['officers'][oid]['city'] or o['faction'] != ruler['id']):
+        ruler = next((f for f in all_factions if f['ruler'] == oid), None)
+        ruler_city = ruler.get('city') if ruler and 'city' in ruler else base['officers'][oid]['city'] if ruler else None
+        if ruler and (appear != 'initial' or o['city'] != ruler_city or o['faction'] != ruler['id']):
             fail('君主的开局城市和势力不能改变')
         selected = o.get('skills'); array(selected, '武将技能', 64)
         for sid in selected:
             integer(sid, '技能编号', 16, 15 + len(skills))
         if len(set(selected)) != len(selected):
             fail('武将技能重复')
-        if 'duelSkill' in o and (not isinstance(o['duelSkill'], str) or o['duelSkill'] not in ('qinglong', 'longdan', 'yanren', 'gongyao', 'shoucheng', 'xianzhen', 'fangtian')):
+        if 'duelSkill' in o and (not isinstance(o['duelSkill'], str) or o['duelSkill'] not in ('qinglong', 'longdan', 'yanren', 'gongyao', 'shoucheng', 'xianzhen', 'fangtian', 'xiaoyao', 'huchi', 'laojiang', 'baier', 'baima', 'sanjian', 'zhenjiang')):
             fail('单挑技无效')
         prior = base['officers'][oid] if oid < nbase else None
         if prior is None or any(prior[k] != o[k] for k in ('appear', 'city', 'faction')):
@@ -345,6 +369,12 @@ def validate(s, base):
                 rosters[o['city']].append(oid)
     if any(i not in seen for i in range(nbase, max_officer + 1)):
         fail('新武将编号不连续')
+    edited = {o['id']: o for o in officers}
+    for faction in factions:
+        oid = faction['ruler']
+        ruler = edited.get(oid) or (base['officers'][oid] if oid < nbase else None)
+        if ruler is None or ruler['appear'] != 'initial' or ruler['city'] != faction['city'] or ruler['faction'] != faction['id']:
+            fail('新势力君主必须在该势力开局城市')
     if any(len(roster) > 10 for roster in rosters):
         fail('开局城市的武将不能超过 10 人')
     pairs = set()
@@ -359,16 +389,15 @@ def validate(s, base):
             fail('人物关系重复')
         pairs.add(key)
     seen_rulers = set()
-    edited = {o['id']: o for o in officers}
     for r in rulers:
         obj(r, '君主候选', ['faction', 'officer'])
-        integer(r.get('faction'), '候选所属势力', 0, len(base['factions']) - 1)
+        integer(r.get('faction'), '候选所属势力', 0, len(all_factions) - 1)
         integer(r.get('officer'), '候选武将', 0, max_officer)
         oid, faction = r['officer'], r['faction']
         officer = edited.get(oid) or (base['officers'][oid] if oid < nbase else None)
-        if officer is None or officer['appear'] != 'initial' or officer['faction'] != faction or base['cities'][officer['city']]['faction'] != faction:
+        if officer is None or officer['appear'] != 'initial' or officer['faction'] != faction or owner_for_city(officer['city']) != faction:
             fail('君主候选必须为该势力开局武将')
-        if base['factions'][faction]['ruler'] == oid or oid in seen_rulers:
+        if all_factions[faction]['ruler'] == oid or oid in seen_rulers:
             fail('君主候选重复')
         seen_rulers.add(oid)
     return True

@@ -1,5 +1,5 @@
 import { ORIGINAL_SCENARIO, newDraft, validateScenario } from './scenario.js';
-import { FEMALE_PRESETS, EXTRA_PRESETS, FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, femaleOfficer } from './visuals.js';
+import { FEMALE_PRESETS, EXTRA_PRESETS, ROSTER_PRESETS, WARLORD_PRESETS, FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, ROSTER_SCENARIO_ID, ROSTER_SCENARIO_NAME, WARLORD_SCENARIO_ID, WARLORD_SCENARIO_NAME, femaleOfficer } from './visuals.js';
 import { ensureFemaleGear } from './equipment.js';
 
 const SESSION = 'haou-hd2d-scenario';
@@ -10,8 +10,17 @@ const HERO_STRATEGIES = {
   chen: { name: '公台奇谋', cost: 9, soldiers: 80, hp: 3, stop: 1, rice: 0, maxUses: 2 },
   cai: { name: '胡笳扰阵', cost: 8, soldiers: 40, hp: 0, stop: 1, rice: 0, maxUses: 2 },
   wang: { name: '坚城奇策', cost: 9, soldiers: 60, hp: 2, stop: 1, rice: 0, maxUses: 2 },
+  guojia: { name: '奉孝奇策', cost: 10, soldiers: 80, hp: 0, stop: 1, rice: 30, maxUses: 2 },
+  simayi: { name: '鹰视守谋', cost: 10, soldiers: 70, hp: 2, stop: 1, rice: 0, maxUses: 2 },
+  xin: { name: '宪英明鉴', cost: 9, soldiers: 50, hp: 0, stop: 1, rice: 30, maxUses: 2 },
+  gongsun: { name: '幽骑冲阵', cost: 10, soldiers: 100, hp: 0, stop: 1, rice: 0, maxUses: 2 },
+  yuanshu: { name: '淮南筹策', cost: 10, soldiers: 80, hp: 0, stop: 0, rice: 45, maxUses: 2 },
+  liubiao: { name: '荆襄固阵', cost: 9, soldiers: 60, hp: 0, stop: 1, rice: 0, maxUses: 2 },
+  guanjing: { name: '长史守谋', cost: 9, soldiers: 60, hp: 1, stop: 1, rice: 0, maxUses: 2 },
+  yanxiang: { name: '阎象明策', cost: 9, soldiers: 60, hp: 0, stop: 1, rice: 20, maxUses: 2 },
+  kuaiyue: { name: '异度奇谋', cost: 9, soldiers: 70, hp: 0, stop: 1, rice: 0, maxUses: 2 },
 };
-const PRESET_DUEL_SKILLS = { sun: 'gongyao', wang: 'shoucheng', gao: 'xianzhen' };
+const PRESET_DUEL_SKILLS = { sun: 'gongyao', wang: 'shoucheng', gao: 'xianzhen', dao: 'baier', gongsun: 'baima' };
 
 // 添加模板时复用已存在的同名计略，不覆盖管理员对它的调整。
 export function addPresetAbilities(draft, preset, officer) {
@@ -41,7 +50,7 @@ export function hasLegacyRecords() {
   } catch { return true; } // 无法检查时仍保留入口，避免隐藏用户的旧记录。
 }
 export function selectScenario(id) {
-  if (id !== ORIGINAL_SCENARIO && id !== FEMALE_SCENARIO_ID && id !== HERO_SCENARIO_ID && !/^v-[a-f0-9]{32}$/.test(id)) throw new Error('版本编号无效');
+  if (id !== ORIGINAL_SCENARIO && id !== FEMALE_SCENARIO_ID && id !== HERO_SCENARIO_ID && id !== ROSTER_SCENARIO_ID && id !== WARLORD_SCENARIO_ID && !/^v-[a-f0-9]{32}$/.test(id)) throw new Error('版本编号无效');
   try { if (id === ORIGINAL_SCENARIO) sessionStorage.removeItem(SESSION); else sessionStorage.setItem(SESSION, id); }
   catch { throw new Error('无法保存当前页面的版本选择'); }
 }
@@ -68,18 +77,67 @@ async function request(url, options, includeSkipped = false) {
 }
 export async function listScenarios() { return request(api(), undefined, true); }
 export async function loadScenario(id, base) {
+  if (id === WARLORD_SCENARIO_ID) {
+    const scenario = await loadScenario(ROSTER_SCENARIO_ID, base);
+    scenario.id = id; scenario.name = WARLORD_SCENARIO_NAME;
+    const first = base.officers.length + FEMALE_PRESETS.length + EXTRA_PRESETS.length + ROSTER_PRESETS.length;
+    scenario.factions = [
+      { id: 7, name: '公孙瓒', ruler: first, city: 0, aiProfile: 4 },
+      { id: 8, name: '袁术', ruler: first + 1, city: 13, aiProfile: 1 },
+      { id: 9, name: '刘表', ruler: first + 2, city: 21, aiProfile: 3 },
+    ];
+    for (const [i, preset] of WARLORD_PRESETS.entries()) {
+      const officer = femaleOfficer(base, preset, first + i, ensureFemaleGear(scenario, base, preset.key, { balanced: true }));
+      Object.assign(officer, { appear: 'initial', city: preset.city, faction: preset.faction, soldiers: preset.soldiers,
+        loyalty: i < 3 ? 100 : 80, level: i < 3 ? 3 : 2, exp: i < 3 ? 2000 : 1000 });
+      addPresetAbilities(scenario, preset, officer); scenario.officers.push(officer);
+    }
+    const copy = (officerId, city, faction, soldiers, extra = {}) => {
+      const original = base.officers[officerId], fields = ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'appear', 'city', 'faction'];
+      const officer = { ...Object.fromEntries(fields.map((key) => [key, original[key]])), birthYear: null, birthCity: null, portraitId: officerId, skills: [],
+        appear: 'initial', year: 189, city, faction, soldiers, loyalty: 80, ...extra };
+      scenario.officers.push(officer); return officer;
+    };
+    copy(65, 0, 7, 400);
+    copy(59, 13, 8, 600, { duelSkill: 'sanjian' });
+    const kuaiyue = copy(18, 21, 9, 300); addPresetAbilities(scenario, { key: 'kuaiyue' }, kuaiyue);
+    copy(19, 21, 9, 300);
+    copy(192, 21, 9, 600, { duelSkill: 'zhenjiang' });
+    for (const [ruler, followers] of [[first, [first + 3, first + 4, 65]], [first + 1, [first + 5, first + 6, 59]], [first + 2, [first + 7, 18, 19, 192]]]) {
+      for (const follower of followers) scenario.relations.push({ from: ruler, to: follower, kind: '君臣' });
+    }
+    scenario.relations.push({ from: 18, to: 19, kind: '兄弟' });
+    validateScenario(scenario, base);
+    return scenario;
+  }
+  if (id === ROSTER_SCENARIO_ID) {
+    // 新编号隔离老合并版中可能已使用的动态武将编号。
+    const scenario = await loadScenario(HERO_SCENARIO_ID, base);
+    scenario.id = id; scenario.name = ROSTER_SCENARIO_NAME;
+    for (const [i, preset] of ROSTER_PRESETS.entries()) {
+      const officer = femaleOfficer(base, preset, base.officers.length + FEMALE_PRESETS.length + EXTRA_PRESETS.length + i,
+        ensureFemaleGear(scenario, base, preset.key, { balanced: true }));
+      addPresetAbilities(scenario, preset, officer); scenario.officers.push(officer);
+    }
+    const [dao, xin] = ROSTER_PRESETS.map((_, i) => base.officers.length + FEMALE_PRESETS.length + EXTRA_PRESETS.length + i);
+    scenario.relations.push({ from: 222, to: dao, kind: '君臣' }, { from: 118, to: xin, kind: '父女' });
+    validateScenario(scenario, base);
+    return scenario;
+  }
   if (id === FEMALE_SCENARIO_ID || id === HERO_SCENARIO_ID) {
     const expanded = id === HERO_SCENARIO_ID, scenario = { ...newDraft(base), id, name: expanded ? HERO_SCENARIO_NAME : FEMALE_SCENARIO_NAME };
     const presets = expanded ? [...FEMALE_PRESETS, ...EXTRA_PRESETS] : FEMALE_PRESETS;
     scenario.officers = presets.map((p, i) => femaleOfficer(base, p, base.officers.length + i, ensureFemaleGear(scenario, base, p.key, { balanced: expanded })));
     if (expanded) {
-      scenario.skills = ['zhuge', 'zhou', 'chen', 'cai', 'wang'].map((key, i) => ({ id: 16 + i, ...HERO_STRATEGIES[key] }));
+      scenario.skills = ['zhuge', 'zhou', 'chen', 'cai', 'wang', 'guojia', 'simayi'].map((key, i) => ({ id: 16 + i, ...HERO_STRATEGIES[key] }));
       const copy = (id, extra) => {
         const o = base.officers[id], fields = ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'appear', 'city', 'faction'];
         return { ...Object.fromEntries(fields.map((key) => [key, o[key]])), birthYear: null, birthCity: null, portraitId: id, skills: [], ...extra };
       };
       scenario.officers.push(copy(109, { skills: [16] }), copy(93, { skills: [17] }),
-        copy(38, { duelSkill: 'qinglong' }), copy(144, { duelSkill: 'longdan' }), copy(153, { duelSkill: 'yanren' }), copy(218, { duelSkill: 'fangtian' }));
+        copy(38, { duelSkill: 'qinglong' }), copy(144, { duelSkill: 'longdan' }), copy(153, { duelSkill: 'yanren' }), copy(218, { duelSkill: 'fangtian' }),
+        copy(156, { duelSkill: 'xiaoyao' }), copy(57, { duelSkill: 'huchi' }), copy(75, { duelSkill: 'laojiang' }),
+        copy(24, { skills: [21] }), copy(86, { skills: [22] }));
       Object.assign(scenario.officers[0], { duelSkill: 'gongyao' });
       Object.assign(scenario.officers[3], { skills: [19] });
       Object.assign(scenario.officers[4], { skills: [20], duelSkill: 'shoucheng' });
@@ -97,7 +155,7 @@ export async function loadScenario(id, base) {
 }
 export async function addScenario(scenario, base, token) {
   validateScenario(scenario, base);
-  if (scenario.id === FEMALE_SCENARIO_ID || scenario.id === HERO_SCENARIO_ID) throw new Error('内置版本须载入为新草稿后发布');
+  if ([FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID].includes(scenario.id)) throw new Error('内置版本须载入为新草稿后发布');
   if (typeof token !== 'string' || !token) throw new Error('请输入管理员令牌');
   return request(api(), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(scenario) });
 }

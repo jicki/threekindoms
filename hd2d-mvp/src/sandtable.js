@@ -28,7 +28,7 @@ const DETAIL_ZOOM = [18, 55], HAMLET_FAR_OPACITY = 0.55, SEA_CREST_FADE = 0.7;
 const SEA_DEEP = [0.006, 0.034, 0.105], SEA_MID = [0.014, 0.08, 0.2], SEA_SHALLOW = [0.03, 0.2, 0.26];
 const SEA_SHELF_BIAS = 5.5, SEA_SHELF = [0.05, 0.75], SEA_SHELF_TINT = 0.45, SEA_GRAIN = 0.3, SEA_CREST = 0.12;
 // Wash colours keep the flags' identities in snow and ochre fields; the wash changes chroma, not the painted texture.
-export const TERRITORY_PALETTE = ['#5a5a66', '#d12d3e', '#7a4ad0', '#f5c51a', '#3f8f4f', '#c060a0', '#2f9fb0'];
+export const TERRITORY_PALETTE = ['#5a5a66', '#d12d3e', '#7a4ad0', '#f5c51a', '#3f8f4f', '#c060a0', '#2f9fb0', '#4673aa', '#a46324', '#857b3d'];
 export const TERRITORY_FILL = [0.008, 0.5], TERRITORY_RIM_FILL = 0.2, TERRITORY_BAND_WORLD = [0.35, 4.5];
 export const TERRITORY_MID_BOOST = 0.08; // more chroma between the accepted near and far looks, without changing either end
 export const TERRITORY_BORDER_HALF_PX = 1.35, TERRITORY_NEUTRAL_BORDER = 0.55, TERRITORY_FOCUS_SCALE = 0.7;
@@ -89,8 +89,9 @@ export function buildSandtable(scene, S) {
   let smoothX, smoothY; // the border grid is only needed if the player asks to see territory
   const uDetailFade = { value: 0 }; // bakeView disables the live-only sea and hamlet fade
   const uTerritory = { value: new THREE.Vector4() };
-  const territoryColors = new Float32Array(8 * 3); TERRITORY_PALETTE.forEach((c, i) => new THREE.Color(c).toArray(territoryColors, i * 3));
+  const territoryColors = new Float32Array(16 * 3); TERRITORY_PALETTE.forEach((c, i) => new THREE.Color(c).toArray(territoryColors, i * 3));
   const uTerritoryColors = { value: territoryColors }; // already flat, so uniform upload needs no per-frame colour-array conversion
+  const uTerritoryNeutral = { value: NONE };
   let detailDist = NaN, detailEnabled = true, detailLastEnabled = true, territoryEnabled = false, territoryFocus = false, detailFocus = false, detailDpr = 0;
   // height.bin: the sculpted heights, then the game's own (snow), each 16-bit over its range; row 0 is the north.
   const H = new Float32Array(N), H0 = new Float32Array(N);
@@ -108,7 +109,7 @@ export function buildSandtable(scene, S) {
   };
 
   // ---- Ground ----
-  const pos = new Float32Array(N * 3), uv = new Float32Array(N * 2), ownerTint = new Float32Array(N * 4), borders = new Float32Array(N * 4), borderInfo = new Float32Array(N * 4), borderSmooth = new Float32Array(N * 3), idx = new Uint32Array((GW - 1) * (GH - 1) * 6);
+  const pos = new Float32Array(N * 3), uv = new Float32Array(N * 2), ownerTint = new Float32Array(N * 4), borders = new Float32Array(N * 4), borderHigh = new Float32Array(N), borderInfo = new Float32Array(N * 4), borderSmooth = new Float32Array(N * 4), idx = new Uint32Array((GW - 1) * (GH - 1) * 6);
   for (let j = 0; j < GH; j++) for (let k = 0; k < GW; k++) {
     const i = j * GW + k, x = X0 + k * dx, z = Z0 + j * dz;
     pos[i * 3] = x; pos[i * 3 + 1] = H[i]; pos[i * 3 + 2] = z;
@@ -120,6 +121,7 @@ export function buildSandtable(scene, S) {
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setAttribute('territory', new THREE.BufferAttribute(ownerTint, 4).setUsage(THREE.DynamicDrawUsage));
   geo.setAttribute('territoryBorder', new THREE.BufferAttribute(borders, 4).setUsage(THREE.DynamicDrawUsage));
+  geo.setAttribute('territoryHigh', new THREE.BufferAttribute(borderHigh, 1).setUsage(THREE.DynamicDrawUsage));
   geo.setAttribute('territoryDistance', new THREE.BufferAttribute(borderInfo, 4).setUsage(THREE.DynamicDrawUsage)); geo.setAttribute('h0', new THREE.BufferAttribute(H0, 1));
   geo.setIndex(new THREE.BufferAttribute(idx, 1)); geo.computeVertexNormals();
   // Unlit but for the bake: albedo × (lamp × baked lamp light + sky × baked sky light). strategy.js feeds the
@@ -129,14 +131,14 @@ export function buildSandtable(scene, S) {
   groundMat.customProgramCacheKey = () => 'sandGround';
   groundMat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, U, { uLatFix: { value: 0 }, uSnowH: { value: 2.6 }, uPatch: { value: 1.6 }, uSnowMax: { value: 1 } },
-      { uLight: { value: S.light }, uMask: { value: S.mask }, uSun, uSky, uWoodsFloor, uTerritory, uTerritoryColors, uRefG: { value: SAND_REF.grass }, uRefF: { value: SAND_REF.forest }, uRefM: { value: SAND_REF.farm } });
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float h0; attribute vec4 territory, territoryBorder, territoryDistance; varying float vH0; varying vec3 vWPos; varying vec3 vWNrm; varying vec4 vTerritory, vTerritoryBorder, vTerritoryDistance;')
-      .replace('#include <fog_vertex>', '#include <fog_vertex>\nvH0 = h0; vWPos = (modelMatrix * vec4(transformed, 1.)).xyz; vWNrm = normalize(mat3(modelMatrix) * normal); vTerritory = territory; vTerritoryBorder = territoryBorder; vTerritoryDistance = territoryDistance;');
+      { uLight: { value: S.light }, uMask: { value: S.mask }, uSun, uSky, uWoodsFloor, uTerritory, uTerritoryColors, uTerritoryNeutral, uRefG: { value: SAND_REF.grass }, uRefF: { value: SAND_REF.forest }, uRefM: { value: SAND_REF.farm } });
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float h0, territoryHigh; attribute vec4 territory, territoryBorder, territoryDistance; varying float vH0, vTerritoryHigh; varying vec3 vWPos; varying vec3 vWNrm; varying vec4 vTerritory, vTerritoryBorder, vTerritoryDistance;')
+      .replace('#include <fog_vertex>', '#include <fog_vertex>\nvH0 = h0; vTerritoryHigh = territoryHigh; vWPos = (modelMatrix * vec4(transformed, 1.)).xyz; vWNrm = normalize(mat3(modelMatrix) * normal); vTerritory = territory; vTerritoryBorder = territoryBorder; vTerritoryDistance = territoryDistance;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
       uniform vec3 uGrass[5], uForest[5], uFarm[5], uLeaf[5], uCrimson[5];
       ${SEASON_GLSL}
-      uniform sampler2D uLight, uMask; uniform vec3 uSun, uSky, uRefG, uRefF, uRefM, uWoodsFloor, uTerritoryColors[8]; uniform vec4 uTerritory;
-      varying float vH0; varying vec3 vWPos; varying vec3 vWNrm; varying vec4 vTerritory, vTerritoryBorder, vTerritoryDistance;`)
+      uniform sampler2D uLight, uMask; uniform vec3 uSun, uSky, uRefG, uRefF, uRefM, uWoodsFloor, uTerritoryColors[16]; uniform vec4 uTerritory; uniform float uTerritoryNeutral;
+      varying float vH0, vTerritoryHigh; varying vec3 vWPos; varying vec3 vWNrm; varying vec4 vTerritory, vTerritoryBorder, vTerritoryDistance;`)
       .replace('#include <map_fragment>', /* glsl */`
         vec3 c = texture2D(map, vMapUv).rgb;
         vec3 wn = normalize(vWNrm);
@@ -183,15 +185,15 @@ export function buildSandtable(scene, S) {
         diffuseColor.rgb = max(diffuseColor.rgb, min(dot(c, vec3(.2126, .7152, .0722)), .25) * uWoodsFloor * msk.g * (1. - smoothstep(.1, .4, cover))); // zero in play; the 2D map's pictures fill the woods' floor (strategy.js bakeView)
         // The uniform branch skips the whole overlay when off; derivatives still run before the divergent coast branch.
         if (uTerritory.x > 0.) {
-          vec3 territoryRate = fwidth(vTerritoryBorder.xyz);
+          vec4 territoryRate = fwidth(vec4(vTerritoryBorder.xyz, vTerritoryHigh));
           // Change hue at the texel's own luminance, retaining the texture and keeping snow bright; the sea has no ownership.
           if (vWPos.y >= ${SEA_Y.toFixed(6)}) {
           vec3 luma = vec3(.2126, .7152, .0722), base = diffuseColor.rgb;
           // Use the same bent contour for fill ownership and the line, including the neutral side.
           float bend = (sin(vWPos.x * ${TERRITORY_BORDER_WAVE[0]} + sin(vWPos.z * ${TERRITORY_BORDER_WAVE[1]})) + sin(vWPos.z * ${TERRITORY_BORDER_WAVE[2]} - vWPos.x * ${TERRITORY_BORDER_WAVE[3]}) * ${TERRITORY_BORDER_WAVE[4]}) * ${TERRITORY_BORDER_NOISE.toFixed(3)};
-          vec3 side = vTerritoryBorder.xyz + bend;
-          int owner = int(step(0., side.x)) + 2 * int(step(0., side.y)) + 4 * int(step(0., side.z));
-          if (vTerritory.a > .001 && owner != 7) { // a blurred owner attribute must not colour the unowned side
+          vec4 side = vec4(vTerritoryBorder.xyz, vTerritoryHigh) + bend;
+          int owner = int(step(0., side.x)) + 2 * int(step(0., side.y)) + 4 * int(step(0., side.z)) + 8 * int(step(0., side.w));
+          if (vTerritory.a > .001 && owner != int(uTerritoryNeutral)) { // a blurred owner attribute must not colour the unowned side
             vec3 hue = vTerritory.rgb / vTerritory.a;
             float owned = smoothstep(${TERRITORY_OWNER_EDGE[0].toFixed(2)}, ${TERRITORY_OWNER_EDGE[1].toFixed(2)}, vTerritory.a);
             // A grey owner must desaturate green grass too; keep every texel's luminance while shifting its chroma.
@@ -209,13 +211,13 @@ export function buildSandtable(scene, S) {
           }
           // Signed distances per owner bit cross zero only where that bit changes. The smooth perturbation
           // hides the grid at close range; derivatives keep the luminous line a few CSS pixels wide.
-          vec3 pixels = abs(side) / max(territoryRate * uTerritory.y, vec3(.00001));
-          float distPx = min(min(pixels.x, pixels.y), pixels.z);
+          vec4 pixels = abs(side) / max(territoryRate * uTerritory.y, vec4(.00001));
+          float distPx = min(min(pixels.x, pixels.y), min(pixels.z, pixels.w));
           float gate = 1. - smoothstep(${(Math.max(dx, dz) * TERRITORY_BORDER_GATE[0]).toFixed(4)}, ${(Math.max(dx, dz) * TERRITORY_BORDER_GATE[1]).toFixed(4)}, vTerritoryDistance.x);
           float edge = (1. - smoothstep(${(TERRITORY_BORDER_HALF_PX * TERRITORY_CORE_FEATHER[0]).toFixed(3)}, ${(TERRITORY_BORDER_HALF_PX * TERRITORY_CORE_FEATHER[1]).toFixed(3)}, distPx)) * gate;
           float weight = mix(${TERRITORY_NEUTRAL_BORDER.toFixed(3)}, 1., smoothstep(${TERRITORY_NEUTRAL_EDGE[0].toFixed(2)}, ${TERRITORY_NEUTRAL_EDGE[1].toFixed(2)}, vTerritory.a));
           float mine = smoothstep(${TERRITORY_MINE_EDGE[0].toFixed(2)}, ${TERRITORY_MINE_EDGE[1].toFixed(2)}, vTerritoryBorder.w);
-          vec3 lineHue = owner == 7 ? vTerritoryDistance.yzw : uTerritoryColors[owner];
+          vec3 lineHue = owner == int(uTerritoryNeutral) ? vTerritoryDistance.yzw : uTerritoryColors[owner];
           lineHue /= max(max(max(lineHue.r, lineHue.g), lineHue.b), .001);
           float glow = pow(max(0., 1. - distPx / ${TERRITORY_GLOW_PX.toFixed(3)}), ${TERRITORY_GLOW_EXPONENT.toFixed(1)}) * ${TERRITORY_GLOW_OPACITY.toFixed(3)} * gate;
           float emphasis = weight * mix(1., ${TERRITORY_BORDER_MINE.toFixed(3)}, mine) * uTerritory.z;
@@ -427,6 +429,7 @@ export function buildSandtable(scene, S) {
       for (const m of hamletMats) { m.opacity = 1; m.transparent = false; m.needsUpdate = true; } // the flat picture keeps the original opaque hamlets
     },
     tint(colorOfCity, factionOfCity = () => NONE, player = NONE) {
+      uTerritoryNeutral.value = NONE;
       if (!near) {
         near = new Int16Array(N); for (let i = 0; i < N; i++) near[i] = nearestCity(pos[i * 3], pos[i * 3 + 2]);
         smoothX = new Uint32Array(GW * smoothN); smoothY = new Uint32Array(GH * smoothN);
@@ -438,6 +441,7 @@ export function buildSandtable(scene, S) {
         const ci = near[i], faction = cityOwner[ci], hue = H[i] >= SEA_Y ? cityHue[ci] : null, p = i * 4;
         ownerTint[p] = hue?.r ?? 0; ownerTint[p + 1] = hue?.g ?? 0; ownerTint[p + 2] = hue?.b ?? 0; ownerTint[p + 3] = hue ? 1 : 0;
         borders[p] = borders[p + 1] = borders[p + 2] = TERRITORY_DISTANCE_MAX;
+        borderHigh[i] = TERRITORY_DISTANCE_MAX;
         borders[p + 3] = player !== NONE && faction === player ? 1 : 0;
         borderInfo[p] = TERRITORY_DISTANCE_MAX; borderInfo[p + 1] = hue?.r ?? 0; borderInfo[p + 2] = hue?.g ?? 0; borderInfo[p + 3] = hue?.b ?? 0;
       }
@@ -447,6 +451,7 @@ export function buildSandtable(scene, S) {
         const fa = cityOwner[near[a]], fb = cityOwner[near[b]], bits = fa ^ fb;
         if (!bits) return;
         for (let k = 0; k < 3; k++) if (bits & (1 << k)) { borders[a * 4 + k] = Math.min(borders[a * 4 + k], step / 2); borders[b * 4 + k] = Math.min(borders[b * 4 + k], step / 2); }
+        if (bits & 8) { borderHigh[a] = Math.min(borderHigh[a], step / 2); borderHigh[b] = Math.min(borderHigh[b], step / 2); }
         // The unowned side borrows the neighbour's colour for its faint half of the line only.
         for (const [v, other] of [[a, b], [b, a]]) if (cityOwner[near[v]] === NONE) {
           const c = cityHue[near[other]], p = v * 4; if (c) { borderInfo[p + 1] = c.r; borderInfo[p + 2] = c.g; borderInfo[p + 3] = c.b; }
@@ -460,6 +465,7 @@ export function buildSandtable(scene, S) {
       const diag = Math.hypot(dx, dz), relax = (i, j, step) => {
         const p = i * 4, q = j * 4;
         for (let k = 0; k < 3; k++) borders[p + k] = Math.min(borders[p + k], borders[q + k] + step);
+        borderHigh[i] = Math.min(borderHigh[i], borderHigh[j] + step);
       };
       for (let j = 0; j < GH; j++) for (let k = 0; k < GW; k++) {
         const i = j * GW + k;
@@ -471,22 +477,23 @@ export function buildSandtable(scene, S) {
       }
       for (let i = 0; i < N; i++) {
         const p = i * 4, faction = cityOwner[near[i]];
-        borderInfo[p] = Math.min(borders[p], borders[p + 1], borders[p + 2]);
+        borderInfo[p] = Math.min(borders[p], borders[p + 1], borders[p + 2], borderHigh[i]);
         for (let k = 0; k < 3; k++) if (!(faction & (1 << k))) borders[p + k] = -borders[p + k];
+        if (!(faction & 8)) borderHigh[i] = -borderHigh[i];
       }
       // Filter each signed bit independently: all samples of one owner keep the same sign, while
       // a turn through the grid becomes a rounded contour. The unsigned distance still guards coasts.
       for (let j = 0; j < GH; j++) for (let k = 0; k < GW; k++) {
-        let r = 0, g = 0, b = 0;
-        for (let q = 0; q < smoothN; q++) { const p = (j * GW + smoothX[k * smoothN + q]) * 4, w = TERRITORY_SMOOTH_WEIGHTS[q]; r += w * borders[p]; g += w * borders[p + 1]; b += w * borders[p + 2]; }
-        const p = (j * GW + k) * 3; borderSmooth[p] = r / TERRITORY_SMOOTH_TOTAL; borderSmooth[p + 1] = g / TERRITORY_SMOOTH_TOTAL; borderSmooth[p + 2] = b / TERRITORY_SMOOTH_TOTAL;
+        let r = 0, g = 0, b = 0, a = 0;
+        for (let q = 0; q < smoothN; q++) { const i = j * GW + smoothX[k * smoothN + q], p = i * 4, w = TERRITORY_SMOOTH_WEIGHTS[q]; r += w * borders[p]; g += w * borders[p + 1]; b += w * borders[p + 2]; a += w * borderHigh[i]; }
+        const p = (j * GW + k) * 4; borderSmooth[p] = r / TERRITORY_SMOOTH_TOTAL; borderSmooth[p + 1] = g / TERRITORY_SMOOTH_TOTAL; borderSmooth[p + 2] = b / TERRITORY_SMOOTH_TOTAL; borderSmooth[p + 3] = a / TERRITORY_SMOOTH_TOTAL;
       }
       for (let j = 0; j < GH; j++) for (let k = 0; k < GW; k++) {
-        let r = 0, g = 0, b = 0;
-        for (let q = 0; q < smoothN; q++) { const p = (smoothY[j * smoothN + q] + k) * 3, w = TERRITORY_SMOOTH_WEIGHTS[q]; r += w * borderSmooth[p]; g += w * borderSmooth[p + 1]; b += w * borderSmooth[p + 2]; }
-        const p = (j * GW + k) * 4; borders[p] = r / TERRITORY_SMOOTH_TOTAL; borders[p + 1] = g / TERRITORY_SMOOTH_TOTAL; borders[p + 2] = b / TERRITORY_SMOOTH_TOTAL;
+        let r = 0, g = 0, b = 0, a = 0;
+        for (let q = 0; q < smoothN; q++) { const p = (smoothY[j * smoothN + q] + k) * 4, w = TERRITORY_SMOOTH_WEIGHTS[q]; r += w * borderSmooth[p]; g += w * borderSmooth[p + 1]; b += w * borderSmooth[p + 2]; a += w * borderSmooth[p + 3]; }
+        const i = j * GW + k, p = i * 4; borders[p] = r / TERRITORY_SMOOTH_TOTAL; borders[p + 1] = g / TERRITORY_SMOOTH_TOTAL; borders[p + 2] = b / TERRITORY_SMOOTH_TOTAL; borderHigh[i] = a / TERRITORY_SMOOTH_TOTAL;
       }
-      geo.attributes.territory.needsUpdate = true; geo.attributes.territoryBorder.needsUpdate = true; geo.attributes.territoryDistance.needsUpdate = true;
+      geo.attributes.territory.needsUpdate = true; geo.attributes.territoryBorder.needsUpdate = true; geo.attributes.territoryHigh.needsUpdate = true; geo.attributes.territoryDistance.needsUpdate = true;
     },
     update(t, camera, dist, pixelRatio) {
       for (const u of flowing) u.value = t;

@@ -130,7 +130,8 @@ export class Field {
   assignRoles(side, ids) {
     const n = ids.length;
     if (n < 2) return [0];
-    const f = this.faction(side), row = ROLE_TABLE[side].find(([, fs]) => fs.includes(f))[0].split(' ')[n - 2];
+    const faction = this.faction(side), f = data().factions[faction]?.aiProfile ?? faction;
+    const row = ROLE_TABLE[side].find(([, fs]) => fs.includes(f))[0].split(' ')[n - 2];
     const counts = [...row].map(Number);
     // sort non-commanders by war descending (bubble with swap on ≥, kept as an approximation)
     const rest = ids.slice(1).sort((a, b) => this.O(b).war - this.O(a).war);

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import * as G from '../src/core/game.js';
 import { applyScenario, newDraft, validateScenario } from '../src/core/scenario.js';
 import { addPresetAbilities, hasLegacyRecords, loadScenario } from '../src/core/scenario-store.js';
-import { FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, visualUrl } from '../src/core/visuals.js';
+import { FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, ROSTER_PRESETS, visualUrl } from '../src/core/visuals.js';
 import { Field, PLAIN } from '../src/core/field.js';
 import { Tactical } from '../src/core/tactical.js';
 import { Duel } from '../src/core/skirmish.js';
@@ -73,6 +73,104 @@ test('扩展角色按年份及所在城市加入搜索，旧版记录隔离', ()
   } finally { G.setData(base); }
 });
 
+test('新阵容包含陈到、辛宪英及其关系，原版和原合并版的武将编号保持不变', async () => {
+  const roster = await loadScenario(ROSTER_SCENARIO_ID, base), extended = applyScenario(base, roster), hero = data();
+  assert.equal(base.officers.length, 237); assert.equal(hero.officers.length, 244);
+  assert.deepEqual(extended.officers.slice(0, 244), hero.officers);
+  assert.deepEqual(extended.officers.slice(244).map((o) => [o.id, o.name, o.year, o.city, o.birthYear, o.birthCity]), [
+    [244, '陈到', 196, 14, null, null], [245, '辛宪英', 207, 14, null, null],
+  ]);
+  assert.equal(extended.officers[244].duelSkill, 'baier');
+  assert.deepEqual(extended.officers[245].skills, [23]);
+  assert.deepEqual(extended.relationships, [{ from: 222, to: 244, kind: '君臣' }, { from: 118, to: 245, kind: '父女' }]);
+  for (const id of [244, 245]) {
+    const o = extended.officers[id]; assert.ok(extended.search_table[String(o.city)].includes(id));
+    for (const ref of [o.visual.portrait, o.visual.motion, ...Object.values(o.visual.faces)]) assert.ok(visualUrl(ref));
+  }
+  G.setData(extended, ROSTER_SCENARIO_ID);
+  try {
+    const priority = G.newGame(4, 1, 1);
+    priority.year = 195; assert.notEqual(G.searchOrder(priority, 14)[0], 244);
+    priority.year = 196; assert.equal(G.searchOrder(priority, 14)[0], 244);
+    priority.year = 207; priority.officers[244].status = G.SERVING; assert.equal(G.searchOrder(priority, 14)[0], 245);
+    for (const [id, year] of [[244, 196], [245, 207]]) {
+      const g = G.newGame(4, 1, 1), queue = G.searchQueue(14);
+      for (const other of queue) if (other !== id) g.officers[other].status = G.SERVING;
+      g.year = year - 1; assert.deepEqual(G.queueHead(g, queue), { id, ready: false });
+      g.year = year; assert.deepEqual(G.queueHead(g, queue), { id, ready: true });
+      g.sangu = true;
+      for (let n = 0; n < 3 && g.officers[id].status === G.UNAPPEARED; n++) G.search(g, 14, 130);
+      assert.equal(g.officers[id].status, G.SERVING); assert.ok(g.cities[14].officers.includes(id));
+    }
+    assert.equal(G.scenarioKey('save'), 'save:scenario:builtin-heroes-roster');
+  } finally { G.setData(base); }
+});
+
+test('新阵容不覆盖合并版中同编号的动态武将及普通、快速存档', async () => {
+  const roster = applyScenario(base, await loadScenario(ROSTER_SCENARIO_ID, base)), prior = data();
+  const savedLocal = Object.getOwnPropertyDescriptor(globalThis, 'localStorage'), records = new Map();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key) => records.get(key) ?? null, setItem: (key, value) => records.set(key, String(value)), removeItem: (key) => records.delete(key),
+  } });
+  try {
+    G.setData(prior, HERO_SCENARIO_ID);
+    const old = G.newGame(4, 1, 1); old.year = 200;
+    old.officers.push({ ...old.officers[0], id: 244, debut: 200 }); old.clones = [244]; G.registerClones(old);
+    assert.equal(G.save(old, 1), true); assert.equal(G.saveQuick(old), true);
+    const war = { city: 8, from: 12, attacker: 4, defender: 2,
+      att: { ids: [244], gold: 100, rice: 500 }, def: { ids: [38], gold: 100, rice: 500 } };
+    old.officers[244].soldiers = old.officers[38].soldiers = 500;
+    const field = new Field(old, war, 'att');
+    assert.equal(suspend(old, war, field, { side: 'att', start: { 244: 500, 38: 500 }, after: { kind: 'att' } }), true);
+    G.setData(roster, ROSTER_SCENARIO_ID);
+    assert.equal(G.upgrade(old), null); assert.equal(G.data().officers[244].name, '陈到');
+    assert.equal(peekSuspend(), null);
+    const fresh = G.newGame(4, 1, 2); assert.equal(G.save(fresh, 1), true); assert.equal(G.saveQuick(fresh), true);
+    assert.equal(G.load(1).officers.length, 246); assert.equal(G.loadQuick().officers.length, 246);
+    G.setData(data(), HERO_SCENARIO_ID);
+    assert.deepEqual(G.load(1).clones, [244]); assert.deepEqual(G.loadQuick().clones, [244]);
+    assert.equal(G.data().officers[244].clone, true);
+    const held = peekSuspend(); assert.deepEqual(held.g.clones, [244]);
+    assert.deepEqual(Field.restore(held.g, held.war, held.field).units.map((u) => u.id).sort((a, b) => a - b), [38, 244]);
+  } finally {
+    G.setData(base);
+    if (savedLocal) Object.defineProperty(globalThis, 'localStorage', savedLocal); else delete globalThis.localStorage;
+  }
+});
+
+test('新人物模板带有专属技能，保留可替换的内置素材', () => {
+  const draft = newDraft(base);
+  for (const [key, ability] of [['dao', 'baier'], ['xin', 16]]) {
+    const officer = { skills: [] }, preset = ROSTER_PRESETS.find((p) => p.key === key);
+    addPresetAbilities(draft, preset, officer);
+    if (key === 'dao') assert.equal(officer.duelSkill, ability);
+    else assert.deepEqual(officer.skills, [ability]);
+  }
+});
+
+test('新角色的单挑技和计略可用且遵守每场次数限制', async () => {
+  G.setData(applyScenario(base, await loadScenario(ROSTER_SCENARIO_ID, base)), ROSTER_SCENARIO_ID);
+  try {
+    const g = G.newGame(4, 1, 1), battle = new Tactical(g, 244, 38, 2, () => 0, { human: 'a' });
+    battle.side.a.F = 60; battle.side.a.eq.atk = 12; battle.side.d.eq.def = 2; battle.side.d.hp = 99;
+    const duel = new Duel(battle.side, (n) => n === 256 ? 13 : 0, g, 'a');
+    assert.equal(duel.special('a').name, '白毦突击'); assert.equal(duel.aiCommand('a'), 'special');
+    assert.equal(duel.act('a', 'special').hit, true); assert.equal(duel.canSpecial('a'), false);
+
+    const war = { city: 8, from: 12, attacker: 4, defender: 2,
+      att: { ids: [245], gold: 100, rice: 500 }, def: { ids: [38], gold: 100, rice: 500 } };
+    const field = new Field(g, war, 'att'); field.map = Array.from({ length: 19 }, () => Array(32).fill(PLAIN));
+    const me = field.units.find((u) => u.id === 245), foe = field.units.find((u) => u.id === 38);
+    Object.assign(me, { x: 10, y: 10 }); Object.assign(foe, { x: 12, y: 10 });
+    g.officers[38].soldiers = 500; field.turn = 'att'; field.pool.att = 99; field.r = () => 0;
+    assert.equal(field.cast(me, 23, foe).hit, true);
+    assert.equal(g.officers[38].soldiers, 450); assert.equal(foe.stop, 1); assert.equal(field.chest('def').rice, 470);
+    assert.equal(field.cast(me, 23, foe).hit, true); assert.equal(field.canCast(me, 23, foe), false);
+    const restored = Field.restore(g, war, field.snapshot());
+    assert.equal(restored.units.find((u) => u.id === 245).skillUses[23], 2);
+  } finally { G.setData(base); }
+});
+
 test('旧巾帼存档中的动态武将与扩展角色不会共用同一版本的数据', async () => {
   const old = await loadScenario(FEMALE_SCENARIO_ID, base), legacy = applyScenario(base, old);
   G.setData(legacy, FEMALE_SCENARIO_ID);
@@ -96,7 +194,9 @@ test('合并版旧存档、快速存档及中断战斗保留动态武将和装�
   const previous = structuredClone(expanded);
   Object.assign(previous.weapons.find((e) => e.name === '落日弓'), { atk: 15 });
   Object.assign(previous.armors.find((e) => e.name === '凤羽宝衣'), { dfn: 12, weight: 4, price: 420, requirements: { virtue: 80 } });
-  previous.officers = previous.officers.filter((officer) => officer.id !== 218);
+  // 模拟加入新招式前的合并版，动态编号 244 当时仍可用于复制武将。
+  previous.officers = previous.officers.filter((officer) => ![218, 156, 57, 75, 24, 86].includes(officer.id));
+  previous.skills = previous.skills.slice(0, 5);
   for (const officer of previous.officers) delete officer.searchPriority;
   G.setData(applyScenario(base, previous), HERO_SCENARIO_ID);
   try {
@@ -115,12 +215,83 @@ test('合并版旧存档、快速存档及中断战斗保留动态武将和装�
     assert.equal(G.data().officers[244].clone, true);
     assert.equal(G.data().equipment[38].atk, 14); assert.equal(G.data().equipment[46].dfn, 11);
     assert.equal(G.data().officers[218].duelSkill, 'fangtian');
+    assert.equal(G.data().officers[156].duelSkill, 'xiaoyao');
     const restored = Field.restore(held.g, held.war, held.field);
     assert.deepEqual(restored.units.map((unit) => unit.id).sort((a, b) => a - b), [38, 242]);
   } finally {
     G.setData(base);
     if (savedLocal) Object.defineProperty(globalThis, 'localStorage', savedLocal); else delete globalThis.localStorage;
   }
+});
+
+test('新增名将专属单挑技只影响合并版，玩家与电脑每场各可使用一次', async () => {
+  const current = data(), legacy = applyScenario(base, await loadScenario(FEMALE_SCENARIO_ID, base));
+  const generals = [[156, 'xiaoyao', '逍遥突击', 5, 115], [57, 'huchi', '虎痴猛击', -10, 125], [75, 'laojiang', '老将劲击', 5, 110]];
+  for (const [id, key] of generals) {
+    assert.equal(base.officers[id].duelSkill, undefined);
+    assert.equal(legacy.officers[id].duelSkill, undefined);
+    assert.equal(current.officers[id].duelSkill, key);
+  }
+  G.setData(current, HERO_SCENARIO_ID);
+  try {
+    for (const [id, , name, hit, damage] of generals) {
+      const g = G.newGame(4, 1, 1), make = () => {
+        const t = new Tactical(g, id, 22, 2, () => 0, { human: 'a' });
+        t.side.a.F = 60; t.side.a.eq.atk = 12; t.side.d.eq.def = 2; t.side.d.hp = 99;
+        return new Duel(t.side, (n) => n === 256 ? 13 : 0, g, 'a');
+      };
+      const normal = make(), special = make();
+      assert.equal(special.special('a').name, name);
+      assert.equal(special.threshold('a', 'special'), special.hitChance('a') + hit);
+      assert.equal(special.aiCommand('a'), 'special');
+      const ordinary = normal.act('a', 'attack'), result = special.act('a', 'special');
+      assert.equal(result.hit, true); assert.equal(result.dmg, Math.floor(ordinary.dmg * damage / 100));
+      assert.equal(special.canSpecial('a'), false);
+      assert.throws(() => special.act('a', 'special'), /not allowed/);
+      assert.equal(make().canSpecial('a'), true, '新单挑恢复次数');
+    }
+  } finally { G.setData(base); }
+});
+
+test('郭嘉和司马懿的新计略使用固定效果并限制次数，战场中断后保留次数', async () => {
+  const current = data(), legacy = applyScenario(base, await loadScenario(FEMALE_SCENARIO_ID, base));
+  for (const [id, skill] of [[24, 21], [86, 22]]) {
+    assert.deepEqual(current.officers[id].skills, [skill]);
+    assert.equal(base.officers[id].skills, undefined); assert.equal(legacy.officers[id].skills, undefined);
+  }
+  G.setData(current, HERO_SCENARIO_ID);
+  try {
+    for (const [id, skill, loss, hpLoss, riceLoss] of [[24, 21, 80, 0, 30], [86, 22, 70, 2, 0]]) {
+      const g = G.newGame(4, 1, 1), war = { city: 8, from: 12, attacker: 4, defender: 2,
+        att: { ids: [id], gold: 100, rice: 500 }, def: { ids: [38], gold: 100, rice: 500 } };
+      const f = new Field(g, war, 'att'); f.map = Array.from({ length: 19 }, () => Array(32).fill(PLAIN));
+      const me = f.units.find((u) => u.id === id), foe = f.units.find((u) => u.id === 38);
+      Object.assign(me, { x: 10, y: 10 }); Object.assign(foe, { x: 12, y: 10 });
+      Object.assign(g.officers[38], { soldiers: 500, hp: 90 });
+      f.turn = 'att'; f.pool.att = 99; f.r = () => 0;
+      assert.equal(f.canCast(me, skill, foe), true);
+      assert.equal(f.cast(me, skill, foe).hit, true);
+      assert.equal(g.officers[38].soldiers, 500 - loss); assert.equal(g.officers[38].hp, 90 - hpLoss);
+      assert.equal(f.chest('def').rice, 500 - riceLoss); assert.equal(foe.stop, 1);
+      assert.equal(f.cast(me, skill, foe).hit, true);
+      assert.equal(f.canCast(me, skill, foe), false);
+      assert.match(f.cast(me, skill, foe).lines[0], /次数/);
+      const restored = Field.restore(g, war, f.snapshot()), restoredUnit = restored.units.find((u) => u.id === id);
+      assert.equal(restoredUnit.skillUses[skill], 2);
+      assert.equal(restored.canCast(restoredUnit, skill, restored.units.find((u) => u.id === 38)), false);
+
+      const aiGame = G.newGame(4, 1, 1), aiField = new Field(aiGame, war, 'def');
+      aiField.map = Array.from({ length: 19 }, () => Array(32).fill(PLAIN));
+      const aiUnit = aiField.units.find((u) => u.id === id), target = aiField.units.find((u) => u.id === 38);
+      Object.assign(aiUnit, { x: 10, y: 10 }); Object.assign(target, { x: 12, y: 10 });
+      aiGame.officers[id].soldiers = aiGame.officers[38].soldiers = 500;
+      aiField.turn = 'att'; aiField.pool.att = 99; aiField.r = () => 0;
+      assert.equal(aiField.aiDecide(aiUnit).id, skill, '电脑可选择该专属计略');
+      assert.equal(aiField.aiDecide(aiUnit).id, skill);
+      assert.equal(aiUnit.skillUses[skill], 2);
+      assert.notEqual(aiField.aiDecide(aiUnit)?.id, skill, '电脑也受每场次数限制');
+    }
+  } finally { G.setData(base); }
 });
 
 test('吕布只在合并版拥有方天破阵，每场单挑限用一次', async () => {

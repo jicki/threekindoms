@@ -47,6 +47,13 @@ test('扩展版本可在编辑器配置专属技能并发布供玩家使用', as
     await content.getByRole('button', { name: '应用修改' }).click();
     await content.getByLabel('专属单挑技').selectOption('fangtian');
     await content.getByRole('button', { name: '应用修改' }).click();
+    await content.getByLabel('搜索武将').fill('张辽');
+    await content.getByRole('button', { name: /No\.156\s+张辽/ }).click();
+    assert.equal(await content.getByLabel('专属单挑技').inputValue(), 'xiaoyao');
+    await content.getByRole('button', { name: '应用修改' }).click();
+    await content.getByLabel('搜索武将').fill('郭嘉');
+    await content.getByRole('button', { name: /No\.24\s+郭嘉/ }).click();
+    assert.equal(await content.getByRole('checkbox', { name: '奉孝奇策' }).isChecked(), true);
     await admin.getByRole('tab', { name: '新技能' }).click();
     await content.getByRole('button', { name: '公台奇谋', exact: true }).click();
     await content.getByLabel('每场使用次数').fill('1');
@@ -60,9 +67,10 @@ test('扩展版本可在编辑器配置专属技能并发布供玩家使用', as
       const result = await player.evaluate(() => {
         const data = window.__game.G.data();
         return { name: data.officers[242].name, priority: data.officers[242].searchPriority, skill: data.officers[242].duelSkill, strategies: data.officers[242].skills, lubu: data.officers[218].duelSkill,
+          zhangliao: data.officers[156].duelSkill, guojia: data.officers[24].skills,
           uses: data.customSkills.find((skill) => skill.id === 18).maxUses };
       });
-      assert.deepEqual(result, { name: '陈宫', priority: true, skill: 'longdan', strategies: [18], lubu: 'fangtian', uses: 1 });
+      assert.deepEqual(result, { name: '陈宫', priority: true, skill: 'longdan', strategies: [18], lubu: 'fangtian', zhangliao: 'xiaoyao', guojia: [21], uses: 1 });
       assert.deepEqual(player.errors, []);
     } finally { await player.context().close(); }
     assert.deepEqual(admin.errors, []);
@@ -117,11 +125,67 @@ test('玩家可从标题页选择群英新篇', async () => {
     await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
     const dialog = page.getByRole('dialog', { name: '选择游戏版本' });
     await dialog.waitFor();
-    assert.equal(await dialog.getByRole('button', { name: /群英新篇/ }).count(), 1);
+    const merged = dialog.getByRole('button', { name: /^群英新篇\s*(当前版本|选择此版本)$/ });
+    assert.equal(await merged.count(), 1);
+    assert.equal(await dialog.getByRole('button', { name: /群英新篇·新阵容/ }).count(), 1);
     assert.equal(await dialog.getByRole('button', { name: /巾帼群英/ }).count(), 0);
-    await page.getByRole('button', { name: /群英新篇/ }).click();
+    await merged.click();
     await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-heroes', null, { timeout: 30000 });
     assert.equal(await page.evaluate(() => window.__game.G.data().officers[242].name), '陈宫');
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
+test('新阵容可在标题选择，也可由编辑器发布并供玩家读取', async () => {
+  const page = await game.open();
+  try {
+    await skipIntro(page); await page.locator('.sysmenu-btn').click();
+    await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
+    await page.getByRole('dialog', { name: '选择游戏版本' }).getByRole('button', { name: /群英新篇·新阵容/ }).click();
+    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-heroes-roster', null, { timeout: 30000 });
+    assert.deepEqual(await page.evaluate(() => {
+      const d = window.__game.G.data(); return [d.officers[244].name, d.officers[244].duelSkill, d.officers[245].name, d.officers[245].skills];
+    }), ['陈到', 'baier', '辛宪英', [23]]);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+  const admin = await game.open();
+  try {
+    await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
+    await admin.locator('#published').selectOption('builtin-heroes-roster');
+    await admin.getByRole('button', { name: '载入为新草稿' }).click(); await admin.getByText('已载入新草稿').waitFor();
+    await admin.getByLabel('版本名称').fill('新阵容发布验证');
+    const content = admin.locator('#content');
+    await content.getByLabel('搜索武将').fill('陈到');
+    await content.getByRole('button', { name: /No\.244\s+陈到/ }).click();
+    assert.equal(await content.getByLabel('专属单挑技').inputValue(), 'baier');
+    await content.getByLabel('搜索武将').fill('辛宪英');
+    await content.getByRole('button', { name: /No\.245\s+辛宪英/ }).click();
+    assert.equal(await content.getByRole('checkbox', { name: '宪英明鉴' }).isChecked(), true);
+    await admin.getByLabel('管理员令牌').fill(token); await admin.getByRole('button', { name: '发布新版本' }).click();
+    await admin.getByText(/已发布“新阵容发布验证”/).waitFor();
+    const id = await admin.evaluate(() => window.__admin.lastPublished);
+    const player = await game.open('', { setup: (context) => context.addInitScript((version) => sessionStorage.setItem('haou-hd2d-scenario', version), id) });
+    try {
+      assert.deepEqual(await player.evaluate(() => {
+        const d = window.__game.G.data(); return [d.officers[244].name, d.officers[244].duelSkill, d.officers[245].name, d.officers[245].skills, d.relationships.length];
+      }), ['陈到', 'baier', '辛宪英', [23], 2]);
+      assert.deepEqual(player.errors, []);
+    } finally { await player.context().close(); }
+    assert.deepEqual(admin.errors, []);
+  } finally { await admin.context().close(); }
+});
+
+test('手机横屏可选择新阵容', async () => {
+  const page = await game.open('&phone');
+  try {
+    await page.setViewportSize({ width: 812, height: 375 });
+    await skipIntro(page); await page.locator('.sysmenu-btn').click();
+    await page.getByRole('tab', { name: '其他' }).click();
+    await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
+    const choice = page.getByRole('dialog', { name: '选择游戏版本' }).getByRole('button', { name: /群英新篇·新阵容/ });
+    await choice.click();
+    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-heroes-roster', null, { timeout: 30000 });
+    assert.equal(await page.evaluate(() => window.__game.G.data().officers[244].name), '陈到');
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });
@@ -274,6 +338,16 @@ test('添加新角色模板时自动加入对应的受限计略和单挑技', as
     assert.equal(draft.weapons.find((e) => e.name === '落日弓').atk, 14);
     const armor = draft.armors.find((e) => e.name === '凤羽宝衣');
     assert.deepEqual([armor.dfn, armor.weight, armor.price, armor.requirements.virtue], [11, 5, 480, 85]);
+    await content.getByLabel('角色模板').selectOption('dao');
+    await content.getByRole('button', { name: '添加角色模板' }).click();
+    await content.getByRole('heading', { name: /陈到/ }).waitFor();
+    assert.equal(await content.getByLabel('专属单挑技').inputValue(), 'baier');
+    await content.getByLabel('角色模板').selectOption('xin');
+    await content.getByRole('button', { name: '添加角色模板' }).click();
+    await content.getByRole('heading', { name: /辛宪英/ }).waitFor();
+    assert.equal(await content.getByRole('checkbox', { name: '宪英明鉴' }).isChecked(), true);
+    const added = await admin.evaluate(() => window.__admin.draft.officers.slice(-2).map((o) => [o.name, o.visual.portrait, o.duelSkill ?? null, o.skills]));
+    assert.deepEqual(added, [['陈到', 'b-gao-portrait', 'baier', []], ['辛宪英', 'b-cai-portrait', null, [17]]]);
     assert.deepEqual(admin.errors, []);
   } finally { await admin.context().close(); }
 });

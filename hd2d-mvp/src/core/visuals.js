@@ -11,11 +11,32 @@ export const EXTRA_PRESETS = [
   { key: 'chen', name: '陈宫', hp: 75, war: 55, int: 92, virtue: 76, year: 192, birthYear: null, city: 11, death: 198, army: '平', searchPriority: true },
   { key: 'gao', name: '高顺', hp: 85, war: 90, int: 73, virtue: 82, year: 192, birthYear: null, city: 12, death: 198, army: '平', weapon: 20, armor: 4, searchPriority: true },
 ];
+// 素材暂复用内置人物，允许管理员在版本编辑器中替换；两人的出生资料缺乏可靠记载。
+export const ROSTER_PRESETS = [
+  { key: 'dao', name: '陈到', hp: 85, war: 86, int: 73, virtue: 90, year: 196, birthYear: null, city: 14, death: 240, army: '平', weapon: 20, armor: 2, visualKey: 'gao', searchPriority: true },
+  { key: 'xin', name: '辛宪英', hp: 68, war: 28, int: 90, virtue: 86, year: 207, birthYear: null, city: 14, death: 269, army: '平', visualKey: 'cai', searchPriority: true },
+];
+// 开局年份与城市按十势力剧本设定；资料不明的出生信息留空。
+export const WARLORD_PRESETS = [
+  { key: 'gongsun', name: '公孙瓒', hp: 88, war: 85, int: 67, virtue: 60, year: 189, birthYear: null, city: 0, death: 199, army: '平', weapon: 18, armor: 2, visualKey: 'gao', soldiers: 800, faction: 7 },
+  { key: 'yuanshu', name: '袁术', hp: 75, war: 65, int: 55, virtue: 35, year: 189, birthYear: null, city: 13, death: 199, army: '平', weapon: 10, armor: 2, visualKey: 'gao', soldiers: 800, faction: 8 },
+  { key: 'liubiao', name: '刘表', hp: 74, war: 52, int: 82, virtue: 76, year: 189, birthYear: null, city: 21, death: 208, army: '平', weapon: 1, armor: 1, visualKey: 'chen', soldiers: 700, faction: 9 },
+  { key: 'guanjing', name: '关靖', hp: 66, war: 38, int: 80, virtue: 58, year: 189, birthYear: null, city: 0, death: 199, army: '平', weapon: 1, armor: 0, visualKey: 'chen', soldiers: 300, faction: 7 },
+  { key: 'tiankai', name: '田楷', hp: 80, war: 76, int: 60, virtue: 65, year: 189, birthYear: null, city: 0, death: 199, army: '平', weapon: 18, armor: 2, visualKey: 'gao', soldiers: 500, faction: 7 },
+  { key: 'yanxiang', name: '阎象', hp: 66, war: 35, int: 84, virtue: 76, year: 189, birthYear: null, city: 13, death: 240, army: '平', weapon: 1, armor: 0, visualKey: 'chen', soldiers: 300, faction: 8 },
+  { key: 'zhangxun', name: '张勋', hp: 79, war: 78, int: 54, virtue: 50, year: 189, birthYear: null, city: 13, death: 240, army: '平', weapon: 18, armor: 2, visualKey: 'gao', soldiers: 500, faction: 8 },
+  { key: 'caimao', name: '蔡瑁', hp: 78, war: 73, int: 70, virtue: 45, year: 189, birthYear: null, city: 21, death: 240, army: '水', weapon: 10, armor: 2, visualKey: 'gao', soldiers: 500, faction: 9 },
+];
 export const CHARACTER_PRESETS = [...FEMALE_PRESETS, ...EXTRA_PRESETS];
+export const OFFICER_PRESETS = [...CHARACTER_PRESETS, ...ROSTER_PRESETS, ...WARLORD_PRESETS];
 export const FEMALE_SCENARIO_ID = 'builtin-female';
 export const FEMALE_SCENARIO_NAME = '巾帼群英';
 export const HERO_SCENARIO_ID = 'builtin-heroes';
 export const HERO_SCENARIO_NAME = '群英新篇';
+export const ROSTER_SCENARIO_ID = 'builtin-heroes-roster';
+export const ROSTER_SCENARIO_NAME = '群英新篇·新阵容';
+export const WARLORD_SCENARIO_ID = 'builtin-warlords';
+export const WARLORD_SCENARIO_NAME = '群英新篇·十方诸侯';
 export const MOODS = ['calm', 'joy', 'angry', 'grief'];
 const BUILTIN = /^b-(sun|zhen|diao|cai|wang|chen|gao)-(portrait|calm|joy|angry|grief|motion)$/;
 const UPLOAD = /^a-[a-f0-9]{64}$/;
@@ -46,5 +67,5 @@ export function femaleOfficer(base, preset, id, gear = {}) {
   return { id, name: preset.name, hp: preset.hp, war: preset.war, int: preset.int, virtue: preset.virtue,
     loyalty: 80, level: 1, exp: 0, soldiers: 0, weapon: preset.weapon ?? gear.weapon ?? o.weapon, armor: preset.armor ?? gear.armor ?? o.armor, army: preset.army,
     year: preset.year, death: preset.death, birthYear: preset.birthYear, birthCity: null, portraitId: 0,
-    appear: 'search_city', city: preset.city, faction: null, skills: [], ...(preset.searchPriority ? { searchPriority: true } : {}), visual: presetVisual(preset.key) };
+    appear: 'search_city', city: preset.city, faction: null, skills: [], ...(preset.searchPriority ? { searchPriority: true } : {}), visual: presetVisual(preset.visualKey ?? preset.key) };
 }

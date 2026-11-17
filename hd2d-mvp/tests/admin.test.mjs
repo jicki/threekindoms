@@ -143,6 +143,25 @@ test('已发布版本列表返回时保留用户选择的内置版本', async ()
   } finally { release(); await admin.context().close(); }
 });
 
+test('已发布版本列表延迟返回时保留新阵容选择', async () => {
+  const admin = await game.open();
+  let release;
+  const wait = new Promise((resolve) => { release = resolve; });
+  const id = `v-${'f'.repeat(32)}`;
+  try {
+    await admin.route('**/api/versions', async (route) => {
+      await wait;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id, name: '延迟版本' }]) });
+    });
+    await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
+    await admin.locator('#published').selectOption('builtin-heroes-roster');
+    release();
+    await admin.waitForFunction((expected) => [...document.querySelector('#published').options].some((option) => option.value === expected), id);
+    assert.equal(await admin.locator('#published').inputValue(), 'builtin-heroes-roster');
+    assert.deepEqual(admin.errors, []);
+  } finally { release(); await admin.context().close(); }
+});
+
 test('编辑器可添加扇、弓与新防具，发布后可在游戏和记录编辑器使用', async () => {
   const admin = await game.open();
   try {

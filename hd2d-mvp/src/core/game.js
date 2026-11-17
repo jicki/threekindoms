@@ -7,9 +7,10 @@ import { roll100 } from './origrng.js';
 import { withRecordLock } from './record-lock.js';
 import { applyScenario, ORIGINAL_SCENARIO } from './scenario.js';
 import { loadScenario, selectedScenario } from './scenario-store.js';
-export const NONE = 7; // city owner value for "no faction"
+// 原版无主为 7；扩展剧本将无主编号放在实际势力编号之后。
+export let NONE = 7;
 export const DEAD = 3, SERVING = 2, UNAPPEARED = 1, RONIN = 0;
-export const FACTION_COLORS = ['#5a5a66', '#c8402f', '#7a4ad0', '#e0a020', '#3f8f4f', '#c060a0', '#2f9fb0'];
+export const FACTION_COLORS = ['#5a5a66', '#c8402f', '#7a4ad0', '#e0a020', '#3f8f4f', '#c060a0', '#2f9fb0', '#4673aa', '#a46324', '#857b3d'];
 
 let D = null; // static data (data/game-data.json)
 let scenarioId = ORIGINAL_SCENARIO;
@@ -20,12 +21,11 @@ export async function loadData(url = 'data/game-data.json') {
   const response = await fetch(url);
   if (!response.ok) throw new Error('无法读取游戏基础数据');
   const base = await response.json(), id = selectedScenario();
-  if (id === ORIGINAL_SCENARIO) { D = base; scenarioId = id; return D; }
+  if (id === ORIGINAL_SCENARIO) return setData(base, id);
   const scenario = await loadScenario(id, base), next = applyScenario(base, scenario);
-  next.scenarioName = scenario.name; D = next; scenarioId = id;
-  return D;
+  next.scenarioName = scenario.name; return setData(next, id);
 }
-export function setData(d, id = ORIGINAL_SCENARIO) { D = d; scenarioId = id; return D; }
+export function setData(d, id = ORIGINAL_SCENARIO) { D = d; NONE = d?.factions?.length ?? 7; scenarioId = id; return D; }
 // 体力上限: the ROM template's hp, unless the save editor set one on the record (o.maxHp). id for copies of a record.
 export const maxHp = (o, id = o.id) => o.maxHp ?? D.officers[id].hp;
 
@@ -53,8 +53,8 @@ export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random(
     id: o.id, hp: o.hp, war: o.war, int: o.int, loyalty: o.loyalty, virtue: o.virtue, exp: o.exp, soldiers: o.soldiers,
     weapon: o.weapon, armor: o.armor, level: o.level, army: o.army, status: o.appear === 'initial' ? SERVING : UNAPPEARED, loc: o.city,
   }));
-  g.factions = D.factions.map((f) => ({ id: f.id, ruler: f.ruler, city: D.officers[f.ruler].city, ai: f.id !== playerFaction, alliance: [0, 0, 0, 0, 0, 0, 0] }));
-  g.aiCursor = [0, 0, 0, 0, 0, 0, 0];
+  g.factions = D.factions.map((f) => ({ id: f.id, ruler: f.ruler, city: D.officers[f.ruler].city, ai: f.id !== playerFaction, alliance: Array(D.factions.length).fill(0) }));
+  g.aiCursor = Array(D.factions.length).fill(0);
   if (ruler != null && ruler !== g.factions[playerFaction]?.ruler) {
     const allowed = D.rulerCandidates?.some((r) => r.faction === playerFaction && r.officer === ruler);
     const city = g.cities.find((c) => c.faction === playerFaction && c.officers.includes(ruler));
@@ -392,7 +392,7 @@ export async function checkFactions(g, io) {
 async function rotate(g, io) {
   for (;;) {
     g.turnIdx++;
-    if (g.turnIdx >= 7) {
+    if (g.turnIdx >= g.factions.length) {
       g.turnIdx = 0; g.monthDone = false; g.month++;
       if (g.month >= 12) { g.month = 0; g.year++; }
       for (const f of g.factions) f.alliance = f.alliance.map((t) => Math.max(0, t - 1));

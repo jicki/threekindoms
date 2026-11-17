@@ -26,9 +26,10 @@ import { FLAT_INSET } from './warmap2d.js';
 import { PHONE, hint } from './phone.js';
 import { unitCard } from './warcard.js';
 import * as G from './core/game.js';
+import { NONE } from './core/game.js';
 import { hasLegacyRecords, listScenarios, selectScenario } from './core/scenario-store.js';
 import { ORIGINAL_SCENARIO } from './core/scenario.js';
-import { FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, visualUrl } from './core/visuals.js';
+import { FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, ROSTER_SCENARIO_ID, ROSTER_SCENARIO_NAME, WARLORD_SCENARIO_ID, WARLORD_SCENARIO_NAME, visualUrl } from './core/visuals.js';
 import { DUEL_SKILLS } from './core/duel-skills.js';
 import { aiTurn, aiDomestic } from './core/ai.js';
 import { suspend, peekSuspend, takeSuspend, dropSuspend, withSuspendLock } from './core/suspend.js';
@@ -43,7 +44,7 @@ import { controls, quickSaveKey } from './controls.js';
 import { createPad, sendKey, walk, focusFirst, firstIn, focusables, isControl, shown, glyphOf } from './pad.js';
 import { fresh as freshInput, padPressed, GUARD } from './commitguard.js';
 
-const { name, cityName, NONE } = G;
+const { name, cityName } = G;
 const factionName = (f) => G.factionName(g, f);
 const serverVersions = location.protocol === 'http:' || location.protocol === 'https:';
 // Everything the title waits for is asked for at once; each optional list fails on its own (an empty list), as when they were
@@ -1066,7 +1067,7 @@ async function chooseScenario() {
   }
   if (!Array.isArray(versions)) return toast('<em>游戏版本列表无效</em>', 3500);
   const legacy = G.currentScenario() === FEMALE_SCENARIO_ID || hasLegacyRecords();
-  const options = [{ id: ORIGINAL_SCENARIO, name: '原版' }, { id: HERO_SCENARIO_ID, name: HERO_SCENARIO_NAME },
+  const options = [{ id: ORIGINAL_SCENARIO, name: '原版' }, { id: HERO_SCENARIO_ID, name: HERO_SCENARIO_NAME }, { id: ROSTER_SCENARIO_ID, name: ROSTER_SCENARIO_NAME }, { id: WARLORD_SCENARIO_ID, name: WARLORD_SCENARIO_NAME },
     ...(legacy ? [{ id: FEMALE_SCENARIO_ID, name: `${FEMALE_SCENARIO_NAME}（旧存档兼容）` }] : []),
     ...versions.filter((v) => /^v-[a-f0-9]{32}$/.test(v?.id) && typeof v.name === 'string')];
   const choice = await modal('选择游戏版本', (close) => [
@@ -1329,7 +1330,8 @@ async function setup() {
   addEventListener('keydown', onCode);
   const rulers = h('div', { class: 'rulers' });
   const start = h('button', { class: 'btn primary', disabled: true, style: { fontSize: '20px', padding: '10px 40px', letterSpacing: '8px' }, onclick: () => { if (start.disabled) return; start.disabled = true; const ng = G.newGame(ruler.faction, level, undefined, { ruler: ruler.officer }); if (cheat && level === 0) G.maxRulerCity(ng); if (ageless) ng.ageless = true; if (noWarDeath) ng.noWarDeath = true; if (sangu) ng.sangu = true; if (freeSave) ng.freeSave = true; if (warlike) ng.warlike = true; if (noStudy) ng.noStudy = true; begin(ng, false); } }, '开始');
-  const choices = [4, 2, 3, 1, 6, 5, 0].flatMap((faction) => [D.factions[faction].ruler,
+  const factionOrder = [...[4, 2, 3, 1, 6, 5, 0], ...D.factions.slice(7).map((f) => f.id)];
+  const choices = factionOrder.flatMap((faction) => [D.factions[faction].ruler,
     ...(D.rulerCandidates ?? []).filter((candidate) => candidate.faction === faction).map((candidate) => candidate.officer)].map((officer) => ({ faction, officer })));
   const drawRulers = () => rulers.replaceChildren(...choices.map(({ faction: f, officer }) => {
     const fac = D.factions[f], cs = D.cities.filter((c) => c.faction === f), offs = cs.reduce((a, c) => a + c.officers.length, 0);

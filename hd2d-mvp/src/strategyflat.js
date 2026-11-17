@@ -176,7 +176,7 @@ export async function createStrategyFlat(ctx) {
       // inward; their world width grows at far zoom without repacking the colour grid every frame.
       ug.setTransform(dpr * k, 0, 0, dpr * k, dpr * x, dpr * y);
       ug.lineCap = ug.lineJoin = 'round';
-      for (let f = 0; f < TERRITORY_PALETTE.length; f++) if (clipUsed[f]) {
+      for (let f = 0; f < TERRITORY_PALETTE.length; f++) if (f !== NONE && clipUsed[f]) {
         ug.save(); ug.clip(landClip); ug.clip(ownerClips[f]);
         for (let neutral = 0; neutral < 2; neutral++) {
           const i = f * 2 + neutral; if (!borderUsed[i]) continue;
@@ -307,11 +307,11 @@ export async function createStrategyFlat(ctx) {
       if (tintCells[a] < 0 || tintCells[b] < 0) return n;
       const fa = tintOwners[tintCells[a]], fb = tintOwners[tintCells[b]];
       if (fa === fb || fa == null || fb == null || fa < 0 || fb < 0) return n;
-      xs[n] = x; ys[n] = y; kinds[n] = Math.min(fa, fb) * 8 + Math.max(fa, fb);
+      xs[n] = x; ys[n] = y; kinds[n] = Math.min(fa, fb) * (NONE + 1) + Math.max(fa, fb);
       return n + 1;
     };
     const segment = (kind, x0, y0, x1, y1) => {
-      const a = Math.floor(kind / 8), b = kind % 8, neutral = b === NONE ? 1 : 0;
+      const a = Math.floor(kind / (NONE + 1)), b = kind % (NONE + 1), neutral = b === NONE ? 1 : 0;
       for (const f of [a, b]) if (f !== NONE) { const i = f * 2 + neutral, p = borderPaths[i]; borderUsed[i] = true; p.moveTo(x0, y0); p.lineTo(x1, y1); }
     };
     for (let j = 0; j < TH - 1; j++) for (let i = 0; i < TW - 1; i++) {
