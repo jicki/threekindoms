@@ -84,7 +84,7 @@ export async function listScenarios() { return request(api(), undefined, true); 
 export async function loadScenario(id, base) {
   if (id === SOVEREIGN_SCENARIO_ID) {
     const scenario = await loadScenario(WARLORD_SCENARIO_ID, base);
-    scenario.id = id; scenario.name = SOVEREIGN_SCENARIO_NAME; scenario.rulerPassives = true; scenario.fixedAiRecruitment = true;
+    scenario.id = id; scenario.name = SOVEREIGN_SCENARIO_NAME; scenario.rulerPassives = true; scenario.fixedAiRecruitment = true; scenario.enhancedDisasters = true;
     // 单城势力需要兼顾补兵和行军；仅改变新开局，不覆盖存档中的城市资源。
     for (const [i, amount] of [900, 450, 1200].entries()) scenario.factions[i].opening = { gold: amount, rice: amount };
     const first = base.officers.length + FEMALE_PRESETS.length + EXTRA_PRESETS.length + ROSTER_PRESETS.length + WARLORD_PRESETS.length;

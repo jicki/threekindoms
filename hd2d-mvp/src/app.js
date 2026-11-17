@@ -3056,9 +3056,15 @@ async function showEvent(e) {
       if (!shown) audio.cue('cue-disaster');
       // The struck city's governor tells it: 忧 for the damage, 喜 for 「不过请放心」 where 防灾 held (bank 25 $A850 / $A88D).
       const gov = (list) => g.cities[list[0][0]].officers[0] ?? null;
-      const hurt = mine.filter(([, k]) => k !== 10), safe = mine.filter(([, k]) => k === 10);
-      if (hurt.length) await message(what, `大事不好，${names(hurt)}遭受${what}。`, gov(hurt), 'grief');
-      if (safe.length) await message(what, `${names(safe)}遭受${what}，不过请放心，防灾完备，没有受到损害。`, gov(safe), 'joy');
+      const damaged = ([, k, losses]) => losses ? Object.values(losses).some((value) => value > 0) : k !== 10;
+      const hurt = mine.filter(damaged), safe = mine.filter((entry) => !damaged(entry));
+      const summaries = [['gold', '金'], ['rice', '米'], ['land', '土地'], ['industry', '产业'], ['pop', '人口'], ['soldiers', '兵'], ['disaster', '防灾']]
+        .map(([key, label]) => [label, hurt.reduce((sum, entry) => sum + (entry[2]?.[key] ?? 0), 0)])
+        .filter(([, amount]) => amount > 0).map(([label, amount]) => `${label}−${amount}`);
+      if (hurt.length) await message(what, `大事不好，${names(hurt)}遭受${what}。${summaries.length ? `<br>合计：${summaries.join('、')}` : ''}`, gov(hurt), 'grief');
+      const safeLegacy = safe.filter((entry) => !entry[2]), safeEnhanced = safe.filter((entry) => entry[2]);
+      if (safeLegacy.length) await message(what, `${names(safeLegacy)}遭受${what}，不过请放心，防灾完备，没有受到损害。`, gov(safeLegacy), 'joy');
+      if (safeEnhanced.length) await message(what, `${names(safeEnhanced)}遭受${what}，没有造成损失。`, gov(safeEnhanced), 'joy');
       if (!mine.length && !shown) await message(what, `${e.list.map(([cid]) => `<span style="color:${colorOf(g.cities[cid].faction)}">${cityName(cid)}</span>`).join('、')}遭受${what}。`, null, 'calm', { auto: pic });
       break;
     }

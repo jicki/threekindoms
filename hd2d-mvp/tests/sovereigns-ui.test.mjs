@@ -68,6 +68,63 @@ test('手机横屏选择君主时能查看被动并进入游戏', { timeout: 180
   } finally { await page.context().close(); }
 });
 
+test('手机横屏真实洪灾显示资源损失，并保留原规则事件提示', { timeout: 180000 }, async () => {
+  const page = await game.open('&flat&phone', { setup: (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns')) });
+  try {
+    await page.setViewportSize({ width: 812, height: 375 });
+    const card = await chooseRuler(page, '公孙瓒'); await card.click(); await waitPlayer(page);
+    const fire = (enhanced, defense, zero = false) => page.evaluate(({ enhanced, defense, zero }) => {
+      const { g, G, io } = window.__game, city = g.cities[0];
+      Object.assign(city, { disaster: defense, gold: 1000, rice: 1000, land: 1000, industry: 1000, pop: 1000 });
+      if (zero) { Object.assign(city, { gold: 0, rice: 0, land: 0, industry: 0, pop: 0 }); for (const id of city.officers) g.officers[id].soldiers = 0; }
+      g.enhancedDisasters = enhanced; g.seed = 7;
+      const list = G.disaster(g, 'flood'); window.__disasterEvent = io.event({ type: 'disaster', kind: 'flood', list });
+      return { entry: list.find(([id]) => id === 0), gold: city.gold, rice: city.rice, land: city.land, industry: city.industry, disaster: city.disaster };
+    }, { enhanced, defense, zero });
+    const show = async () => {
+      const panel = page.locator('.panel.msg'); await panel.waitFor({ timeout: 30000 });
+      await page.evaluate(() => { const m = document.querySelector('.panel.msg'); if (m.querySelector('.more')?.hidden) m.click(); });
+      return panel;
+    };
+    const damaged = await fire(true, 0);
+    assert.deepEqual([damaged.gold, damaged.rice, damaged.land, damaged.industry], [930, 430, 930, 680]);
+    assert.deepEqual([damaged.entry[2].gold, damaged.entry[2].rice, damaged.entry[2].land, damaged.entry[2].industry], [70, 570, 70, 320]);
+    let panel = await show(); assert.match(await panel.textContent(), /辽东.*金−70.*米−570.*土地−70.*产业−320/s);
+    await panel.evaluate(async (el) => { for (const animation of el.getAnimations()) await animation.finished; });
+    const checkLayout = async (width, height) => {
+      await page.setViewportSize({ width, height });
+      const box = await panel.boundingBox(); assert.ok(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= width && box.y + box.height <= height, `灾害信息须完整显示：${JSON.stringify(box)}`);
+      const details = await panel.evaluate((el) => {
+        const p = el.querySelector('p'), range = document.createRange(); range.selectNodeContents(p.lastChild);
+        const lines = [...range.getClientRects()], last = lines.at(-1), more = el.querySelector('.more').getBoundingClientRect();
+        return { last: { right: last.right, bottom: last.bottom }, more: { left: more.left, top: more.top } };
+      });
+      assert.ok(details.last.right <= details.more.left || details.last.bottom <= details.more.top, `损失文字与继续提示不能重叠：${JSON.stringify(details)}`);
+    };
+    await checkLayout(812, 375); await checkLayout(568, 320);
+    await panel.click(); await page.evaluate(() => window.__disasterEvent);
+    const legacy = await fire(false, 99); assert.equal(legacy.entry[1], 0);
+    assert.deepEqual([legacy.gold, legacy.rice, legacy.land, legacy.industry], [1000, 1000, 1000, 1000]);
+    assert.ok(legacy.disaster < 99);
+    panel = await show(); assert.match(await panel.textContent(), /辽东遭受洪水/);
+    await panel.click(); await page.evaluate(() => window.__disasterEvent);
+    const empty = await fire(true, 0, true); assert.ok(Object.values(empty.entry[2]).every((value) => value === 0));
+    panel = await show(); assert.match(await panel.textContent(), /辽东遭受洪水，没有造成损失/);
+    assert.doesNotMatch(await panel.textContent(), /防灾完备/);
+    await panel.click(); await page.evaluate(() => window.__disasterEvent);
+    await page.evaluate(() => {
+      const { g, G, io } = window.__game, ids = G.data().rules.flood_cities;
+      for (const id of ids) g.cities[id].faction = g.player;
+      const losses = { gold: 699, rice: 5700, land: 699, industry: 319, pop: 2500, soldiers: 0, disaster: 15 };
+      window.__disasterEvent = io.event({ type: 'disaster', kind: 'flood', list: ids.map((id) => [id, 0, losses]) });
+    });
+    panel = await show(); await panel.evaluate(async (el) => { for (const animation of el.getAnimations()) await animation.finished; });
+    assert.match(await panel.textContent(), /辽东.*涪陵.*合计/s); await checkLayout(568, 320);
+    await panel.click(); await page.evaluate(() => window.__disasterEvent);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
 test('编辑器可启用或关闭君主被动，发布后玩家按所选设置运行', { timeout: 180000 }, async () => {
   const admin = await game.open();
   try {
@@ -100,6 +157,9 @@ test('编辑器可启用或关闭君主被动，发布后玩家按所选设置�
     assert.equal(await content.getByLabel('修正电脑补兵').isChecked(), true);
     await content.getByLabel('修正电脑补兵').uncheck(); assert.equal(await admin.evaluate(() => window.__admin.draft.fixedAiRecruitment), undefined);
     await content.getByLabel('修正电脑补兵').check(); assert.equal(await admin.evaluate(() => window.__admin.draft.fixedAiRecruitment), true);
+    assert.equal(await content.getByLabel('增强灾害影响').isChecked(), true);
+    await content.getByLabel('增强灾害影响').uncheck(); assert.equal(await admin.evaluate(() => window.__admin.draft.enhancedDisasters), undefined);
+    await content.getByLabel('增强灾害影响').check(); assert.equal(await admin.evaluate(() => window.__admin.draft.enhancedDisasters), true);
     await content.getByLabel('公孙瓒开局金币').fill('800');
     await content.getByLabel('公孙瓒开局金币').locator('xpath=ancestor::form').getByRole('button', { name: '应用开局资源' }).click();
     assert.equal(await admin.evaluate(() => window.__admin.draft.factions[0].opening.gold), 800);
@@ -110,9 +170,9 @@ test('编辑器可启用或关闭君主被动，发布后玩家按所选设置�
     try {
       const result = await player.evaluate(() => {
         const { G } = window.__game, g = G.newGame(7, 1, 2);
-        return [G.data().rulerPassives, G.data().officers[254].name, G.rulerPassive(g, 7).name, G.data().fixedAiRecruitment, g.cities[0].gold];
+        return [G.data().rulerPassives, G.data().officers[254].name, G.rulerPassive(g, 7).name, G.data().fixedAiRecruitment, g.cities[0].gold, g.enhancedDisasters];
       });
-      assert.deepEqual(result, [true, '田豫', '白马备战', true, 800]); assert.deepEqual(player.errors, []);
+      assert.deepEqual(result, [true, '田豫', '白马备战', true, 800, true]); assert.deepEqual(player.errors, []);
     } finally { await player.context().close(); }
     assert.deepEqual(admin.errors, []);
   } finally { await admin.context().close(); }

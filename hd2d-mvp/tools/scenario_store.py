@@ -184,7 +184,7 @@ def image_info(data):
 
 
 def validate(s, base):
-    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'fixedAiRecruitment'])
+    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'fixedAiRecruitment', 'enhancedDisasters'])
     if type(s.get('format')) is not int or s['format'] != 1:
         fail('不支持的版本文件格式')
     if not isinstance(s.get('id'), str) or not ID.fullmatch(s['id']):
@@ -194,6 +194,8 @@ def validate(s, base):
         fail('君主被动设置无效')
     if 'fixedAiRecruitment' in s and type(s['fixedAiRecruitment']) is not bool:
         fail('电脑补兵设置无效')
+    if 'enhancedDisasters' in s and type(s['enhancedDisasters']) is not bool:
+        fail('增强灾害设置无效')
     if s.get('base') != base_signature(base):
         fail('版本所需的基础数据与当前游戏不一致')
     officers, weapons, skills, relations = (s.get(k) for k in ('officers', 'weapons', 'skills', 'relations'))

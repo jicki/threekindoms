@@ -44,6 +44,8 @@ export function rng(g) {
 export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random() * 1e9)) >>> 0, { ruler = null } = {}) {
   const g = { version: 1, level, player: playerFaction, year: 189, month: 0, seed, turnIdx: -1, monthDone: false, current: null, books: 0, over: null };
   if (scenarioId !== ORIGINAL_SCENARIO) g.scenarioId = scenarioId;
+  // 新规则随新开局存入记录；旧记录缺少标记时继续使用原结算。
+  if (D.enhancedDisasters) g.enhancedDisasters = true;
   const r = rng(g);
   g.order = r(5); // 新游戏随机0–4 (5.2)
   g.cities = D.cities.map((c) => ({
@@ -134,13 +136,31 @@ function disasterK(c, r) {
 }
 const qLoss = (v, k) => (k === 0 ? Math.floor(v / 4) : Math.floor((Math.floor(v / 4) * k) / 10));
 const hLoss = (v, k) => (k === 0 ? Math.floor(v / 2) : Math.floor((Math.floor(v / 2) * k) / 10));
+function enhancedDisaster(g, c, kind, defense) {
+  const severity = 100 - Math.max(0, Math.min(99, defense));
+  // 金米最低各损失 10，土地和产业最低各损失 1；库存不足时只扣除现有量。
+  const rate = 2 + Math.ceil(severity / 20), fraction = (value, divisor) => Math.floor(Math.floor(value / divisor) * severity / 100);
+  const cost = (value, minimum, extra = 0) => Math.min(Math.max(0, value), Math.max(minimum, Math.floor(value * rate / 100)) + extra);
+  const losses = {
+    gold: cost(c.gold, 10), rice: cost(c.rice, 10, kind === 'flood' ? fraction(c.rice, 2) : 0),
+    land: cost(c.land, 1, kind === 'drought' ? fraction(c.land, 4) : 0),
+    industry: cost(c.industry, 1, kind === 'flood' ? fraction(c.industry, 4) : 0),
+    pop: fraction(c.pop, 4), soldiers: 0, disaster: defense - c.disaster,
+  };
+  for (const key of ['gold', 'rice', 'land', 'industry', 'pop']) c[key] -= losses[key];
+  if (kind === 'drought') for (const id of c.officers) {
+    const o = g.officers[id], loss = fraction(o.soldiers, 4); o.soldiers -= loss; losses.soldiers += loss;
+  }
+  return losses;
+}
 export function disaster(g, kind) {
   const r = rng(g), list = kind === 'drought' ? D.rules.drought_cities : D.rules.flood_cities, hit = [];
   for (const cid of [...list, null]) {
     if (r(6) !== 0 || cid == null) continue; // 16 sequential draws, the trailing FF slot included
     const c = g.cities[cid];
     if (c.faction === NONE) continue;
-    const k = disasterK(c, r);
+    const defense = c.disaster, k = disasterK(c, r);
+    if (g.enhancedDisasters === true) { hit.push([cid, k, enhancedDisaster(g, c, kind, defense)]); continue; }
     if (k === 10) { hit.push([cid, 0]); continue; }
     c.pop -= qLoss(c.pop, k);
     if (kind === 'drought') { c.land -= qLoss(c.land, k); for (const id of c.officers) g.officers[id].soldiers -= qLoss(g.officers[id].soldiers, k); }
