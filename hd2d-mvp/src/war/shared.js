@@ -68,3 +68,11 @@ export const STRAT_CUE = ['cue-st-fire', 'cue-st-trap', 'cue-st-ruse', 'cue-st-r
   'cue-st-lure', 'cue-st-trap', 'cue-st-ruse', 'cue-st-ruse', 'cue-st-fire', 'cue-st-fire', 'cue-st-fire', 'cue-st-trap'];
 export const STRAT_FX = ['fire', 'pit', 'phantom', 'ambush', 'rapids', 'firearrows', 'feint', 'strife',
   'lure', 'rocks', 'chain', 'encircle', 'flood', 'bolts', 'firestorm', 'qimen'];
+// 地图特效出现时的短音：保留上方经原版追踪的施计短曲，并按视觉效果区分水、火、箭等。
+export const STRAT_FX_SOUND = {
+  fire: 'sfx-tactic-fire', pit: 'sfx-clash', phantom: 'sfx-tactic-bind', ambush: 'sfx-clash', rapids: 'sfx-strategy-water',
+  firearrows: 'sfx-tactic-fire', feint: 'sfx-clash', strife: 'sfx-clash', lure: 'sfx-strategy-lure', rocks: 'sfx-clash',
+  chain: 'sfx-tactic-bind', encircle: 'sfx-clash', flood: 'sfx-strategy-water', bolts: 'sfx-tactic-xbow',
+  firestorm: 'sfx-tactic-fire', qimen: 'sfx-tactic-bind', northGuard: 'sfx-tactic-xbow', riverGuard: 'sfx-strategy-water',
+  cunning: 'sfx-tactic-bind', border: 'sfx-clash', ingenuity: 'sfx-strategy-lure',
+};

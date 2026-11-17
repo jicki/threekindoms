@@ -115,11 +115,12 @@ test('版本列表与可选旧动作不可用时仍可载入内置版本', async
     await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
     await admin.getByText('无法读取服务器版本列表；仍可编辑草稿，发布前请检查服务器。').waitFor();
     assert.equal(await admin.locator('#published option[value="builtin-female"]').count(), 0);
-    await admin.locator('#published').selectOption('builtin-heroes');
+    await admin.locator('#published').selectOption('builtin-sovereigns');
     await admin.getByRole('button', { name: '载入为新草稿' }).click();
     await admin.getByText('已载入新草稿').waitFor();
     const names = await admin.evaluate(() => window.__admin.draft.officers.filter((officer) => officer.id >= 237).map((officer) => officer.name));
-    assert.deepEqual(names, ['孙尚香', '甄宓', '貂蝉', '蔡琰', '王异', '陈宫', '高顺']);
+    assert.deepEqual(names.slice(0, 7), ['孙尚香', '甄宓', '貂蝉', '蔡琰', '王异', '陈宫', '高顺']);
+    assert.ok(['公孙瓒', '袁术', '刘表', '田豫', '祝融夫人'].every((name) => names.includes(name)));
     assert.deepEqual(admin.errors, []);
   } finally { await admin.context().close(); }
 });
@@ -135,15 +136,15 @@ test('已发布版本列表返回时保留用户选择的内置版本', async ()
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id, name: '延迟版本' }]) });
     });
     await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
-    await admin.locator('#published').selectOption('builtin-heroes');
+    await admin.locator('#published').selectOption('builtin-sovereigns');
     release();
     await admin.waitForFunction((expected) => [...document.querySelector('#published').options].some((option) => option.value === expected), id);
-    assert.equal(await admin.locator('#published').inputValue(), 'builtin-heroes');
+    assert.equal(await admin.locator('#published').inputValue(), 'builtin-sovereigns');
     assert.deepEqual(admin.errors, []);
   } finally { release(); await admin.context().close(); }
 });
 
-test('已发布版本列表延迟返回时保留新阵容选择', async () => {
+test('已发布版本列表延迟返回时保留原版选择', async () => {
   const admin = await game.open();
   let release;
   const wait = new Promise((resolve) => { release = resolve; });
@@ -154,10 +155,10 @@ test('已发布版本列表延迟返回时保留新阵容选择', async () => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id, name: '延迟版本' }]) });
     });
     await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
-    await admin.locator('#published').selectOption('builtin-heroes-roster');
+    await admin.locator('#published').selectOption('');
     release();
     await admin.waitForFunction((expected) => [...document.querySelector('#published').options].some((option) => option.value === expected), id);
-    assert.equal(await admin.locator('#published').inputValue(), 'builtin-heroes-roster');
+    assert.equal(await admin.locator('#published').inputValue(), '');
     assert.deepEqual(admin.errors, []);
   } finally { release(); await admin.context().close(); }
 });

@@ -224,6 +224,14 @@ export class Audio {
       'sfx-clash': () => { this.noise(0.25, 2500, 0.3); this.tone(40, 0.2, 'sawtooth', 0.1); },
       // 爆炎素材不可用时，爆点仍有低频冲击和短促的爆裂声。
       'sfx-blast': () => { this.noise(0.5, 850, 0.3); this.sweep(180, 45, 0.4, 'sine', 0.3); },
+      // 自制战术短音，分别表现束缚、挑衅、上弦、鼓舞和火矢。
+      'sfx-tactic-bind': () => { this.sweep(700, 360, 0.24, 'triangle', 0.07); this.tone(77, 0.17, 'sine', 0.06); },
+      'sfx-tactic-taunt': () => { this.tone(52, 0.35, 'sawtooth', 0.08); this.tone(59, 0.3, 'sawtooth', 0.04); },
+      'sfx-tactic-xbow': () => { this.sweep(1400, 380, 0.14, 'triangle', 0.08); this.noise(0.07, 2600, 0.06); },
+      'sfx-tactic-morale': () => { this.tone(64, 0.33, 'triangle', 0.07); this.tone(71, 0.4, 'triangle', 0.06); },
+      'sfx-tactic-fire': () => { this.noise(0.28, 1800, 0.08); this.sweep(380, 900, 0.25, 'sawtooth', 0.035); },
+      'sfx-strategy-water': () => { this.noise(0.38, 1200, 0.14); this.sweep(850, 240, 0.32, 'sine', 0.06); },
+      'sfx-strategy-lure': () => { this.tone(72, 0.35, 'sine', 0.07); this.tone(79, 0.4, 'triangle', 0.05); },
       'sfx-horn': () => { this.tone(50, 0.6, 'sawtooth', 0.08); this.tone(57, 0.6, 'sawtooth', 0.05); },
       'sfx-victory': () => [0, 4, 7, 12].forEach((d, i) => setTimeout(() => this.tone(72 + d, 0.3, 'square', 0.08), i * 140)),
       'sfx-cancel': () => this.tone(60, 0.08, 'square', 0.06),

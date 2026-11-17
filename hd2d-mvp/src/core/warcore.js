@@ -1,6 +1,6 @@
 // War set-up and write-back shared by field battles (player involved) and AI-vs-AI auto battles.
 // 出阵 (5.9 §7), 战后 (6.10 §3–6), AI 自动战 (6.5 第五/六批).
-import { data, rng, NONE, DEAD, SERVING, RONIN, roads, officerCity, capturedLoyalty, recruitLoyalty, addExp, citiesOf, kill, isRuler, sparedHp } from './game.js';
+import { data, rng, NONE, DEAD, SERVING, RONIN, roads, officerCity, capturedLoyalty, recruitLoyalty, addExp, citiesOf, kill, isRuler, sparedHp, rulerPassive } from './game.js';
 
 // Remove the expedition from its source city and empty the target into the defender's war chest.
 export function setupWar(g, { from, to, ids, commander, gold, rice }) {
@@ -184,8 +184,11 @@ export function resolveWar(g, war, res) {
 // draws (captured = draw100 ≥ loyalty). Settlement is the caller's: autoBattle for real cities, ahuinan.js for 王莆.
 export function fight(g, war) {
   const r = rng(g), O = (id) => g.officers[id];
-  const strength = (ids) => Math.floor(ids.reduce((a, id) => a + O(id).war, 0) / 10) + Math.floor(ids.reduce((a, id) => a + O(id).soldiers, 0) / 100) + 10 * (O(ids[0])?.exp >> 12 || 0);
-  const sa = strength(war.att.ids), sd = war.def.ids.length ? strength(war.def.ids) : 0;
+  const strength = (ids, faction) => {
+    const bonus = rulerPassive(g, faction)?.combat?.war ?? 0;
+    return Math.floor(ids.reduce((a, id) => a + Math.max(O(id).war, Math.min(99, O(id).war + bonus)), 0) / 10) + Math.floor(ids.reduce((a, id) => a + O(id).soldiers, 0) / 100) + 10 * (O(ids[0])?.exp >> 12 || 0);
+  };
+  const sa = strength(war.att.ids, war.attacker), sd = war.def.ids.length ? strength(war.def.ids, war.defender) : 0;
   const q = Math.floor((100 * sa) / Math.max(1, sa + sd));
   const days = 30 - Math.abs(Math.floor(q / 2) - 25);
   const proj = (ids) => Math.floor((Math.floor(ids.reduce((a, id) => a + O(id).soldiers, 0) / 100) * (days * 4)) / 10);

@@ -550,6 +550,9 @@ export function createTacticalView(T, sprites) {
       await sleep(d(200));
     } else {
       const target = ev.id === 'bind' ? foe : own, p = posOf(target).clone();
+      // 在效果出现时播放对应短音效，不中断战斗背景音乐；爆炎在爆点单独发声。
+      const sound = { bind: 'sfx-tactic-bind', taunt: 'sfx-tactic-taunt', xbow: 'sfx-tactic-xbow', morale: 'sfx-tactic-morale', fire: 'sfx-tactic-fire' }[ev.id];
+      if (sound) hooks.sfx?.(sound);
       // 火矢: every archer squad of the side lights its arrows
       if (ev.id === 'fire') for (const [u, v] of units) if (u.side === ev.side && u.kind === 'arc' && v.g.visible) {
         const at = v.g.position.clone().setY(v.g.position.y + 0.75);

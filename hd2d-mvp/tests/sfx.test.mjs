@@ -75,6 +75,44 @@ test('a 白兵 volley sounds as it looses and again as the arrows land', async (
   assert.ok(r.gap > 100, `the landing follows the flight (${Math.round(r.gap)} ms)`);
 });
 
+test('白兵双方战术在效果出现时播放各自音效，失败静音，爆炎只在爆点发声', { timeout: 60000 }, async () => {
+  const r = await page.evaluate(async () => {
+    const { tview, G, debug } = window.__game, { Tactical } = await import('./src/core/tactical.js');
+    const g = G.newGame(4, 1, 3); g.officers[38].soldiers = g.officers[51].soldiers = 900;
+    const b = new Tactical(g, 38, 51, 2, G.rng(g), { human: 'a' }); b.deploy();
+    tview.setPlace({ month: 2, city: 12 }); await tview.ready(); debug.show('tview');
+    tview.build(b, { a: 'attacker', d: 'defender' }); tview.setSpeed(4);
+    const out = {};
+    for (const side of ['a', 'd']) for (const id of ['bind', 'taunt', 'xbow', 'morale', 'fire', 'blast']) {
+      const sounds = [], gen = b.gen(side), dir = side === 'a' ? 1 : -1;
+      const ev = { type: 'tactic', side, id, ok: true, center: [gen.x + dir * 2, gen.y], hits: [] };
+      await tview.play(ev, { sfx: (key) => sounds.push(key) });
+      await tview.play({ ...ev, ok: false }, { sfx: (key) => sounds.push(`failed:${key}`) });
+      out[`${side}:${id}`] = sounds;
+    }
+    tview.setSpeed(1); return out;
+  });
+  for (const side of ['a', 'd']) for (const id of ['bind', 'taunt', 'xbow', 'morale', 'fire', 'blast']) {
+    assert.deepEqual(r[`${side}:${id}`], [id === 'blast' ? 'sfx-blast' : `sfx-tactic-${id}`]);
+  }
+});
+
+test('新增战术短音可独立合成，并遵循音效静音', async () => {
+  const r = await page.evaluate(async () => {
+    const { Audio } = await import('./src/audio.js');
+    const out = {};
+    for (const key of ['sfx-tactic-bind', 'sfx-tactic-taunt', 'sfx-tactic-xbow', 'sfx-tactic-morale', 'sfx-tactic-fire', 'sfx-strategy-water', 'sfx-strategy-lure', 'muted']) {
+      const a = new Audio({}, {}), ctx = new OfflineAudioContext(1, 24000, 48000);
+      a.ctx = ctx; a.sfxGain = ctx.createGain(); a.sfxGain.gain.value = key === 'muted' ? 0 : 1; a.sfxGain.connect(ctx.destination);
+      a.sfx(key === 'muted' ? 'sfx-tactic-fire' : key);
+      const samples = (await ctx.startRendering()).getChannelData(0);
+      out[key] = Math.max(...samples.map(Math.abs));
+    }
+    return out;
+  });
+  for (const [key, peak] of Object.entries(r)) assert.ok(key === 'muted' ? peak === 0 : peak > 0.001, `${key}: ${peak}`);
+});
+
 test('the player\'s month and war day begin without the war-start phrase', async () => {
   const p = await game.open();
   await spy(p);

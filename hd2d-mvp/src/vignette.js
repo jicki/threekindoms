@@ -123,7 +123,9 @@ export async function playVignette({ scene, caption, onBook, books = 1, onShow, 
   const S = (enabled || force) && scene ? await load(scene) : null;
   if (!S) return false;
   const start = performance.now();
-  let skip = false;
+  let skip = false, cue = null;
+  // 只结束本演出启动的短曲；音频仍在加载或后来已有其他短曲时也保持正确。
+  const skipShow = () => { skip = true; if (cue) audio?.finishCue?.(cue); };
   // Played large in the middle of the screen (0.1.0 framed it over the small city panel).
   const box = h('div', { class: 'vig floating', role: 'img', 'aria-label': caption, title: '点击跳过', 'data-scene': scene }), dim = h('div', { class: 'vig-dim' });
   const cv = h('canvas', { width: S.w, height: S.h }), cap = h('div', { class: 'vig-cap' });
@@ -132,10 +134,10 @@ export async function playVignette({ scene, caption, onBook, books = 1, onShow, 
   // to the map or the menus underneath (a click anywhere counts as the key).
   const onKey = (e) => {
     if (keyTaken(e)) return;
-    if (['Enter', ' ', 'Escape'].includes(e.key)) { e.preventDefault(); e.stopPropagation(); skip = true; } else if (onBook) { e.preventDefault(); e.stopPropagation(); }
+    if (['Enter', ' ', 'Escape'].includes(e.key)) { e.preventDefault(); e.stopPropagation(); skipShow(); } else if (onBook) { e.preventDefault(); e.stopPropagation(); }
   };
-  box.addEventListener('click', () => (skip = true));
-  if (onBook) { dim.style.pointerEvents = 'auto'; dim.addEventListener('click', () => (skip = true)); document.body.append(dim); } // from the book's blink on
+  box.addEventListener('click', skipShow);
+  if (onBook) { dim.style.pointerEvents = 'auto'; dim.addEventListener('click', skipShow); document.body.append(dim); } // from the book's blink on
   addEventListener('keydown', onKey, true);
   const wait = async (ms) => { const t0 = performance.now(); while (!skip && performance.now() - t0 < ms) await sleep(30); };
 
@@ -163,7 +165,10 @@ export async function playVignette({ scene, caption, onBook, books = 1, onShow, 
   // spread over the whole duration, the wipe took the last frame's time and at 2× and 4× closed on it half faded in (D36).
   const t0 = performance.now(), st = { text, part, span: (duration ? showSpan(duration) : cmd ? paced(ORIGINAL.commandScene) : 3000) / 1000 }, due = pacer(); let raf = 0;
   const frame = (t = performance.now()) => { if (due(t)) paint(c, S, (performance.now() - t0) / 1000, st); raf = requestAnimationFrame(frame); };
-  frame(); onShow?.();
+  frame();
+  const previousCue = audio?.cueing; onShow?.();
+  if (audio?.cueing && audio.cueing !== previousCue) cue = audio.cueing;
+  if (skip && cue) audio?.finishCue?.(cue);
   box.classList.add('in');
   const chars = [...caption];
   for (let i = 1; i <= chars.length && !skip; i++) { cap.textContent = chars.slice(0, i).join(''); await sleep(typing); }

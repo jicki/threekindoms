@@ -33,8 +33,8 @@ async function begin(page, ruler) {
   finally { stop(); }
 }
 
-test('标题可选择十势力剧本，3D 地图正确区分新势力与无主地区', { timeout: 180000 }, async () => {
-  const page = await game.open();
+test('有旧记录时可选择十势力剧本，3D 地图正确区分新势力与无主地区', { timeout: 180000 }, async () => {
+  const page = await game.open('', { setup: (context) => context.addInitScript(() => localStorage.setItem('haou-hd2d-save:scenario:builtin-warlords:1', '{}')) });
   try {
     await skipIntro(page); await page.locator('.sysmenu-btn').click();
     await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
@@ -153,7 +153,7 @@ test('编辑器可修改新势力人物、添加君主候选并发布给玩家',
   const admin = await game.open();
   try {
     await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
-    await admin.locator('#published').selectOption('builtin-warlords');
+    await admin.locator('#published').selectOption('builtin-sovereigns');
     await admin.getByRole('button', { name: '载入为新草稿' }).click(); await admin.getByText('已载入新草稿').waitFor();
     await admin.getByLabel('版本名称').fill('十势力发布验证');
     const content = admin.locator('#content');

@@ -2,7 +2,7 @@
 // Ported: deployment blocks and AI role sub-lists, movement costs (600-troop split), shared daily
 // mobility, rice per day, 30-day limit, castle capture, commander loss, retreat thresholds, field
 // hospital/rice shop, AI roles 0–4 with their decision order. Strategies (计略) are not ported yet.
-import { data, rng, NONE, DEAD, roads, addExp, takeLevelUps, equipBlock, wearEquip, spared, sparedHp, isRuler, maxHp } from './game.js';
+import { data, rng, NONE, DEAD, roads, addExp, takeLevelUps, equipBlock, wearEquip, spared, sparedHp, isRuler, maxHp, rulerPassive } from './game.js';
 import { Tactical } from './tactical.js';
 import { roll100, realChance } from './origrng.js';
 
@@ -126,6 +126,12 @@ export class Field {
   castle() { return this.dep.defender[0]; }
   faction(s) { return s === 'att' ? this.war.attacker : this.war.defender; }
   chest(s) { return this.war[s]; }
+  combatPassive(s) {
+    const faction = this.faction(s), ruler = this.g.factions[faction]?.ruler;
+    const deployed = this.units.find((u) => u.side === s && u.id === ruler);
+    if (deployed?.gone) return null;
+    return rulerPassive(this.g, faction)?.combat ?? null;
+  }
 
   assignRoles(side, ids) {
     const n = ids.length;
@@ -147,7 +153,8 @@ export class Field {
     const D = data();
     for (const s of ['att', 'def']) {
       const q = Math.min(9, Math.floor(this.troops(s) / 1000));
-      this.pool[s] = Math.min(this.pool[s] + D.rules.mobility_recover[q], D.rules.mobility_cap[q]);
+      const bonus = this.combatPassive(s)?.mobility ?? 0;
+      this.pool[s] = Math.min(this.pool[s] + D.rules.mobility_recover[q] + bonus, D.rules.mobility_cap[q] + bonus);
     }
   }
   cost(u, x, y) {
@@ -181,7 +188,8 @@ export class Field {
   poolWhenNext(side) {
     if (side === this.turn || side === 'def') return this.pool[side];
     const D = data(), q = Math.min(9, Math.floor(this.troops(side) / 1000));
-    return Math.min(this.pool[side] + D.rules.mobility_recover[q], D.rules.mobility_cap[q]);
+    const bonus = this.combatPassive(side)?.mobility ?? 0;
+    return Math.min(this.pool[side] + D.rules.mobility_recover[q] + bonus, D.rules.mobility_cap[q] + bonus);
   }
   // The cells a side's generals could strike when it next acts: every cell beside one a general can walk to with the pool
   // less the cost of an attack (his own cell counts: he strikes without moving). The pool is shared, so this is how far any one of
@@ -218,7 +226,8 @@ export class Field {
   attack(a, d) {
     this.pool[a.side] -= ATTACK_COST;
     const humanIn = this.human && (a.side === this.human || d.side === this.human);
-    const battle = new Tactical(this.g, a.id, d.id, this.terr(d.x, d.y), this.r, { human: humanIn ? (a.side === this.human ? 'a' : 'd') : null });
+    const battle = new Tactical(this.g, a.id, d.id, this.terr(d.x, d.y), this.r, { human: humanIn ? (a.side === this.human ? 'a' : 'd') : null,
+      bonuses: { a: this.combatPassive(a.side), d: this.combatPassive(d.side) } });
     const res = { battle };
     res.settle = () => { Object.assign(res, battle.result()); delete res.pending; this.applySkirmish(a, d, res); return res; };
     res.auto = () => { battle.runAuto(); return res.settle(); };
@@ -370,12 +379,20 @@ export class Field {
     const a = this.O(u.id), b = this.O(t.id), D = u.side === this.human || !this.human ? 10 : [5, 10, 20][this.g.level];
     let s = ([15, 10, 5, 0, -5, -10][d] + Math.max(a.int - b.int, 0) + 2 * Math.max(a.level - b.level, 0) + D) & 255;
     if (s & 128) s = 0;
-    return Math.min(95, Math.max(5, s));
+    return this.passiveChance(Math.min(95, Math.max(5, s)), u.side, 95);
+  }
+  // 原版随机表并非均匀分布，按实际概率限制增益而非简单增加判定阈值。
+  passiveChance(base, side, limit) {
+    const bonus = this.combatPassive(side)?.strategy ?? 0, chance = realChance(base);
+    let result = base;
+    while (result < limit && realChance(result + 1) - chance <= bonus) result++;
+    return result;
   }
   lureChance(u, t) {
     const a = this.O(u.id), b = this.O(t.id);
     if (this.dist(u, t) >= 6 || b.loyalty >= 71) return 0;
-    return (b.loyalty <= 30 ? 60 : b.loyalty <= 50 ? 30 : 10) + Math.floor(((a.int + a.virtue) & 255) / 10) + 2 * Math.max(a.level - b.level, 0);
+    const base = (b.loyalty <= 30 ? 60 : b.loyalty <= 50 ? 30 : 10) + Math.floor(((a.int + a.virtue) & 255) / 10) + 2 * Math.max(a.level - b.level, 0);
+    return this.passiveChance(base, u.side, 100);
   }
   // What the player is told: the chance the cast really has. hitChance / lureChance are the numbers the roll is
   // compared with; the original's roll (core/origrng.js) comes under them more often than that many times in 100.

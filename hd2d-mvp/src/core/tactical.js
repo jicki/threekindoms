@@ -37,14 +37,20 @@ export function duelLoot(g, winner, dead, r) {
 }
 
 export class Tactical {
-  constructor(g, aId, dId, terrain, r, { human = null } = {}) {
+  constructor(g, aId, dId, terrain, r, { human = null, bonuses = null } = {}) {
     const D = data();
     this.g = g; this.r = r; this.terrain = terrain; this.human = human; this.round = 1;
     this.map = D.skirmish_maps[terrain] || D.skirmish_maps[2];
     this.units = []; this.queue = []; this.log = []; this.over = null; this.duel = null;
     const mk = (id, key) => {
-      const o = g.officers[id], eq = { atk: D.equipment[o.weapon]?.atk || 0, def: D.equipment[24 + o.armor]?.dfn || 0, wgrp: weaponGroup(o.weapon), weight: (D.equipment[o.weapon]?.weight || 0) + (D.equipment[24 + o.armor]?.weight || 0) };
-      return { key, id, o, F: Math.floor((C(o.war) * o.war) / 100) + 9 - r(9), eq, hp: o.hp, start: o.soldiers, tp: Math.floor((o.int * 13) / 100), fx: {}, cmd: { gen: 'advance', cav: 'advance', arc: 'advance', inf: 'advance' }, formation: 0 };
+      const original = g.officers[id], bonus = bonuses?.[key];
+      // 武将可能在白兵中升级；战斗属性临时加成，同时保持等级等其他字段与原武将同步。
+      const o = bonus ? new Proxy(original, { get(target, prop, receiver) {
+        if (prop === 'war' || prop === 'int') return Math.max(target[prop], Math.min(99, target[prop] + bonus[prop]));
+        return Reflect.get(target, prop, receiver);
+      } }) : original;
+      const eq = { atk: D.equipment[o.weapon]?.atk || 0, def: D.equipment[24 + o.armor]?.dfn || 0, wgrp: weaponGroup(o.weapon), weight: (D.equipment[o.weapon]?.weight || 0) + (D.equipment[24 + o.armor]?.weight || 0) };
+      return { key, id, o, baseWar: original.war, tacticRounds: bonus?.tacticRounds ?? 0, F: Math.floor((C(o.war) * o.war) / 100) + 9 - r(9), eq, hp: o.hp, start: o.soldiers, tp: Math.floor((o.int * 13) / 100), fx: {}, cmd: { gen: 'advance', cav: 'advance', arc: 'advance', inf: 'advance' }, formation: 0 };
     };
     this.side = { a: mk(aId, 'a'), d: mk(dId, 'd') };
     this.side.a.foe = this.side.d; this.side.d.foe = this.side.a;
@@ -58,7 +64,7 @@ export class Tactical {
     const D = data();
     for (const s of ['a', 'd']) {
       const S = this.side[s], o = S.o, n = o.soldiers, k = Math.ceil(n / 100);
-      const band = o.war >= 80 ? '80-99' : o.war >= 50 ? '50-79' : '0-49';
+      const band = S.baseWar >= 80 ? '80-99' : S.baseWar >= 50 ? '50-79' : '0-49';
       const comp = D.composition.find((c) => c.level === o.level && c.war === band) || { inf: 5, arc: 3, cav: 2 };
       const q = k ? Math.floor(n / k) : 0, rem = k ? n % k : 0, castle = s === 'd' && this.castleDef;
       const place = (idx, kind) => {
@@ -255,9 +261,9 @@ export class Tactical {
     const ev = { type: 'tactic', side: s, id, name: T.name, ok: true };
     switch (id) {
       case 'bind': ev.ok = !!(r(256) & 1); if (ev.ok) S.fx.bind = 4; break;
-      case 'xbow': S.fx.xbow = 3; break;
-      case 'fire': S.fx.fire = 3; break;
-      case 'morale': S.fx.morale = 4; S.baseF = S.F; S.F += 5 + r(5); break;
+      case 'xbow': S.fx.xbow = 3 + S.tacticRounds; break;
+      case 'fire': S.fx.fire = 3 + S.tacticRounds; break;
+      case 'morale': S.fx.morale = 4 + S.tacticRounds; S.baseF = S.F; S.F += 5 + r(5); break;
       case 'taunt': {
         if (s === 'a' && this.castleDef) { ev.ok = false; break; }
         const p = 32 + 2 * Math.max(0, S.o.level - F.o.level) - Math.floor(F.o.int / 10);

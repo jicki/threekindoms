@@ -1037,6 +1037,10 @@ function sysButtons() {
       '原版：智力80以下的武将可在学问所学习，电脑也会让武将学习　不能：敌我武将都不能读书提高智力，城市菜单的「学问所」变灰。随本局记录保存') : '',
     g ? item(() => `记录消耗 ${g.freeSave ? '免费' : '原版'}`, (b) => { g.freeSave = !g.freeSave; b.textContent = `记录消耗 ${g.freeSave ? '免费' : '原版'}`; markFreeSave(); },
       '原版：每次记录消耗一张命令书　免费：记录不消耗命令书。随本局记录保存') : '',
+    g && D.rulerPassives ? item(() => `君主被动 ${g.enhancedRulerPassives ? '增强' : '原有'}`, (b) => {
+      if (inWar() || document.body.dataset.screen !== 'strategy' || g.current !== g.player) return toast('请在己方战略回合切换君主被动', 3000);
+      g.enhancedRulerPassives = !g.enhancedRulerPassives; b.textContent = `君主被动 ${g.enhancedRulerPassives ? '增强' : '原有'}`;
+    }, '增强：提高每月资源，并为全军提供战斗武力、战术智力、计策成功率和战场每日机动力增益；部分君主延长己方增益战术。原有：沿用旧版数值。敌我相同，设置随本局记录保存，己方战略回合可切换。') : '',
     ), group('记录',
     g ? item(() => '记录进度', (b) => { const why = saveBlocked(); if (why) return toast(`<em>${why}</em>`, 3500); close(); runCommand(saveCity(), '记录'); },
       '进度不会自动保存。在八个记录位置之一保存当前进度（消耗一张命令书，开启免费记录时不消耗；与城市菜单「城 → 记录」相同；己方回合、战略地图上可用）') : '',
@@ -1070,16 +1074,21 @@ async function chooseScenario() {
     catch { unavailable = true; }
   }
   if (!Array.isArray(versions)) return toast('<em>游戏版本列表无效</em>', 3500);
-  const legacy = G.currentScenario() === FEMALE_SCENARIO_ID || hasLegacyRecords();
-  const options = [{ id: ORIGINAL_SCENARIO, name: '原版' }, { id: HERO_SCENARIO_ID, name: HERO_SCENARIO_NAME }, { id: ROSTER_SCENARIO_ID, name: ROSTER_SCENARIO_NAME }, { id: WARLORD_SCENARIO_ID, name: WARLORD_SCENARIO_NAME }, { id: SOVEREIGN_SCENARIO_ID, name: SOVEREIGN_SCENARIO_NAME },
-    ...(legacy ? [{ id: FEMALE_SCENARIO_ID, name: `${FEMALE_SCENARIO_NAME}（旧存档兼容）` }] : []),
-    ...versions.filter((v) => /^v-[a-f0-9]{32}$/.test(v?.id) && typeof v.name === 'string')];
+  const legacy = [
+    { id: FEMALE_SCENARIO_ID, name: FEMALE_SCENARIO_NAME },
+    { id: HERO_SCENARIO_ID, name: HERO_SCENARIO_NAME },
+    { id: ROSTER_SCENARIO_ID, name: ROSTER_SCENARIO_NAME },
+    { id: WARLORD_SCENARIO_ID, name: WARLORD_SCENARIO_NAME },
+  ].filter((v) => G.currentScenario() === v.id || hasLegacyRecords(v.id));
+  const options = [{ id: ORIGINAL_SCENARIO, name: '原版' }, { id: SOVEREIGN_SCENARIO_ID, name: SOVEREIGN_SCENARIO_NAME },
+    ...versions.filter((v) => /^v-[a-f0-9]{32}$/.test(v?.id) && typeof v.name === 'string'),
+    ...legacy.map((v) => ({ ...v, name: `${v.name}（旧存档兼容）` }))];
   const choice = await modal('选择游戏版本', (close) => [
     h('p', {}, '各版本的存档分开保存。切换版本后可在标题画面开始新游戏或读取该版本的记录。'),
-    legacy ? h('p', {}, '巾帼群英已合并至群英新篇；旧存档仍按原有规则继续，不能直接合并到新版本。') : null,
+    legacy.length ? h('p', {}, '旧版内容已合并至君主列传；旧存档仍按原有规则继续，不能直接合并到新版本。') : null,
     unavailable ? h('p', {}, '无法读取服务器版本，仍可选择原版和内置版本。') : null,
     versions.skipped ? h('p', {}, `有 ${versions.skipped} 个已发布版本无法读取，请联系管理员。`) : null,
-    h('div', { class: 'slots' }, options.map((v) => h('button', { class: 'btn slot', onclick: () => close(v.id) },
+    h('div', { class: 'slots scenario-choices' }, options.map((v) => h('button', { class: `btn slot${v.id === G.currentScenario() ? ' on' : ''}`, 'aria-current': v.id === G.currentScenario() ? 'true' : null, onclick: () => close(v.id) },
       h('b', {}, v.name), h('span', {}, v.id === G.currentScenario() ? '当前版本' : '选择此版本')))),
     h('div', { class: 'foot' }, h('button', { class: 'btn', onclick: () => close(null) }, '取消'))]);
   if (!choice || choice === G.currentScenario()) return;
@@ -1268,8 +1277,8 @@ async function title() {
         if (!current || JSON.stringify(current) !== JSON.stringify(pick.record)) return toast('<em>记录已改变，请重新选择</em>', 3500);
         begin(pick.record, true);
       } }, '读取记录') : null,
-      h('button', { class: 'btn', onclick: () => { audio.unlock(); if (G.currentScenario() === FEMALE_SCENARIO_ID) changeScenario(HERO_SCENARIO_ID); else setup(); } },
-        G.currentScenario() === FEMALE_SCENARIO_ID ? '进入群英新篇' : '新的征程')],
+      h('button', { class: 'btn', onclick: () => { audio.unlock(); if (G.currentScenario() === FEMALE_SCENARIO_ID) changeScenario(SOVEREIGN_SCENARIO_ID); else setup(); } },
+        G.currentScenario() === FEMALE_SCENARIO_ID ? '进入君主列传' : '新的征程')],
     footnote: [h('p', { class: 'free' }, ['本游戏免费发布，', '仅供爱好者交流，', '请勿付费购买'].map((t) => h('span', {}, t))),
       h('p', { class: 'maker' }, '制作　tianlin ', h('small', {}, '@GitHub')),
       h('p', {}, '原作《三国志II 霸王的大陆》© 1992 NAMCO · 以FC日版规则为准 · 立绘由AI生成 · ' +
@@ -1343,7 +1352,7 @@ async function setup() {
     const o = D.officers[officer], on = ruler?.faction === f && ruler?.officer === officer;
     return h('div', { class: `panel ruler ${on ? 'on' : ''}`, style: { '--c': colorOf(f) }, 'aria-pressed': on ? 'true' : 'false', title: on ? '再次点击开始' : `选择${name(officer)}`,
       ...pressable(() => { if (on) return start.click(); ruler = { faction: f, officer }; start.disabled = false; start.textContent = `${name(officer)} · 出征`;
-        if (passiveNote) { const p = describeRulerPassive(o); passiveNote.textContent = `君主被动 · ${p.name}：${p.text}`; }
+        if (passiveNote) { const p = describeRulerPassive(o, D.enhancedRulerPassives); passiveNote.textContent = `君主被动 · ${p.name}：${p.text}`; }
         keep(rulers, drawRulers); }) },
       figure(officer), h('i', { class: 'chip' }),
       h('div', { class: 'meta' }, h('b', {}, name(officer)),

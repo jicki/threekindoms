@@ -86,8 +86,9 @@ import {loadScenario} from './hd2d-mvp/src/core/scenario-store.js';
 const base = JSON.parse(readFileSync('hd2d-mvp/data/game-data.json'));
 const s = await loadScenario('builtin-sovereigns', base); s.id = 'v-' + 'b'.repeat(32); console.log(JSON.stringify(s));"""
         scenario = json.loads(subprocess.check_output(['node', '--input-type=module', '-e', build], cwd=ROOT, text=True))
-        disabled = copy.deepcopy(scenario); disabled['rulerPassives'] = False
-        omitted = copy.deepcopy(scenario); del omitted['rulerPassives']
+        disabled = copy.deepcopy(scenario); disabled['rulerPassives'] = False; del disabled['enhancedRulerPassives']
+        omitted = copy.deepcopy(scenario); del omitted['rulerPassives']; del omitted['enhancedRulerPassives']
+        legacy_passive = copy.deepcopy(scenario); del legacy_passive['enhancedRulerPassives']
         no_fix = copy.deepcopy(scenario); del no_fix['fixedAiRecruitment']
         no_opening = copy.deepcopy(scenario); del no_opening['factions'][0]['opening']
         empty_opening = copy.deepcopy(scenario); empty_opening['factions'][0]['opening'] = {}
@@ -97,8 +98,11 @@ const s = await loadScenario('builtin-sovereigns', base); s.id = 'v-' + 'b'.repe
         disabled_priority = copy.deepcopy(scenario); disabled_priority['smartAiReinforcement'] = False
         no_raids = copy.deepcopy(scenario); del no_raids['cityRaids']
         disabled_raids = copy.deepcopy(scenario); disabled_raids['cityRaids'] = False
-        cases = [scenario, disabled, omitted, no_fix, no_opening, empty_opening, no_disasters, disabled_disasters, no_priority, disabled_priority, no_raids, disabled_raids]
+        cases = [scenario, disabled, omitted, no_fix, no_opening, empty_opening, no_disasters, disabled_disasters, no_priority, disabled_priority, no_raids, disabled_raids, legacy_passive]
+        bad = copy.deepcopy(scenario); del bad['rulerPassives']; cases.append(bad)
+        bad = copy.deepcopy(scenario); bad['officers'][0]['visual']['motion'] = 'b-v2-sun-motion'; cases.append(bad)
         for value in (None, 0, 1, 'true', [], {}):
+            bad = copy.deepcopy(scenario); bad['enhancedRulerPassives'] = value; cases.append(bad)
             bad = copy.deepcopy(scenario); bad['rulerPassives'] = value; cases.append(bad)
             bad = copy.deepcopy(scenario); bad['fixedAiRecruitment'] = value; cases.append(bad)
             bad = copy.deepcopy(scenario); bad['enhancedDisasters'] = value; cases.append(bad)
@@ -117,7 +121,7 @@ console.log(JSON.stringify(cases.map(s=>{try {validateScenario(s,base); return t
         for item in cases:
             try: validate(item, BASE); server.append(True)
             except ScenarioError: server.append(False)
-        self.assertEqual(server, [True] * 12 + [False] * (len(cases) - 12))
+        self.assertEqual(server, [True] * 13 + [False] * (len(cases) - 13))
         self.assertEqual(browser, server)
 
     def test_new_factions_match_browser_and_reject_inconsistent_rosters(self):

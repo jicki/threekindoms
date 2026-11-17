@@ -281,6 +281,72 @@ test('洪水、旱灾、暴乱及收入事件触发所选曲库的短曲', async
   assert.deepEqual(page.errors, []); await page.context().close();
 });
 
+test('跳过计策演出立即结束所属短曲，恢复背景且不打断后续短曲', async () => {
+  const page = await game.open('&flat');
+  try {
+    await skipIntro(page);
+    await page.evaluate(async () => {
+      const a = window.__game.audio; a.unlock(); a.playBgm('bgm-battle');
+      (await import('./src/vignette.js')).setVignettes(true);
+    });
+    await page.waitForFunction(() => !!window.__game.audio.bgm?.src);
+    const start = () => page.evaluate(async () => {
+      const { playVignette } = await import('./src/vignette.js'), audio = window.__game.audio;
+      window.__vigDone = false;
+      window.__vig = playVignette({ scene: 'st-ambush', caption: '要击……', audio, duration: 5000,
+        onShow: () => audio.cue('cue-st-ruse') }).then(() => { window.__vigDone = true; });
+    });
+    await start();
+    await page.waitForFunction(() => !!document.querySelector('.vig') && !!window.__game.audio.cueing?.src);
+    await page.locator('.vig').click();
+    await page.waitForFunction(() => window.__vigDone && window.__game.audio.bgmKey === 'bgm-battle' && !!window.__game.audio.bgm?.src);
+    assert.equal(await page.evaluate(() => window.__game.audio.cueing), null);
+
+    await start();
+    await page.waitForFunction(() => !!document.querySelector('.vig') && !!window.__game.audio.cueing?.src);
+    await page.evaluate(() => { const audio = window.__game.audio; audio.cue('cue-record'); window.__newCue = audio.cueing; });
+    await page.locator('.vig').click(); await page.waitForFunction(() => window.__vigDone);
+    assert.equal(await page.evaluate(() => window.__game.audio.cueing === window.__newCue), true, '不可停止后来启动的短曲');
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
+test('短曲仍在加载时跳过演出，迟到的音频不会重新播放', async () => {
+  let release, markStarted;
+  const delayed = new Promise((resolve) => { release = resolve; });
+  const started = new Promise((resolve) => { markStarted = resolve; });
+  const page = await game.open('&flat', { setup: async (context) => {
+    await context.route('**/assets/audio/ps/cue-st-ruse.m4a', async (route) => {
+      if (route.request().method() === 'HEAD') return route.continue();
+      markStarted(); await delayed; return route.continue().catch(() => {});
+    });
+  } });
+  try {
+    await skipIntro(page);
+    await page.evaluate(async () => {
+      const audio = window.__game.audio; audio.unlock(); audio.setMusicSet('ps'); audio.playBgm('bgm-battle');
+      (await import('./src/vignette.js')).setVignettes(true);
+    });
+    await page.waitForFunction(() => !!window.__game.audio.bgm?.src);
+    await page.evaluate(async () => {
+      const { playVignette } = await import('./src/vignette.js'), audio = window.__game.audio;
+      delete audio.cache['assets/audio/ps/cue-st-ruse.m4a'];
+      window.__vigDone = false;
+      window.__vig = playVignette({ scene: 'st-ambush', caption: '要击……', audio, duration: 5000, onShow: () => {
+        audio.cue('cue-st-ruse'); window.__delayedCue = audio.cache['assets/audio/ps/cue-st-ruse.m4a'];
+      } }).then(() => { window.__vigDone = true; });
+    });
+    await Promise.race([started, new Promise((_, reject) => setTimeout(() => reject(new Error('短曲请求未开始')), 5000).unref())]);
+    assert.equal(await page.evaluate(() => !!window.__game.audio.cueing && !window.__game.audio.cueing.src), true);
+    await page.locator('.vig').click();
+    await page.waitForFunction(() => window.__vigDone && window.__game.audio.bgmKey === 'bgm-battle');
+    release(); await page.evaluate(() => window.__delayedCue);
+    assert.equal(await page.evaluate(() => window.__game.audio.cueing), null);
+    assert.equal(await page.evaluate(() => window.__game.audio.bgmKey), 'bgm-battle');
+    assert.deepEqual(page.errors, []);
+  } finally { release(); await page.context().close(); }
+});
+
 test('NPC 战斗在跳过或加速结束后恢复背景音乐，不打断后来的短曲', async () => {
   const page = await game.open('&flat');
   await page.evaluate(async () => { (await import('./src/pace.js')).setPace(4); (await import('./src/vignette.js')).setVignettes(false); });
@@ -366,19 +432,12 @@ test('其余内政命令与敌军来袭使用对应短曲', async () => {
   assert.deepEqual(page.errors, []); await page.context().close();
 });
 
-test('白兵战术按效果选曲，缺失时保留号角；实际施放会触发短曲', async () => {
+test('白兵施放爆炎只在爆点播放爆裂声，不借用地图火计短曲', async () => {
   const page = await game.open();
-  const table = await page.evaluate(async () => {
-    const { playTacticCue } = await import('./src/tacticalhud.js');
-    const out = [], audio = { cue: (k) => (out.push(k), true), sfx: (k) => out.push(k) };
-    for (const id of ['bind', 'taunt', 'xbow', 'morale', 'fire', 'blast']) playTacticCue(audio, id);
-    playTacticCue({ cue: () => false, sfx: (k) => out.push(k) }, 'bind');
-    return out;
-  });
-  assert.deepEqual(table, ['cue-st-trap', 'cue-st-lure', 'cue-st-fire', 'cue-st-ruse', 'cue-st-fire', 'cue-st-fire', 'sfx-horn']);
   await page.evaluate(() => {
-    const a = window.__game.audio, cue = a.cue.bind(a); window.__cueLog = [];
+    const a = window.__game.audio, cue = a.cue.bind(a), sfx = a.sfx.bind(a); window.__cueLog = []; window.__sfxLog = [];
     a.cue = (k) => { window.__cueLog.push(k); return cue(k); };
+    a.sfx = (k) => { window.__sfxLog.push(k); return sfx(k); };
     window.__game.debug.quickTactical(153, 191, 2, { human: 'a' });
   });
   await page.waitForSelector('.tq-form', { timeout: 60000 });
@@ -386,8 +445,11 @@ test('白兵战术按效果选曲，缺失时保留号角；实际施放会触�
   await page.waitForSelector('.tq-start button', { timeout: 30000 });
   await page.evaluate(() => { window.__tq.side.a.tp = 24; });
   await page.locator('.tq-speed .tq-btn', { hasText: '1×' }).click();
+  await page.evaluate(() => { window.__cueLog.length = 0; window.__sfxLog.length = 0; });
   await page.locator('.tq-tac', { hasText: '爆炎' }).click();
-  await page.waitForFunction(() => window.__cueLog.includes('cue-st-fire'));
+  await page.waitForFunction(() => window.__sfxLog.includes('sfx-blast'));
+  assert.deepEqual(await page.evaluate(() => window.__cueLog), []);
+  assert.deepEqual(await page.evaluate(() => window.__sfxLog.filter((key) => key === 'sfx-blast')), ['sfx-blast']);
   assert.equal(await page.evaluate(() => window.__tq.side.a.tp), 12);
   assert.deepEqual(page.errors, []); await page.context().close();
 });

@@ -7,6 +7,36 @@ before(async () => { game = await startGame(); });
 after(() => game?.close());
 const setup = (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns'));
 
+test('君主列传的新增人物均使用可解码且互不相同的新风格立绘与表情', { timeout: 120000 }, async () => {
+  const page = await game.open('&flat', { setup });
+  try {
+    const results = await page.evaluate(async () => {
+      const { OFFICER_PRESETS, visualUrl } = await import('./src/core/visuals.js');
+      const out = [];
+      for (const preset of OFFICER_PRESETS) {
+        const officer = window.__game.G.data().officers.find((o) => o.name === preset.name && o.visual?.portrait === `b-v2-${preset.key}-portrait`);
+        if (!officer) throw Error(`${preset.name} 缺少新立绘`);
+        const hashes = [], sizes = [];
+        for (const ref of [officer.visual.portrait, ...Object.values(officer.visual.faces)]) {
+          const response = await fetch(visualUrl(ref)); if (!response.ok) throw Error(`${ref}: ${response.status}`);
+          const blob = await response.blob(), img = await createImageBitmap(blob);
+          sizes.push([img.width, img.height]); img.close();
+          hashes.push(Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))).join(','));
+        }
+        out.push({ name: preset.name, hashes, sizes });
+      }
+      return out;
+    });
+    assert.equal(results.length, 25);
+    assert.equal(new Set(results.map((item) => item.hashes[0])).size, 25);
+    for (const item of results) {
+      assert.deepEqual(item.sizes, [[768, 1152], ...Array.from({ length: 4 }, () => [384, 512])], item.name);
+      assert.equal(new Set(item.hashes.slice(1)).size, 4, item.name);
+    }
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
 test('八位人物的立绘、四种表情和动作可独立加载，动作每格均有透明背景和内容', { timeout: 120000 }, async () => {
   const page = await game.open('&flat', { setup });
   try {
@@ -14,7 +44,7 @@ test('八位人物的立绘、四种表情和动作可独立加载，动作每�
       const { G } = window.__game, { visualUrl } = await import('./src/core/visuals.js');
       const { loadGridMotion } = await import('./src/assets.js'), out = [];
       for (const key of ['tianyu', 'qiaorui', 'huangzu', 'liuqi', 'xunyou', 'qianzhao', 'huangshi', 'zhurong']) {
-        const officer = G.data().officers.find((o) => o.visual?.portrait === `b-${key}-portrait`);
+        const officer = G.data().officers.find((o) => o.visual?.portrait === `b-v2-${key}-portrait`);
         if (!officer) throw Error(`${key} 无独立素材`);
         const refs = [officer.visual.portrait, ...Object.values(officer.visual.faces), officer.visual.motion], sizes = [], hashes = [];
         for (const ref of refs) {
@@ -87,17 +117,21 @@ for (const [mode, label] of [['&flat', '平面'], ['', '3D']]) test(`专属计�
         (await import('./src/vignette.js')).setVignettes(true);
         const { STRATS } = await import('./src/core/field.js'), w = window.__game.war, f = w.field;
         const me = f.alive.find((u) => u.side === f.human), foe = f.alive.find((u) => u.side !== f.human), out = [];
+        const audio = window.__game.audio, oldSfx = audio.sfx, sounds = []; audio.sfx = (key) => sounds.push(key);
         for (const [i, skill] of STRATS.filter((item) => item.visualEffect).entries()) {
+          sounds.length = 0;
           let scene = null; const from = w.flatState().fx.length;
           const watch = setInterval(() => { scene ||= document.querySelector('.vig')?.dataset.scene ?? null; }, 10);
           try { await w.playStrategy(i % 2 ? foe : me, i % 2 ? me : foe, skill.id, { ok: true, hit: true, name: skill.name, lines: ['奏效'], hits: [] }); }
           finally { clearInterval(watch); }
-          out.push({ key: skill.visualEffect, scene, fx: w.flatState().fx.slice(from).map(({ kind, color }) => ({ kind, color })) });
+          out.push({ key: skill.visualEffect, scene, fx: w.flatState().fx.slice(from).map(({ kind, color }) => ({ kind, color })), sound: sounds.filter((key) => key !== 'sfx-horn') });
         }
+        audio.sfx = oldSfx;
         return out;
       });
       assert.equal(played.length, 5);
       for (const item of played) {
+        assert.deepEqual(item.sound, [{ tianyu: 'sfx-tactic-xbow', huangzu: 'sfx-strategy-water', xunyou: 'sfx-tactic-bind', qianzhao: 'sfx-clash', huangshi: 'sfx-strategy-lure' }[item.key]], item.key);
         assert.equal(item.scene, `skill-${item.key}`);
         assert.ok(item.fx.length, `${item.key} 未播放战场效果`);
       }

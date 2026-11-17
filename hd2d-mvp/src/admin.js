@@ -1,6 +1,6 @@
 import { applyScenario, MAX_PORTRAIT_BYTES, MAX_PORTRAIT_SIDE, newDraft, newScenarioId, RELATION_KINDS, validateScenario } from './core/scenario.js';
 import { addScenario, addPresetAbilities, listScenarios, loadScenario, uploadVisualAsset, readVisualAsset } from './core/scenario-store.js';
-import { VISUAL_PRESETS, OFFICER_PRESETS, FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, ROSTER_SCENARIO_ID, ROSTER_SCENARIO_NAME, WARLORD_SCENARIO_ID, WARLORD_SCENARIO_NAME, SOVEREIGN_SCENARIO_ID, SOVEREIGN_SCENARIO_NAME, MOODS, femaleOfficer, presetVisual, visualRefs, visualUrl } from './core/visuals.js';
+import { VISUAL_PRESETS, OFFICER_PRESETS, FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID, SOVEREIGN_SCENARIO_ID, SOVEREIGN_SCENARIO_NAME, MOODS, femaleOfficer, presetVisual, visualRefs, visualUrl } from './core/visuals.js';
 import { EQUIPMENT_ICONS, ensureFemaleGear, equipmentIconUrl } from './core/equipment.js';
 import { DUEL_SKILLS } from './core/duel-skills.js';
 import { SKILL_VISUALS } from './core/skill-visuals.js';
@@ -79,9 +79,6 @@ const existingMotions = await (async () => {
 })();
 
 if (base) {
-  $('published').append(el('option', { value: HERO_SCENARIO_ID }, `${HERO_SCENARIO_NAME}（内置）`));
-  $('published').append(el('option', { value: ROSTER_SCENARIO_ID }, `${ROSTER_SCENARIO_NAME}（内置）`));
-  $('published').append(el('option', { value: WARLORD_SCENARIO_ID }, `${WARLORD_SCENARIO_NAME}（内置）`));
   $('published').append(el('option', { value: SOVEREIGN_SCENARIO_ID }, `${SOVEREIGN_SCENARIO_NAME}（内置）`));
   let draft = newDraft(base), tab = 'officers', selected = { officers: 0, weapons: null, armors: null, skills: null }, formDirty = false, draftDirty = false, lastPublished = null, leaving = false, inFlight = false;
   const equipmentId = () => base.equipment.length + draft.weapons.length + (draft.armors?.length ?? 0);
@@ -219,7 +216,7 @@ if (base) {
     const captions = { portrait: '立绘素材', calm: '平静表情', joy: '喜悦表情', angry: '愤怒表情', grief: '悲伤表情', motion: '动作素材' };
     const assetFields = Object.entries(captions).map(([kind, label]) => {
       const current = kind === 'portrait' || kind === 'motion' ? o.visual[kind] : o.visual.faces?.[kind];
-      const options = [['', '沿用默认'], ...VISUAL_PRESETS.map((p) => [`b-${p.key}-${kind}`, `${p.name} · ${label}`])];
+      const options = [['', '沿用默认'], ...VISUAL_PRESETS.map((p) => [kind === 'motion' ? presetVisual(p.key).motion : `b-${p.key}-${kind}`, `${p.name} · ${label}`])];
       if (kind === 'motion') for (const id of existingMotions) if (base.officers[Number(id)]) options.push([`o-${id}`, `${base.officers[Number(id)].name} · 原有动作`]);
       if (current && !options.some(([value]) => value === current)) options.push([current, current.startsWith('a-') ? '已上传素材' : `既有动作 ${current.slice(2)}`]);
       const chosen = visuals[kind] = select(`visual_${kind}`, options, current ?? '');
@@ -430,7 +427,12 @@ if (base) {
     const passive = el('input', { type: 'checkbox', checked: !!draft.rulerPassives });
     passive.addEventListener('change', () => {
       if (!abandonForm()) { passive.checked = !!draft.rulerPassives; return; }
-      update((d) => { if (passive.checked) d.rulerPassives = true; else delete d.rulerPassives; }, '君主被动设置已应用到草稿');
+      update((d) => { if (passive.checked) d.rulerPassives = true; else { delete d.rulerPassives; delete d.enhancedRulerPassives; } }, '君主被动设置已应用到草稿');
+    });
+    const enhancedPassive = el('input', { type: 'checkbox', checked: !!draft.enhancedRulerPassives, disabled: !draft.rulerPassives });
+    enhancedPassive.addEventListener('change', () => {
+      if (!abandonForm()) { enhancedPassive.checked = !!draft.enhancedRulerPassives; return; }
+      update((d) => { if (enhancedPassive.checked) d.enhancedRulerPassives = true; else delete d.enhancedRulerPassives; }, '增强君主被动设置已应用到草稿');
     });
     const fixedRecruitment = el('input', { type: 'checkbox', checked: !!draft.fixedAiRecruitment });
     fixedRecruitment.addEventListener('change', () => {
@@ -483,6 +485,7 @@ if (base) {
       el('span', {}, `${data.officers[r.officer].name} · ${data.officers[data.factions[r.faction].ruler].name}势力 · ${data.cities[data.officers[r.officer].city].name}`),
       el('button', { type: 'button', onclick: () => { if (abandonForm()) update((d) => d.rulers.splice(i, 1), '君主候选已移除'); } }, '移除')));
     return panel('detail', el('h2', {}, '君主候选'), field('启用君主被动技能', passive), el('p', { class: 'intro' }, '启用后君主每月按当前属性为所在城提供固定增益；继位者按自身属性获得被动，玩家和电脑规则相同。'),
+      field('增强君主被动', enhancedPassive), el('p', { class: 'intro' }, '新开局增加每月资源，并为全军提供战斗武力、计策和战场机动力增益；部分君主延长己方增益战术。不修改武将基础属性，旧记录可在游戏中选择启用。'),
       field('修正电脑补兵', fixedRecruitment), el('p', { class: 'intro' }, '启用后电脑按实际金币和后备兵补兵，金币不足时只能补充可负担的人数。'),
       field('优化电脑补兵优先级', smartReinforcement), el('p', { class: 'intro' }, '新开局在启用修正电脑补兵时，兼顾可补人数、前线和君主所在城；已启用的存档使用更新后的排序，未启用的旧存档保留原有排序。'),
       field('增强灾害影响', enhancedDisasters), el('p', { class: 'intro' }, '新开局启用后，旱灾和洪水会损失金、米、土地与产业；防灾越高损失越小，资源不足时最多损失现有数量。是否启用随开局保存，已启用的存档使用更新后的损失规则。'),
@@ -508,11 +511,9 @@ if (base) {
     if (sequence !== listRequest) return;
     if (!Array.isArray(versions)) throw new Error('版本列表格式错误');
     const old = $('published').value;
-    $('published').replaceChildren(el('option', { value: '' }, '从原版开始'), el('option', { value: HERO_SCENARIO_ID }, `${HERO_SCENARIO_NAME}（内置）`),
-      el('option', { value: ROSTER_SCENARIO_ID }, `${ROSTER_SCENARIO_NAME}（内置）`), el('option', { value: WARLORD_SCENARIO_ID }, `${WARLORD_SCENARIO_NAME}（内置）`),
-      el('option', { value: SOVEREIGN_SCENARIO_ID }, `${SOVEREIGN_SCENARIO_NAME}（内置）`),
+    $('published').replaceChildren(el('option', { value: '' }, '从原版开始'), el('option', { value: SOVEREIGN_SCENARIO_ID }, `${SOVEREIGN_SCENARIO_NAME}（内置）`),
       ...versions.filter((v) => ![FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID, SOVEREIGN_SCENARIO_ID].includes(v.id)).map((v) => el('option', { value: v.id }, v.name)));
-    if ([HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID, SOVEREIGN_SCENARIO_ID].includes(old) || versions.some((v) => v.id === old)) $('published').value = old;
+    if (old === SOVEREIGN_SCENARIO_ID || versions.some((v) => v.id === old)) $('published').value = old;
     const warning = $('version-warning');
     warning.hidden = !versions.skipped;
     warning.textContent = versions.skipped ? `有 ${versions.skipped} 个已发布版本无法读取，已跳过；请检查服务器日志和版本文件。` : '';

@@ -19,7 +19,7 @@ MAX_PORTRAIT_BYTES = 64 * 1024
 MAX_PORTRAIT_SIDE = 384
 MAX_ASSET_BYTES = 1024 * 1024
 ASSET_ID = re.compile(r'^a-[a-f0-9]{64}$')
-BUILTIN_VISUAL = re.compile(r'^b-(sun|zhen|diao|cai|wang|chen|gao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong)-(portrait|calm|joy|angry|grief|motion)$')
+BUILTIN_VISUAL = re.compile(r'^b-(sun|zhen|diao|cai|wang|chen|gao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong|v2-(?:sun|zhen|diao|cai|wang|chen|gao|dao|xin|gongsun|yuanshu|liubiao|guanjing|tiankai|yanxiang|zhangxun|caimao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong))-(portrait|calm|joy|angry|grief|motion)$')
 MOODS = ('calm', 'joy', 'angry', 'grief')
 
 
@@ -110,7 +110,7 @@ def visual_ref(value, kind, count):
         fail('人物素材引用无效')
     builtin = BUILTIN_VISUAL.fullmatch(value)
     officer = re.fullmatch(r'o-(0|[1-9][0-9]{0,5})', value) if kind == 'motion' else None
-    if ASSET_ID.fullmatch(value) or (builtin and builtin.group(2) == kind) or (officer and int(officer.group(1)) < count):
+    if ASSET_ID.fullmatch(value) or (builtin and builtin.group(2) == kind and not (kind == 'motion' and builtin.group(1).startswith('v2-'))) or (officer and int(officer.group(1)) < count):
         return
     fail('人物素材引用无效')
 
@@ -184,7 +184,7 @@ def image_info(data):
 
 
 def validate(s, base):
-    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids'])
+    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids'])
     if type(s.get('format')) is not int or s['format'] != 1:
         fail('不支持的版本文件格式')
     if not isinstance(s.get('id'), str) or not ID.fullmatch(s['id']):
@@ -192,6 +192,10 @@ def validate(s, base):
     text(s.get('name'), '版本名称', 40)
     if 'rulerPassives' in s and type(s['rulerPassives']) is not bool:
         fail('君主被动设置无效')
+    if 'enhancedRulerPassives' in s and type(s['enhancedRulerPassives']) is not bool:
+        fail('增强君主被动设置无效')
+    if s.get('enhancedRulerPassives') and not s.get('rulerPassives'):
+        fail('增强君主被动需要先启用君主被动')
     if 'fixedAiRecruitment' in s and type(s['fixedAiRecruitment']) is not bool:
         fail('电脑补兵设置无效')
     if 'enhancedDisasters' in s and type(s['enhancedDisasters']) is not bool:

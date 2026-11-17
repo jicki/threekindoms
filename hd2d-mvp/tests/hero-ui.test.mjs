@@ -6,6 +6,25 @@ import { join } from 'node:path';
 import { startGame, newCampaign, skipIntro, closeMessages, castGo } from './game.mjs';
 
 const token = `test-token-${'h'.repeat(40)}`;
+// 实际测量文字和按钮的边界，避免仅靠 CSS 声明判断是否仍然溢出。
+async function assertDuelSkillFits(page, move, width, height) {
+  await page.setViewportSize({ width, height });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const r = await move.evaluate((button) => {
+    const box = button.getBoundingClientRect();
+    return { box: [box.left, box.top, box.right, box.bottom], parts: [...button.children].map((el) => {
+      const rect = el.getBoundingClientRect(), range = document.createRange(); range.selectNodeContents(el);
+      return { text: el.textContent, box: [rect.left, rect.top, rect.right, rect.bottom], scrollWidth: el.scrollWidth, width: el.clientWidth,
+        lines: [...range.getClientRects()].map((line) => [line.left, line.top, line.right, line.bottom]) };
+    }) };
+  });
+  assert.ok(r.box[0] >= -1 && r.box[1] >= -1 && r.box[2] <= width + 1 && r.box[3] <= height + 1, JSON.stringify(r));
+  for (const part of r.parts) {
+    assert.ok(part.box[0] >= r.box[0] - 1 && part.box[1] >= r.box[1] - 1 && part.box[2] <= r.box[2] + 1 && part.box[3] <= r.box[3] + 1, JSON.stringify(r));
+    assert.ok(part.scrollWidth <= part.width + 1, JSON.stringify(r));
+    for (const line of part.lines) assert.ok(line[0] >= r.box[0] - 1 && line[1] >= r.box[1] - 1 && line[2] <= r.box[2] + 1 && line[3] <= r.box[3] + 1, JSON.stringify(r));
+  }
+}
 const previous = { token: process.env.GAME_ADMIN_TOKEN, directory: process.env.GAME_VERSION_DIR };
 let game, directory;
 before(async () => {
@@ -24,7 +43,7 @@ test('扩展版本可在编辑器配置专属技能并发布供玩家使用', as
   const admin = await game.open();
   try {
     await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
-    await admin.locator('#published').selectOption('builtin-heroes');
+    await admin.locator('#published').selectOption('builtin-sovereigns');
     await admin.getByRole('button', { name: '载入为新草稿' }).click();
     await admin.getByText('已载入新草稿').waitFor();
     await admin.getByLabel('版本名称').fill('群英技能验证');
@@ -100,7 +119,7 @@ test('修改登场方式时编辑器隐藏并清除不适用的搜索优先设�
   const admin = await game.open();
   try {
     await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
-    await admin.locator('#published').selectOption('builtin-heroes');
+    await admin.locator('#published').selectOption('builtin-sovereigns');
     await admin.getByRole('button', { name: '载入为新草稿' }).click();
     const content = admin.locator('#content');
     await content.getByLabel('搜索武将').fill('陈宫');
@@ -118,26 +137,62 @@ test('修改登场方式时编辑器隐藏并清除不适用的搜索优先设�
   } finally { await admin.context().close(); }
 });
 
-test('玩家可从标题页选择群英新篇', async () => {
+test('标题默认只显示原版和君主列传，后者包含原扩展人物', async () => {
   const page = await game.open();
   try {
     await skipIntro(page); await page.locator('.sysmenu-btn').click();
     await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
     const dialog = page.getByRole('dialog', { name: '选择游戏版本' });
     await dialog.waitFor();
-    const merged = dialog.getByRole('button', { name: /^群英新篇\s*(当前版本|选择此版本)$/ });
+    const merged = dialog.getByRole('button', { name: /^群英新篇·君主列传\s*(当前版本|选择此版本)$/ });
     assert.equal(await merged.count(), 1);
-    assert.equal(await dialog.getByRole('button', { name: /群英新篇·新阵容/ }).count(), 1);
+    assert.equal(await dialog.getByRole('button', { name: /群英新篇·新阵容/ }).count(), 0);
+    assert.equal(await dialog.getByRole('button', { name: /群英新篇·十方诸侯/ }).count(), 0);
     assert.equal(await dialog.getByRole('button', { name: /巾帼群英/ }).count(), 0);
     await merged.click();
-    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-heroes', null, { timeout: 30000 });
+    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns', null, { timeout: 30000 });
     assert.equal(await page.evaluate(() => window.__game.G.data().officers[242].name), '陈宫');
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });
 
-test('新阵容可在标题选择，也可由编辑器发布并供玩家读取', async () => {
-  const page = await game.open();
+test('版本选择适配长名称，旧版记录和已发布版本仍可访问', { timeout: 90000 }, async () => {
+  const longName = '群英'.repeat(20), id = `v-${'a'.repeat(32)}`;
+  for (const [query, width, height] of [['', 900, 650], ['&phone', 568, 320]]) {
+    const page = await game.open(query, { setup: async (context) => {
+      await context.addInitScript(() => {
+        localStorage.setItem('haou-hd2d-save:scenario:builtin-female:1:bak', '{}');
+        localStorage.setItem('haou-hd2d-save:scenario:builtin-heroes:quick', '{}');
+        localStorage.setItem('haou-hd2d-save:scenario:builtin-heroes-roster:1', '{}');
+        localStorage.setItem('haou-hd2d-suspend:scenario:builtin-warlords', '{}');
+      });
+      await context.route('**/api/versions', (route) => route.fulfill({ json: [{ id, name: longName }] }));
+    } });
+    try {
+      await page.setViewportSize({ width, height }); await skipIntro(page);
+      await page.locator('.sysmenu-btn').click();
+      if (query) await page.getByRole('tab', { name: '其他' }).click();
+      await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
+      const dialog = page.getByRole('dialog', { name: '选择游戏版本' }); await dialog.waitFor();
+      const choices = dialog.locator('.scenario-choices .slot');
+      assert.equal(await choices.count(), 7);
+      assert.equal(await choices.filter({ hasText: '旧存档兼容' }).count(), 4);
+      assert.equal(await choices.filter({ hasText: '原版' }).getAttribute('aria-current'), 'true');
+      const custom = choices.filter({ hasText: longName }); await custom.scrollIntoViewIfNeeded();
+      const geometry = await custom.evaluate((button) => {
+        const b = button.getBoundingClientRect(), name = button.querySelector('b'), state = button.querySelector('span');
+        const n = name.getBoundingClientRect(), s = state.getBoundingClientRect();
+        return { b: [b.left, b.right], n: [n.left, n.right], s: [s.left, s.right], scroll: name.scrollWidth, width: name.clientWidth, text: name.textContent };
+      });
+      assert.equal(geometry.text, longName);
+      assert.ok(geometry.b[0] >= 0 && geometry.b[1] <= width && geometry.n[0] >= geometry.b[0] && geometry.n[1] <= geometry.s[0] && geometry.s[1] <= geometry.b[1] && geometry.scroll <= geometry.width + 1, JSON.stringify(geometry));
+      assert.deepEqual(page.errors, []);
+    } finally { await page.context().close(); }
+  }
+});
+
+test('新阵容有旧记录时可在标题选择，君主列传也可由编辑器发布', async () => {
+  const page = await game.open('', { setup: (context) => context.addInitScript(() => localStorage.setItem('haou-hd2d-save:scenario:builtin-heroes-roster:1', '{}')) });
   try {
     await skipIntro(page); await page.locator('.sysmenu-btn').click();
     await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
@@ -151,7 +206,7 @@ test('新阵容可在标题选择，也可由编辑器发布并供玩家读取',
   const admin = await game.open();
   try {
     await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
-    await admin.locator('#published').selectOption('builtin-heroes-roster');
+    await admin.locator('#published').selectOption('builtin-sovereigns');
     await admin.getByRole('button', { name: '载入为新草稿' }).click(); await admin.getByText('已载入新草稿').waitFor();
     await admin.getByLabel('版本名称').fill('新阵容发布验证');
     const content = admin.locator('#content');
@@ -167,7 +222,7 @@ test('新阵容可在标题选择，也可由编辑器发布并供玩家读取',
     const player = await game.open('', { setup: (context) => context.addInitScript((version) => sessionStorage.setItem('haou-hd2d-scenario', version), id) });
     try {
       assert.deepEqual(await player.evaluate(() => {
-        const d = window.__game.G.data(); return [d.officers[244].name, d.officers[244].duelSkill, d.officers[245].name, d.officers[245].skills, d.relationships.length];
+        const d = window.__game.G.data(); return [d.officers[244].name, d.officers[244].duelSkill, d.officers[245].name, d.officers[245].skills, d.relationships.filter((r) => [244, 245].includes(r.to)).length];
       }), ['陈到', 'baier', '辛宪英', [23], 2]);
       assert.deepEqual(player.errors, []);
     } finally { await player.context().close(); }
@@ -175,8 +230,8 @@ test('新阵容可在标题选择，也可由编辑器发布并供玩家读取',
   } finally { await admin.context().close(); }
 });
 
-test('手机横屏可选择新阵容', async () => {
-  const page = await game.open('&phone');
+test('手机横屏可选择有旧记录的新阵容', async () => {
+  const page = await game.open('&phone', { setup: (context) => context.addInitScript(() => localStorage.setItem('haou-hd2d-save:scenario:builtin-heroes-roster:quick', '{}')) });
   try {
     await page.setViewportSize({ width: 812, height: 375 });
     await skipIntro(page); await page.locator('.sysmenu-btn').click();
@@ -211,8 +266,8 @@ test('旧版动态武将和各类记录可通过兼容入口继续，合并版�
     });
     assert.deepEqual(old.ok, [true, true, true, true]);
     await skipIntro(page);
-    await page.getByRole('button', { name: '进入群英新篇' }).click();
-    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-heroes', null, { timeout: 30000 });
+    await page.getByRole('button', { name: '进入君主列传' }).click();
+    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns', null, { timeout: 30000 });
     const merged = await page.evaluate(() => {
       const { G } = window.__game, g = G.newGame(4, 1, 10); g.year = 210;
       return { name: G.data().officers[240].name, saved: G.save(g, 1), year: G.load(1).year };
@@ -228,7 +283,7 @@ test('旧版动态武将和各类记录可通过兼容入口继续，合并版�
       const normal = G.load(1), quick = G.loadQuick(), auto = G.loadAuto(), held = peekSuspend();
       return { years: [normal?.year, quick?.year, auto?.year, held?.g.year], clone: G.data().officers[240]?.clone,
         cloneId: normal?.clones?.[0], records: records.map(([key]) => [key, localStorage.getItem(key)]),
-        mergedYear: JSON.parse(localStorage.getItem('haou-hd2d-save:scenario:builtin-heroes:1')).year };
+        mergedYear: JSON.parse(localStorage.getItem('haou-hd2d-save:scenario:builtin-sovereigns:1')).year };
     }, old.records);
     assert.deepEqual(restored.years, [200, 200, 200, 200]); assert.equal(restored.clone, true); assert.equal(restored.cloneId, 240);
     assert.deepEqual(restored.records, old.records); assert.equal(restored.mergedYear, 210);
@@ -238,7 +293,7 @@ test('旧版动态武将和各类记录可通过兼容入口继续，合并版�
     await page.waitForFunction(() => window.__game?.war?.field?.resumed && document.body.dataset.screen === 'war', null, { timeout: 30000 });
     const resumed = await page.evaluate(() => ({ year: window.__game.g.year, clone: window.__game.G.data().officers[240].clone,
       units: window.__game.war.field.units.map((u) => u.id), held: localStorage.getItem('haou-hd2d-suspend:scenario:builtin-female'),
-      mergedYear: JSON.parse(localStorage.getItem('haou-hd2d-save:scenario:builtin-heroes:1')).year }));
+      mergedYear: JSON.parse(localStorage.getItem('haou-hd2d-save:scenario:builtin-sovereigns:1')).year }));
     assert.deepEqual(resumed, { year: 200, clone: true, units: [22, 222], held: null, mergedYear: 210 });
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
@@ -261,6 +316,11 @@ test('新增人物素材可解码，单挑技在页面显示、使用后禁用',
     await page.waitForSelector('.tq-form', { timeout: 60000 });
     await page.locator('.tq-form').first().click(); await page.locator('.tq-deploy:not(.arming)').click();
     await page.waitForSelector('.tq-start button', { timeout: 30000 });
+    await page.evaluate(() => { window.__tq.side.a.tacticRounds = 1; });
+    await page.locator('.tq-speed .tq-btn', { hasText: '1×' }).click();
+    assert.match(await page.locator('.tq-tac', { hasText: '强弩' }).getAttribute('title'), /4回合/);
+    assert.match(await page.locator('.tq-tac', { hasText: '士气向上' }).getAttribute('title'), /5回合/);
+    await page.evaluate(() => { window.__tq.side.a.tacticRounds = 0; });
     await page.evaluate(() => {
       const battle = window.__tq; battle.startDuel('a');
       battle.duel.side.a.hp = battle.duel.side.d.hp = 100;
@@ -270,6 +330,9 @@ test('新增人物素材可解码，单挑技在页面显示、使用后禁用',
     const move = page.locator('.tq-duel-acts .dcmd', { hasText: '青龙斩' });
     await move.waitFor({ timeout: 30000 }); assert.equal(await move.isEnabled(), true);
     assert.match(await move.textContent(), /命中.*120%伤/);
+    await assertDuelSkillFits(page, move, 1280, 800);
+    await assertDuelSkillFits(page, move, 900, 650);
+    await page.setViewportSize({ width: 1280, height: 800 });
     await page.keyboard.press('8'); await page.waitForSelector('.shade .ocard-pair');
     assert.match(await page.locator('.shade .ocard-pair').textContent(), /单挑技：青龙斩/);
     await page.keyboard.press('Escape'); await page.waitForSelector('.shade', { state: 'detached' });
@@ -315,6 +378,9 @@ test('手机横屏中专属单挑技可见且可以点击', async () => {
     await page.evaluate(() => { const b = window.__tq; b.startDuel('a'); b.duel.aiCommand = () => 'feint'; });
     await page.locator('.tq-start button:not(.arming)').click();
     const move = page.locator('.tq-duel-acts .tq-special'); await move.waitFor({ timeout: 30000 });
+    await assertDuelSkillFits(page, move, 812, 375);
+    await assertDuelSkillFits(page, move, 568, 320);
+    await page.setViewportSize({ width: 812, height: 375 });
     const box = await move.boundingBox();
     assert.ok(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= 812 && box.y + box.height <= 375);
     assert.ok(box.width >= 70, `技能按钮过窄：${box.width}`);

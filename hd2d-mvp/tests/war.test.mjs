@@ -122,20 +122,29 @@ test('every 计略 has a picture and a board effect of its own, and all of them 
     const w = window.__game.war, f = w.field;
     const foe = f.alive.find((u) => u.side !== f.human), me = f.alive.find((u) => u.side === f.human);
     const index = await fetch('assets/ai/vignettes/index.json').then((x) => x.json());
-    const seen = [];
+    const seen = [], audio = window.__game.audio, originalSfx = audio.sfx, sounds = [];
+    audio.sfx = (key) => sounds.push(key);
     for (const s of F.STRATS) {
+      sounds.length = 0;
       let scene = null; const watch = setInterval(() => { scene ||= document.querySelector('.vig')?.dataset.scene ?? null; }, 10);
       await w.playStrategy(foe, me, s.id, { ok: true, hit: true, name: s.name, lines: ['测试'], hits: [] });
       clearInterval(watch);
       const S = index[W.STRAT_SCENE[s.id]];
       const art = S ? await Promise.all([S.story.src].map((src) => fetch(`assets/ai/vignettes/${src}`).then((x) => x.ok))) : [false];
-      seen.push({ name: s.name, scene, art: art.every(Boolean), fx: W.STRAT_FX[s.id] });
+      seen.push({ name: s.name, scene, art: art.every(Boolean), fx: W.STRAT_FX[s.id], sound: sounds.filter((key) => key !== 'sfx-horn') });
     }
+    sounds.length = 0;
+    await w.playStrategy(foe, me, 4, { ok: true, hit: false, name: '乱水', lines: ['测试失败'], hits: [] });
+    const failureSounds = sounds.filter((key) => key !== 'sfx-horn'); audio.sfx = originalSfx;
     P.setPace(1);
-    return seen;
+    return { seen, failureSounds };
   });
-  for (const s of r) { assert.ok(s.scene, `${s.name} played a picture`); assert.ok(s.art, `${s.name}'s art is published`); }
-  const dup = (k) => r.filter((s, i) => r.findIndex((x) => x[k] === s[k]) !== i).map((s) => s.name);
+  for (const s of r.seen) { assert.ok(s.scene, `${s.name} played a picture`); assert.ok(s.art, `${s.name}'s art is published`); }
+  const expected = ['sfx-tactic-fire', 'sfx-clash', 'sfx-tactic-bind', 'sfx-clash', 'sfx-strategy-water', 'sfx-tactic-fire', 'sfx-clash', 'sfx-clash',
+    'sfx-strategy-lure', 'sfx-clash', 'sfx-tactic-bind', 'sfx-clash', 'sfx-strategy-water', 'sfx-tactic-xbow', 'sfx-tactic-fire', 'sfx-tactic-bind'];
+  assert.deepEqual(r.seen.map((s) => s.sound), expected.map((key) => [key]));
+  assert.deepEqual(r.failureSounds, []);
+  const dup = (k) => r.seen.filter((s, i) => r.seen.findIndex((x) => x[k] === s[k]) !== i).map((s) => s.name);
   assert.deepEqual(dup('scene'), [], '计略 sharing a picture');
   assert.deepEqual(dup('fx'), [], '计略 sharing a board effect');
 });

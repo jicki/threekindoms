@@ -26,13 +26,6 @@ export function duelEndSound(r, won) {
 }
 export function resetFormations() { lastForm.clear(); armyForm = null; }
 
-// 白兵战术借用效果相近的地图计略短曲，未提供短曲时沿用号角。
-const TACTIC_CUE = { bind: 'cue-st-trap', taunt: 'cue-st-lure', xbow: 'cue-st-fire', morale: 'cue-st-ruse', fire: 'cue-st-fire', blast: 'cue-st-fire' };
-export function playTacticCue(audio, id) {
-  const cue = TACTIC_CUE[id];
-  if (!cue || !audio.cue(cue)) audio.sfx('sfx-horn');
-}
-
 const KIND_NAME = { gen: '将', cav: '骑', arc: '弓', inf: '步' };
 const CMD_ICON = { advance: '▶', retreat: '◀', wait: '■', surround: '◎' };
 // One-character order names for the compact console (the full name is in each button's tooltip).
@@ -60,6 +53,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // warm: run once the field is first laid, before anything shows on it (app.js: its shaders compile while the cut-in covers it).
 export async function runTactical({ battle, hs, looks, view, duel: stage, audio, face, name, D, banner, message, profiles = null, warm = null }) {
   const S = battle.side[hs], E = S.foe, es = hs === 'a' ? 'd' : 'a';
+  const tacticTip = (id) => (TACTIC_TIP[id] ?? '').replace(/([34])回合/, (_, n) => `${Number(n) + (S.tacticRounds ?? 0)}回合`);
   const root = h('div', { class: 'tq', 'data-side': looks[hs] });
   document.body.append(root);
   // The battle opens paused: orders and tactics (定身 first, say) can be set before anything moves, and
@@ -220,11 +214,11 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
       }, h('i', {}, CMD_ICON[c]), CMD_SHORT[c]))));
     // Phone: a tactic's first tap only says what it does and costs (a mouse reads that off the button's tooltip) and the
     // second casts it; 全军撤退 asks the same way. Either lapses after a few seconds or when another is tapped.
-    const told = PHONE && armed ? (armed === 'withdraw' ? '全军撤退：各队转身退出战场。' : `${TACTICS.find((t) => t.id === armed)?.name ?? ''}：${TACTIC_TIP[armed] ?? ''}`) : null;
+    const told = PHONE && armed ? (armed === 'withdraw' ? '全军撤退：各队转身退出战场。' : `${TACTICS.find((t) => t.id === armed)?.name ?? ''}：${tacticTip(armed)}`) : null;
     const tactics = h('div', { class: 'tq-tactics' }, ...TACTICS.map((t) => {
       const ok = S.tp >= t.cost && battle.canTactic(hs, t.id) && !auto && !battle.over && !queued && !casting && !battle.duel;
       const live = battle.untold(hs, t.id) ? 0 : Math.max(0, (fxHold?.fx ?? S.fx)[t.id] || 0); // ours running: the button wears the rounds left on its corner (not before a cast under 自动 is told)
-      return h('button', { class: `tq-tac ${live ? `live fx-${t.id}` : ''}${PHONE && armed === t.id ? ' armed' : ''}`, disabled: !ok, title: `${TACTIC_TIP[t.id]}\n需战术点${t.cost}${S.tp < t.cost ? `，现有${S.tp}（每场按智力×13÷100给出）` : ''}${live ? `\n生效中，还剩 ${live} 回合` : battle.canTactic(hs, t.id) ? '' : '\n已有战术生效中'}`, onclick: () => { if (queued || casting || battle.duel) return; if (PHONE && armed !== t.id) { arm(t.id); return; } armed = null; queued = t.id; drawConsole(); resume(); } },
+      return h('button', { class: `tq-tac ${live ? `live fx-${t.id}` : ''}${PHONE && armed === t.id ? ' armed' : ''}`, disabled: !ok, title: `${tacticTip(t.id)}\n需战术点${t.cost}${S.tp < t.cost ? `，现有${S.tp}（每场按智力×13÷100给出）` : ''}${live ? `\n生效中，还剩 ${live} 回合` : battle.canTactic(hs, t.id) ? '' : '\n已有战术生效中'}`, onclick: () => { if (queued || casting || battle.duel) return; if (PHONE && armed !== t.id) { arm(t.id); return; } armed = null; queued = t.id; drawConsole(); resume(); } },
         h('b', {}, t.name), h('span', {}, t.cost), live ? h('u', { class: 'tq-tac-live', 'aria-label': `生效中，还剩 ${live} 回合` }, `${live}回合`) : null);
     }));
     // Two low rows (orders; tactics and controls), so the field keeps most of the screen's height.
@@ -266,7 +260,6 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
   async function announce(ev) {
     // Cast → effect → outcome, so the result is not given away before the performance.
     const mine = ev.side === hs;
-    playTacticCue(audio, ev.id);
     await banner(ev.name, mine ? '#6ab8ff' : '#ff8a70');
     await view.play({ ...ev, type: 'tactic' }, hooks);
     log(`${mine ? '我军' : '敌军'}施展 <b>${ev.name}</b>：${ev.ok ? '成功' : '失败'}`);

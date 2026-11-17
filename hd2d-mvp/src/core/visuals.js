@@ -39,8 +39,10 @@ export const SOVEREIGN_PRESETS = [
   { key: 'zhurong', name: '祝融夫人', hp: 82, war: 83, int: 65, virtue: 70, year: 225, birthYear: null, city: 28, death: 240, army: '山', weapon: 18, armor: 2, searchPriority: true },
 ];
 export const CHARACTER_PRESETS = [...FEMALE_PRESETS, ...EXTRA_PRESETS];
-export const VISUAL_PRESETS = [...CHARACTER_PRESETS, ...SOVEREIGN_PRESETS];
 export const OFFICER_PRESETS = [...CHARACTER_PRESETS, ...ROSTER_PRESETS, ...WARLORD_PRESETS, ...SOVEREIGN_PRESETS];
+// 新风格保留旧素材引用，历史版本和已发布版本不会被覆盖。
+export const THEME_PRESETS = OFFICER_PRESETS.map((p) => ({ key: `v2-${p.key}`, name: `${p.name}（新风格）` }));
+export const VISUAL_PRESETS = [...CHARACTER_PRESETS, ...SOVEREIGN_PRESETS, ...THEME_PRESETS];
 export const FEMALE_SCENARIO_ID = 'builtin-female';
 export const FEMALE_SCENARIO_NAME = '巾帼群英';
 export const HERO_SCENARIO_ID = 'builtin-heroes';
@@ -52,7 +54,7 @@ export const WARLORD_SCENARIO_NAME = '群英新篇·十方诸侯';
 export const SOVEREIGN_SCENARIO_ID = 'builtin-sovereigns';
 export const SOVEREIGN_SCENARIO_NAME = '群英新篇·君主列传';
 export const MOODS = ['calm', 'joy', 'angry', 'grief'];
-const BUILTIN = /^b-(sun|zhen|diao|cai|wang|chen|gao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong)-(portrait|calm|joy|angry|grief|motion)$/;
+const BUILTIN = /^b-(sun|zhen|diao|cai|wang|chen|gao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong|v2-(?:sun|zhen|diao|cai|wang|chen|gao|dao|xin|gongsun|yuanshu|liubiao|guanjing|tiankai|yanxiang|zhangxun|caimao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong))-(portrait|calm|joy|angry|grief|motion)$/;
 const UPLOAD = /^a-[a-f0-9]{64}$/;
 const OFFICER = /^o-(0|[1-9]\d*)$/;
 
@@ -60,21 +62,25 @@ export function validVisualRef(ref, kind, baseCount) {
   if (typeof ref !== 'string') return false;
   if (UPLOAD.test(ref)) return true;
   const built = BUILTIN.exec(ref);
-  if (built) return built[2] === kind;
+  if (built) return built[2] === kind && !(kind === 'motion' && built[1].startsWith('v2-'));
   const officer = kind === 'motion' && OFFICER.exec(ref);
   return !!officer && Number.isSafeInteger(Number(officer[1])) && Number(officer[1]) < baseCount;
 }
 export function visualUrl(ref) {
   if (UPLOAD.test(ref ?? '')) return `/api/assets/${ref}`;
   const built = BUILTIN.exec(ref ?? '');
-  return built ? `assets/characters/${built[1]}/${built[2]}.${built[2] === 'motion' ? 'png' : 'webp'}` : null;
+  return built && !(built[2] === 'motion' && built[1].startsWith('v2-')) ? `assets/characters/${built[1]}/${built[2]}.${built[2] === 'motion' ? 'png' : 'webp'}` : null;
 }
 export function visualRefs(visual) {
   if (!visual) return [];
   return [visual.portrait, visual.motion, ...MOODS.map((m) => visual.faces?.[m])].filter(Boolean);
 }
 export function presetVisual(key) {
-  return { portrait: `b-${key}-portrait`, faces: Object.fromEntries(MOODS.map((m) => [m, `b-${key}-${m}`])), motion: `b-${key}-motion` };
+  // 本次只更新立绘和表情，仍使用已有动作；新角色对应原先的动作选择。
+  const oldMotion = { dao: 'gao', xin: 'cai', gongsun: 'gao', yuanshu: 'gao', liubiao: 'chen', guanjing: 'chen', tiankai: 'gao', yanxiang: 'chen', zhangxun: 'gao', caimao: 'gao' };
+  const raw = key.startsWith('v2-') ? key.slice(3) : key;
+  const motion = key.startsWith('v2-') ? oldMotion[raw] ?? raw : key;
+  return { portrait: `b-${key}-portrait`, faces: Object.fromEntries(MOODS.map((m) => [m, `b-${key}-${m}`])), motion: `b-${motion}-motion` };
 }
 export function femaleOfficer(base, preset, id, gear = {}) {
   const o = base.officers[0];

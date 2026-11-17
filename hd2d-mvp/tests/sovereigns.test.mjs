@@ -22,13 +22,13 @@ test('十位开局君主各有不同被动，属性变化及候选君主使用�
   try {
     const g = G.newGame(7, 1, 1), passives = g.factions.map((f) => G.rulerPassive(g, f.id));
     assert.equal(new Set(passives.map((p) => p.name)).size, 10);
-    assert.equal(passives[7].name, '白马备战'); assert.deepEqual(passives[7].effects, [{ kind: 'gold', value: 11 }, { kind: 'reserve', value: 9 }]);
+    assert.equal(passives[7].name, '白马备战'); assert.deepEqual(passives[7].effects, [{ kind: 'gold', value: 44 }, { kind: 'reserve', value: 45 }]);
     const ruler = g.factions[7].ruler; g.officers[ruler].war = 20;
-    assert.deepEqual(G.rulerPassive(g, 7).effects, [{ kind: 'gold', value: 8 }, { kind: 'reserve', value: 6 }]);
+    assert.deepEqual(G.rulerPassive(g, 7).effects, [{ kind: 'gold', value: 32 }, { kind: 'reserve', value: 30 }]);
     const heir = g.cities[0].officers.find((id) => G.name(id) === '田豫');
     g.factions[7].ruler = heir; g.officers[heir].int = 95; g.officers[heir].war = 30; g.officers[heir].virtue = 60;
     assert.equal(G.rulerPassive(g, 7).name, '田豫·智略兴业');
-    assert.match(G.rulerPassive(g, 7).text, /金＋9/);
+    assert.match(G.rulerPassive(g, 7).text, /金＋36/);
     g.officers[heir].status = G.DEAD; assert.equal(G.rulerPassive(g, 7), null);
     G.setData(base); const original = G.newGame(4, 1, 1);
     assert.equal(G.rulerPassive(original, 4), null, '原版无被动');
@@ -67,7 +67,7 @@ test('编辑器配置的候选君主开局后使用自身的被动', () => {
     assert.equal(G.rulerPassive(g, 7).name, '田豫·仁德抚众');
     const before = g.cities[0].rice;
     assert.equal(applyRulerPassive(g, 7, G.rulerPassive(g, 7)), true);
-    assert.equal(g.cities[0].rice, before + 14);
+    assert.equal(g.cities[0].rice, before + 56);
   } finally { G.setData(base); }
 });
 
@@ -78,14 +78,14 @@ test('每回合只触发一次，保存并恢复已开始的回合不会重复�
     const initial = { gold: g.cities[0].gold, reserve: g.cities[0].reserve };
     const io = { event: async () => {}, aiTurn: async () => {}, playerTurn: async () => { g.over = { type: 'test' }; } };
     await G.run(g, io);
-    assert.equal(g.cities[0].gold, initial.gold + 11); assert.equal(g.cities[0].reserve, initial.reserve + 9);
+    assert.equal(g.cities[0].gold, initial.gold + 44); assert.equal(g.cities[0].reserve, initial.reserve + 45);
     const saved = JSON.parse(JSON.stringify(g)); saved.over = null;
     g = G.upgrade(saved); assert.ok(g);
     let visits = 0;
     io.playerTurn = async () => {
       visits++;
-      assert.equal(g.cities[0].gold, initial.gold + (visits === 1 ? 11 : 22));
-      assert.equal(g.cities[0].reserve, initial.reserve + (visits === 1 ? 9 : 18));
+      assert.equal(g.cities[0].gold, initial.gold + (visits === 1 ? 44 : 88));
+      assert.equal(g.cities[0].reserve, initial.reserve + (visits === 1 ? 45 : 90));
       if (visits === 1) g.endTurn = true; else g.over = { type: 'test' };
     };
     await G.run(g, io); assert.equal(visits, 2);
@@ -97,9 +97,9 @@ test('恢复初始化尚未完成的玩家回合时补发一次被动', async ()
   try {
     const g = G.newGame(7, 1, 1), before = g.cities[0].gold;
     g.current = 7; g.books = 3; g.turnIdx = G.data().rules.turn_orders[g.order].indexOf(7);
-    const io = { playerTurn: async () => { assert.equal(g.cities[0].gold, before + 11); g.over = { type: 'test' }; } };
+    const io = { playerTurn: async () => { assert.equal(g.cities[0].gold, before + 44); g.over = { type: 'test' }; } };
     await G.run(g, io); assert.equal(g.rulerPassiveTurn, `189:0:7`);
-    g.over = null; await G.run(g, io); assert.equal(g.cities[0].gold, before + 11);
+    g.over = null; await G.run(g, io); assert.equal(g.cities[0].gold, before + 44);
   } finally { G.setData(base); }
 });
 
@@ -111,7 +111,7 @@ test('电脑君主与玩家经过相同的被动触发，再执行真实电脑�
     const io = { event: async () => {}, war: async () => {}, allianceOffer: async () => false,
       aiTurn: async (f) => {
         if (f !== 7) return;
-        assert.equal(g.cities[0].gold, start.gold + 11); assert.equal(g.cities[0].reserve, start.reserve + 9);
+        assert.equal(g.cities[0].gold, start.gold + 44); assert.equal(g.cities[0].reserve, start.reserve + 45);
         await aiTurn(g, f, io); checked = true; g.over = { type: 'test' };
       }, playerTurn: async () => assert.fail('全部势力应由电脑操作') };
     await G.run(g, io); assert.equal(checked, true);

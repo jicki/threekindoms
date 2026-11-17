@@ -1,5 +1,5 @@
 import { ORIGINAL_SCENARIO, newDraft, validateScenario } from './scenario.js';
-import { FEMALE_PRESETS, EXTRA_PRESETS, ROSTER_PRESETS, WARLORD_PRESETS, SOVEREIGN_PRESETS, FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, ROSTER_SCENARIO_ID, ROSTER_SCENARIO_NAME, WARLORD_SCENARIO_ID, WARLORD_SCENARIO_NAME, SOVEREIGN_SCENARIO_ID, SOVEREIGN_SCENARIO_NAME, femaleOfficer } from './visuals.js';
+import { FEMALE_PRESETS, EXTRA_PRESETS, ROSTER_PRESETS, WARLORD_PRESETS, SOVEREIGN_PRESETS, FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, ROSTER_SCENARIO_ID, ROSTER_SCENARIO_NAME, WARLORD_SCENARIO_ID, WARLORD_SCENARIO_NAME, SOVEREIGN_SCENARIO_ID, SOVEREIGN_SCENARIO_NAME, femaleOfficer, presetVisual } from './visuals.js';
 import { ensureFemaleGear } from './equipment.js';
 
 const SESSION = 'haou-hd2d-scenario';
@@ -43,15 +43,15 @@ export function selectedScenario() {
   catch { return ORIGINAL_SCENARIO; }
 }
 // 旧版本的动态武将编号可能与合并版的新角色冲突，记录必须留在原版本中继续。
-export function hasLegacyRecords() {
+export function hasLegacyRecords(id = FEMALE_SCENARIO_ID) {
   try {
-    const storage = globalThis.localStorage, save = `haou-hd2d-save:scenario:${FEMALE_SCENARIO_ID}`;
-    const suspend = `haou-hd2d-suspend:scenario:${FEMALE_SCENARIO_ID}`;
+    const storage = globalThis.localStorage, save = `haou-hd2d-save:scenario:${id}`;
+    const suspend = `haou-hd2d-suspend:scenario:${id}`;
     for (let i = 0; storage && i < storage.length; i++) {
       const key = storage.key(i);
       if (key === save || key?.startsWith(`${save}:`) || key === suspend) return true;
     }
-    return globalThis.sessionStorage?.getItem(`haou-hd2d-load:scenario:${FEMALE_SCENARIO_ID}`) != null;
+    return globalThis.sessionStorage?.getItem(`haou-hd2d-load:scenario:${id}`) != null;
   } catch { return true; } // 无法检查时仍保留入口，避免隐藏用户的旧记录。
 }
 export function selectScenario(id) {
@@ -84,7 +84,7 @@ export async function listScenarios() { return request(api(), undefined, true); 
 export async function loadScenario(id, base) {
   if (id === SOVEREIGN_SCENARIO_ID) {
     const scenario = await loadScenario(WARLORD_SCENARIO_ID, base);
-    scenario.id = id; scenario.name = SOVEREIGN_SCENARIO_NAME; scenario.rulerPassives = true; scenario.fixedAiRecruitment = true; scenario.enhancedDisasters = true;
+    scenario.id = id; scenario.name = SOVEREIGN_SCENARIO_NAME; scenario.rulerPassives = true; scenario.enhancedRulerPassives = true; scenario.fixedAiRecruitment = true; scenario.enhancedDisasters = true;
     scenario.smartAiReinforcement = true; scenario.cityRaids = true;
     // 单城势力需要兼顾补兵和行军；仅改变新开局，不覆盖存档中的城市资源。
     for (const [i, amount] of [900, 450, 1200].entries()) scenario.factions[i].opening = { gold: amount, rice: amount };
@@ -99,6 +99,10 @@ export async function loadScenario(id, base) {
     for (const [i, ruler] of rulers.entries()) scenario.relations.push({ from: ruler, to: first + i, kind: '君臣' });
     scenario.relations.push({ from: rulers[2], to: first + 3, kind: '父子' });
     scenario.relations.push({ from: 109, to: first + 6, kind: '夫妻' }, { from: 200, to: first + 7, kind: '夫妻' });
+    for (const preset of [...FEMALE_PRESETS, ...EXTRA_PRESETS, ...ROSTER_PRESETS, ...WARLORD_PRESETS, ...SOVEREIGN_PRESETS]) {
+      const officer = scenario.officers.find((o) => o.name === preset.name);
+      if (officer) officer.visual = presetVisual(`v2-${preset.key}`);
+    }
     validateScenario(scenario, base);
     return scenario;
   }

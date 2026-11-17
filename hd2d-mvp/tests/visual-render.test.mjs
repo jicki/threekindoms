@@ -205,8 +205,8 @@ test('版本服务暂不可用时仍能选择原版和合并后的内置版本',
     await page.locator('.sysmenu-btn').click(); await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
     const dialog = page.getByRole('dialog', { name: '选择游戏版本' });
     await dialog.getByText('无法读取服务器版本，仍可选择原版和内置版本。').waitFor();
-    assert.equal(await dialog.getByRole('button', { name: /^群英新篇\s*(当前版本|选择此版本)$/ }).count(), 1);
-    assert.equal(await dialog.getByRole('button', { name: /群英新篇·新阵容/ }).count(), 1);
+    assert.equal(await dialog.getByRole('button', { name: /^群英新篇·君主列传\s*(当前版本|选择此版本)$/ }).count(), 1);
+    assert.equal(await dialog.getByRole('button', { name: /群英新篇·新阵容/ }).count(), 0);
     assert.equal(await dialog.getByRole('button', { name: /巾帼群英/ }).count(), 0);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
@@ -217,8 +217,8 @@ test('标题可选择合并后的内置版本，原有角色立绘和表情正�
   try {
     await skipIntro(page); await page.locator('.sysmenu-btn').click();
     await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
-    await page.getByRole('button', { name: /^群英新篇\s*(当前版本|选择此版本)$/ }).click();
-    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-heroes', null, { timeout: 30000 });
+    await page.getByRole('button', { name: /^群英新篇·君主列传\s*(当前版本|选择此版本)$/ }).click();
+    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns', null, { timeout: 30000 });
     const result = await page.evaluate(async () => {
       const { G } = window.__game, { face, figure } = await import('./src/ui.js');
       const officer = G.data().officers.find((o) => o.name === '孙尚香');
@@ -228,7 +228,7 @@ test('标题可选择合并后的内置版本，原有角色立绘和表情正�
       return { id: officer.id, sources: [...panel.querySelectorAll('img')].map((img) => img.getAttribute('src')) };
     });
     assert.equal(result.id, 237);
-    assert.deepEqual(result.sources, ['assets/characters/sun/portrait.webp', 'assets/characters/sun/angry.webp']);
+    assert.deepEqual(result.sources, ['assets/characters/v2-sun/portrait.webp', 'assets/characters/v2-sun/angry.webp']);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });
@@ -270,8 +270,8 @@ test('模拟桌面离线协议时仍可选择内置版本且不请求版本接�
   try {
     await skipIntro(page); await page.locator('.sysmenu-btn').click();
     await page.locator('.sysmenu-list button', { hasText: '游戏版本' }).click();
-    await page.getByRole('button', { name: /^群英新篇\s*(当前版本|选择此版本)$/ }).click();
-    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-heroes', null, { timeout: 30000 });
+    await page.getByRole('button', { name: /^群英新篇·君主列传\s*(当前版本|选择此版本)$/ }).click();
+    await page.waitForFunction(() => window.__game?.G.currentScenario() === 'builtin-sovereigns', null, { timeout: 30000 });
     assert.equal(versionRequests, 0);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }

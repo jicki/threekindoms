@@ -392,6 +392,7 @@ body.phone .tq-ctrl .tq-btn { min-height: 36px; }
 /* 单挑: each command is its name over what it will do, whole; 改自动 leaves the thumb's row for the top, between the two plates. */
 body.phone .tq-btn.dcmd { flex-direction: column; align-items: center; justify-content: center; gap: 0; min-height: var(--hit); padding: 2px; }
 body.phone .tq-btn.dcmd span { font-size: 16px; line-height: 1.15; } body.phone .tq-btn.dcmd small { font-size: 11px; line-height: 1.2; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.phone .tq-btn.dcmd.tq-special small { white-space: normal; overflow: visible; overflow-wrap: anywhere; text-overflow: clip; }
 /* (the row's box stands 9vh + 14px above the foot, ui.css .tq.dueling; the button is placed from it to hang 5px under the top bar) */
 body.phone .tq-dauto { position: absolute; top: auto; bottom: calc(var(--vh) - 18vh - 55px); right: auto; left: 50%; transform: translateX(-50%); min-height: 36px; padding: 0 14px; font-size: 13px; white-space: nowrap; }
 /* Small print: nothing a player is meant to read stays under 11 px. */

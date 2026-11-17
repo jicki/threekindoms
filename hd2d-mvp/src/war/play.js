@@ -9,7 +9,7 @@ import { name, cityName, takeLevelUps, DEAD } from '../core/game.js';
 import { playVignette } from '../vignette.js';
 import { ORIGINAL, paced, hold as holdBeat } from '../pace.js';
 import { stage } from '../commitguard.js';
-import { tween, STRAT_SCENE, STRAT_CUE, STRAT_FX } from './shared.js';
+import { tween, STRAT_SCENE, STRAT_CUE, STRAT_FX, STRAT_FX_SOUND } from './shared.js';
 import { SKILL_VISUALS } from '../core/skill-visuals.js';
 
 export function makePlay(wv) {
@@ -227,8 +227,9 @@ export function makePlay(wv) {
     const v = t && views.get(t);
     if (v && res.hit) {
       const at = v.g.position.clone(); at.y += 0.8;
-      STRATEGY_FX[visual?.fx ?? STRAT_FX[visualId]](scene, at);
-      audio.sfx('sfx-clash');
+      const fx = visual?.fx ?? STRAT_FX[visualId];
+      STRATEGY_FX[fx](scene, at);
+      audio.sfx(STRAT_FX_SOUND[fx] ?? 'sfx-clash');
     }
     if (res.hit) for (const h of res.hits) recoil(h.u, u);
     // What each one lost rises over him, one line a unit (落石 takes 体力 and soldiers at once): 兵 bare, 体 and 米 named.

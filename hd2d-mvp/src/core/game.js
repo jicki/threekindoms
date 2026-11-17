@@ -48,6 +48,7 @@ export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random(
   if (D.enhancedDisasters) g.enhancedDisasters = true;
   if (D.smartAiReinforcement) g.smartAiReinforcement = true;
   if (D.cityRaids) g.cityRaids = true;
+  if (D.rulerPassives && D.enhancedRulerPassives) g.enhancedRulerPassives = true;
   const r = rng(g);
   g.order = r(5); // 新游戏随机0–4 (5.2)
   g.cities = D.cities.map((c) => ({
@@ -104,7 +105,7 @@ export const troopsOf = (g, c) => c.officers.reduce((a, id) => a + g.officers[id
 export const books = (g, f) => D.rules.books[citiesOf(g, f).length];
 export function rulerPassive(g, f) {
   const id = g.factions[f]?.ruler, officer = id == null ? null : g.officers[id];
-  return D.rulerPassives && officer?.status === SERVING ? describeRulerPassive({ ...D.officers[id], ...officer }) : null;
+  return D.rulerPassives && officer?.status === SERVING ? describeRulerPassive({ ...D.officers[id], ...officer }, g.enhancedRulerPassives === true) : null;
 }
 function grantRulerPassive(g, f) {
   const turn = `${g.year}:${g.month}:${f}`;
@@ -773,6 +774,7 @@ export function upgrade(g) {
   if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return null;
   try { g.version ??= 1; while (g.version < SAVE_VERSION) MIGRATIONS[g.version++](g); } catch { return null; }
   const ok = g.version === SAVE_VERSION && Number.isInteger(g.year) && Number.isInteger(g.month) && Number.isInteger(g.player)
+    && (g.enhancedRulerPassives === undefined || typeof g.enhancedRulerPassives === 'boolean')
     && Array.isArray(g.officers) && Array.isArray(g.factions) && Array.isArray(g.cities) && g.cities.length === 30 && g.cities.every((c) => Array.isArray(c?.officers)) && validRaidState(g);
   return ok ? g : null;
 }
