@@ -8,6 +8,7 @@ import { createQuality, savedQuality, warView } from './quality.js';
 import { frameCap, pacer } from './framecap.js';
 import { loadManifest, loadPixelTexture, equipIcon, packSpriteStrip, loadGridMotion } from './assets.js';
 import { Audio } from './audio.js';
+import { SPECIAL_TROOPS, officerSpecialty, officerSquadLimit } from './core/troop-specialties.js';
 import { playVignette, sceneFor, cueFor, sceneFrame, vignettesOn, setVignettes, recordText } from './vignette.js';
 import { playUnification, playFall } from './ending.js';
 import { createStrategy, colorOf } from './strategy.js';
@@ -128,14 +129,33 @@ const loadOfficerMarch = async (ids) => {
   await Promise.all(ids.map(loadConfiguredMotion));
   await Promise.all(ids.filter((id) => marchStrips.includes(String(id)) && !sprites[`march-${id}`]).map(loadMarch));
 };
-// 白兵 troop action strips (tools/slice_troop_frames.py): <side>-<soldier|archer|cavalry>[-v2], each with its -turn strip.
-const loadTroops = async () => {
-  try {
-    const strip = async (k) => ({ meta: await (await fetch(`assets/ai/sprites/troops/${k}.json`)).json(), tex: await loadPixelTexture(`assets/ai/sprites/troops/${k}.png`) });
-    // Each look's front / back strip (<key>-turn) rides along with its side strip when it exists.
-    await Promise.all(troopList.map(async (k) => { try { sprites[`troop-${k}`] = { ...(await strip(k)), turn: await strip(`${k}-turn`).catch(() => null) }; } catch {} }));
-  } catch {}
-};
+// 普通兵队随标题加载；特色兵队在实际参战前按需加载，失败时保留普通素材回退。
+const specialKeys = new Set(Object.values(SPECIAL_TROOPS).map((troop) => troop.sprite)), troopLoads = new Map();
+const troopStrip = async (key) => ({ meta: await (await fetch(`assets/ai/sprites/troops/${key}.json`)).json(), tex: await loadPixelTexture(`assets/ai/sprites/troops/${key}.png`) });
+async function loadTroop(key) {
+  const loaded = sprites[`troop-${key}`];
+  if (loaded && (!specialKeys.has(key) || loaded.turn)) return;
+  if (!troopLoads.has(key)) {
+    const pending = (async () => {
+      try {
+        const side = loaded ?? await troopStrip(key);
+        const turn = await troopStrip(`${key}-turn`).catch((error) => {
+          if (specialKeys.has(key)) console.warn(`特色兵队转向素材无法读取，使用侧面动作：${key}`, error);
+          return null;
+        });
+        sprites[`troop-${key}`] = { ...side, turn }; return !!turn || !specialKeys.has(key);
+      } catch (error) {
+        if (specialKeys.has(key)) console.warn(`特色兵队素材无法读取，使用默认动作：${key}`, error);
+        return false;
+      }
+    })();
+    troopLoads.set(key, pending);
+    pending.then((ok) => { if (!ok && troopLoads.get(key) === pending) troopLoads.delete(key); });
+  }
+  await troopLoads.get(key);
+}
+const loadTroops = () => Promise.all((Array.isArray(troopList) ? troopList : []).filter((key) => !specialKeys.has(key)).map(loadTroop));
+const loadSpecialTroops = (ids, game) => Promise.all([...new Set(ids.map((id) => officerSpecialty(D, game, id)?.sprite).filter(Boolean))].map(loadTroop));
 // The generic generals and troops, the two sides' march strips and the 白兵 strips, all at once; a generic sprite that will not load
 // still stops the boot, as before.
 await Promise.all([
@@ -143,8 +163,8 @@ await Promise.all([
     .filter(([, f]) => files.sprites[f]).map(async ([key, f]) => { sprites[key] = await loadPixelTexture(files.sprites[f]); }),
   ...['attacker', 'defender'].map(loadMarch), loadTroops(),
 ]);
-async function loadOfficerSprites(ids) {
-  await Promise.all(ids.map(loadConfiguredMotion));
+async function loadOfficerSprites(ids, game = g) {
+  await Promise.all([...ids.map(loadConfiguredMotion), loadSpecialTroops(ids, game)]);
   for (const id of ids) if (officerSprites.includes(id) && !sprites[`officer-${id}`]) sprites[`officer-${id}`] = await loadPixelTexture(`assets/ai/sprites/officers/${id}.png`);
   await Promise.all([...ids, 'attacker', 'defender'].map(loadDuelStrip));
 }
@@ -1732,6 +1752,8 @@ function officerSheet(id, { live = null, foot = null } = {}) {
   const duelSkill = Object.hasOwn(DUEL_SKILLS, d.duelSkill) ? DUEL_SKILLS[d.duelSkill].name : null;
   const rulerFaction = g.factions.find((fac) => fac.ruler === id)?.id;
   const passive = rulerFaction == null ? null : G.rulerPassive(g, rulerFaction);
+  const specialty = officerSpecialty(D, g, id);
+  const targetTroop = Object.hasOwn(SPECIAL_TROOPS, d.troopType) ? SPECIAL_TROOPS[d.troopType] : null;
   const meter = (k, v, max = 100, cls = '') => h('div', { class: `meter ${cls}` }, h('span', {}, k), h('div', { class: 'track' }, h('i', { style: { width: `${Math.max(0, Math.min(100, (100 * v) / max))}%` } })), h('b', {}, max === 100 ? v : `${v}/${max}`));
   return h('div', { class: 'ocard' },
     face(id),
@@ -1748,6 +1770,7 @@ function officerSheet(id, { live = null, foot = null } = {}) {
         h('div', {}, h('span', {}, '防具'), h('b', {}, a ? h('img', { class: 'eqi', src: equipIcon(24 + o.armor), alt: '' }) : null, `${a?.name ?? '—'}`, a ? h('small', {}, ` 防${a.dfn}`) : null))),
       live ? null : h('p', { class: 'hint' }, d.birthYear != null ? `${d.birthYear}年出生　·　` : '', d.birthCity != null ? `出生于${cityName(d.birthCity)}　·　` : '', `${d.year}年登场`, debutShown(id) ? `　·　${debutText(id)}` : '', o.status === G.UNAPPEARED && talentMode === 'all' ? `　·　${waitText(id)[0]}` : ''),
       strategies.length || duelSkill ? h('p', { class: 'hint' }, strategies.length ? `战场计略：${strategies.join('、')}` : '', strategies.length && duelSkill ? '　·　' : '', duelSkill ? `单挑技：${duelSkill}` : '') : null,
+      specialty ? h('p', { class: 'hint' }, `特色兵队：${specialty.name} · ${specialty.text}（当前最多${officerSquadLimit(D, g, id, specialty)}队）${targetTroop && targetTroop !== specialty ? `；${targetTroop.level}级可用${targetTroop.name}` : ''}`) : null,
       passive ? h('p', { class: 'hint' }, `君主被动：${passive.name} · ${passive.text}`) : null,
       live || !D.relationships?.some((r) => r.from === id || r.to === id) ? null : h('p', { class: 'hint' }, '人物关系：',
         D.relationships.filter((r) => r.from === id || r.to === id).map((r) => `${r.kind} ${name(r.from === id ? r.to : r.from)}`).join('　·　')),
@@ -3095,7 +3118,8 @@ async function showEvent(e) {
     case 'fall': addLog(`<em>${factionName(e.faction)}势力灭亡</em>`); if (e.faction !== P) await message('灭亡', `<span style="color:${colorOf(e.faction)}">${factionName(e.faction)}</span>一族灭亡了。`, null, 'calm', { auto: paced(ORIGINAL.notice) }); break;
     case 'autobattle': {
       const { war: w, res } = e, winner = res.attWins ? w.attacker : w.defender;
-      addLog(`${factionName(w.attacker)}进攻${cityName(w.city)}（${factionName(w.defender)}）：${res.attWins ? '<strong>攻陷</strong>' : '败退'}`);
+      const skill = res.autoSkillBonus, troop = res.autoTroopBonus;
+      addLog(`${factionName(w.attacker)}进攻${cityName(w.city)}（${factionName(w.defender)}）：${res.attWins ? '<strong>攻陷</strong>' : '败退'}${skill ? `（专属技能战力：攻＋${skill.att}、守＋${skill.def}）` : ''}${troop ? `（特色兵队战力：攻＋${troop.att}、守＋${troop.def}）` : ''}`);
       // The original plays every war between two AI factions on the map in three beats of 142 frames under its
       // phrase 162 (7.09 s in all), its AI-turn window reading 「××軍 出陣」, 「××軍 戦闘中」 and the winner's
       // 「××軍 勝利」 (research/strategic-ai-evidence.md). The board does the same with the two standards: down the
@@ -3273,7 +3297,7 @@ async function quickTactical(aId = 38, dId = 51, terrain = 2, { month = g?.month
   const res = await runTactical({ battle, hs: human, looks, view: tview, duel: duelStage(), audio, face, name, D, banner, message, profiles: battleProfiles, warm: () => prewarm(tview) });
   document.body.classList.remove('cine'); return res;
 }
-window.__game = { qualityIdle, get g() { return g; }, get mode() { return document.body.dataset.screen; }, io, G, audio, strategy, tview, get war() { return war; }, get warNav() { return warNav; }, pad: { get state() { return { zone: (z => z instanceof Element ? z.className || z.tagName : z)(padZone()), cur: { ...cur, hit: undefined }, input: document.body.dataset.input, family: pad.family, confirm: pad.confirm }; } }, debug: { renderer, quality, hud: () => hud(), holdCommand: (on) => { busy = !!on; }, setupWar, fieldWar, cutIn, quickTactical, settleMenu, duelView: dview, post, show: (k) => setMode({ strategy, tview, dview }[k]) } };
+window.__game = { qualityIdle, get g() { return g; }, get mode() { return document.body.dataset.screen; }, io, G, audio, strategy, tview, get war() { return war; }, get warNav() { return warNav; }, pad: { get state() { return { zone: (z => z instanceof Element ? z.className || z.tagName : z)(padZone()), cur: { ...cur, hit: undefined }, input: document.body.dataset.input, family: pad.family, confirm: pad.confirm }; } }, debug: { renderer, quality, hud: () => hud(), holdCommand: (on) => { busy = !!on; }, setupWar, fieldWar, cutIn, quickTactical, loadOfficerSprites, settleMenu, duelView: dview, post, show: (k) => setMode({ strategy, tview, dview }[k]) } };
 // A fresh start shows the boot splash first (not a record loading, nor back from 记录编辑); the title, and its music, start
 // when it is over. Pages driven by Playwright (navigator.webdriver: the tests and capture tools, which go straight to their
 // scene through the debug hooks) start at the title unless they ask for the splash with window.__splash = true.

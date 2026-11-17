@@ -77,6 +77,135 @@ test('手机横屏选择君主时能查看被动并进入游戏', { timeout: 180
   } finally { await page.context().close(); }
 });
 
+test('手机白兵在旧素材索引下加载十四类特色动作并能播放攻击', { timeout: 180000 }, async () => {
+  const specialRequests = [];
+  const page = await game.open('&flat&phone', { setup: async (context) => {
+    await context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns'));
+    await context.route('**/assets/ai/sprites/troops/index.json', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+    context.on('request', (request) => {
+      if (/\/troops\/(?:special|unit)-/.test(request.url())) specialRequests.push(request.url());
+    });
+  } });
+  try {
+    await page.setViewportSize({ width: 812, height: 375 });
+    assert.equal(specialRequests.length, 0, '标题不预加载特色兵队');
+    const seen = await page.evaluate(async () => {
+      const { G, debug, tview } = window.__game, { Tactical } = await import('./src/core/tactical.js');
+      const { SPECIAL_TROOPS } = await import('./src/core/troop-specialties.js');
+      const game = G.newGame(7, 1, 9), data = G.data(), result = [];
+      tview.setPlace({ month: 2, city: 12 }); await tview.ready(); tview.setSpeed(4); debug.show('tview');
+      for (const [type, troop] of Object.entries(SPECIAL_TROOPS)) {
+        const hero = data.officers.find((o) => o.name === '韦康').id, foe = data.officers.find((o) => o.name === '伊籍').id;
+        data.officers[hero].troopType = type; data.officers[hero].troopLimit = 3;
+        Object.assign(game.officers[hero], { soldiers: 1000, level: 6, war: 75 }); game.officers[foe].soldiers = 1000;
+        await debug.loadOfficerSprites([hero], game);
+        const battle = new Tactical(game, hero, foe, 2, G.rng(game), { human: 'a' }); battle.deploy();
+        tview.build(battle, { a: 'attacker', d: 'defender' });
+        const unit = battle.units.find((u) => u.side === 'a' && u.special), target = battle.units.find((u) => u.side === 'd' && u.kind !== 'gen');
+        const images = new Set(); tview.scene.traverse((mesh) => { const src = mesh.material?.map?.image?.src; if (src) images.add(src); });
+        await tview.play({ type: 'move', u: unit, from: [unit.x, unit.y], to: [unit.x, unit.y + 1] }, {}); await tview.settle();
+        let turned = false; tview.scene.traverse((mesh) => { if (mesh.visible && mesh.material?.map?.image?.src?.endsWith(`/troops/${unit.special}-turn.png`)) turned = true; });
+        const attack = battle.attack(unit, target, unit.kind === 'arc' || type === 'horsebow'); await tview.play(attack, {}); await tview.settle();
+        result.push({ expected: troop.sprite, special: unit.special, loaded: [...images].some((src) => src.endsWith(`/troops/${unit.special}.png`)), turned });
+      }
+      return result;
+    });
+    assert.equal(seen.length, 14);
+    assert.ok(seen.every((item) => item.expected === item.special && item.loaded && item.turned), JSON.stringify(seen));
+    assert.equal(specialRequests.filter((url) => /\.png$/.test(url)).length, 28);
+    assert.equal(specialRequests.filter((url) => /\.json$/.test(url)).length, 28);
+    await page.setViewportSize({ width: 568, height: 320 });
+    await page.waitForTimeout(200);
+    const canvas = await page.locator('#stage canvas').first().boundingBox();
+    assert.ok(canvas && canvas.x >= 0 && canvas.y >= 0 && canvas.width <= 568 && canvas.height <= 320, `小屏战场画布须适配视口：${JSON.stringify(canvas)}`);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
+test('特色兵队布阵可辨识，转向素材缺失时仍能部署', { timeout: 180000 }, async () => {
+  const missing = [];
+  const page = await game.open('&flat&phone', { setup: async (context) => {
+    await context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns'));
+    await context.route('**/troops/special-soldier-turn.png', (route) => {
+      missing.push(route.request().url()); return missing.length === 1 ? route.abort() : route.continue();
+    });
+  } });
+  try {
+    await page.setViewportSize({ width: 812, height: 375 });
+    await page.evaluate(() => {
+      const { G, debug } = window.__game, hero = G.data().officers.find((o) => o.name === '高顺');
+      Object.assign(hero, { level: 3, soldiers: 1000 });
+      void debug.quickTactical(hero.id, 1, 2);
+    });
+    await page.locator('.tq-formation').waitFor({ timeout: 60000 });
+    assert.match(await page.locator('.tq-kinds').innerText(), /特色：重甲重盾兵 ×2/);
+    assert.ok(missing.length > 0);
+    assert.ok(await page.locator('.tk.special .sb[data-kind="盾"]').count() > 0);
+    await page.evaluate(() => window.__game.debug.loadOfficerSprites([243]));
+    assert.equal(missing.length, 2, '下一次需要该兵种时重新尝试加载转向素材');
+    for (const [width, height] of [[812, 375], [568, 320]]) {
+      await page.setViewportSize({ width, height });
+      const layout = await page.evaluate(() => [...document.querySelectorAll('.tq-kinds span, .tq-deploy')].map((el) => {
+        const r = el.getBoundingClientRect(); return { text: el.textContent, left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+      }));
+      assert.ok(layout.every((r) => r.left >= 0 && r.right <= width && r.top >= 0 && r.bottom <= height), JSON.stringify(layout));
+    }
+    await page.setViewportSize({ width: 812, height: 375 });
+    await page.waitForTimeout(450); // 等待布阵确认的防误触保护结束。
+    await page.locator('.tq-deploy').click();
+    await page.locator('.tq-start').waitFor({ timeout: 30000 });
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
+test('特色兵队侧面素材缺失时使用普通动作，稍后可重试', { timeout: 180000 }, async () => {
+  const requests = [];
+  const page = await game.open('&flat&phone', { setup: async (context) => {
+    await context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns'));
+    await context.route('**/troops/unit-soldier-lightshield.png', (route) => {
+      requests.push(route.request().url()); return requests.length === 1 ? route.abort() : route.continue();
+    });
+  } });
+  try {
+    await page.setViewportSize({ width: 812, height: 375 });
+    await page.evaluate(() => {
+      const { G, debug } = window.__game, hero = G.data().officers.find((o) => o.name === '高顺');
+      Object.assign(hero, { level: 1, soldiers: 1000 });
+      void debug.quickTactical(hero.id, 1, 2);
+    });
+    await page.locator('.tq-formation').waitFor({ timeout: 60000 });
+    assert.match(await page.locator('.tq-kinds').innerText(), /特色：普通盾兵/);
+    const fallback = await page.evaluate(() => {
+      let found = false;
+      window.__game.tview.scene.traverse((mesh) => { if (/\/troops\/attacker-soldier(?:-v2)?\.png$/.test(mesh.material?.map?.image?.src ?? '')) found = true; });
+      return found;
+    });
+    assert.equal(fallback, true);
+    await page.evaluate(() => window.__game.debug.loadOfficerSprites([243]));
+    assert.equal(requests.length, 2);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
+test('手机版本编辑器可折叠管理区并保持编辑及状态可见', { timeout: 180000 }, async () => {
+  const page = await game.open();
+  try {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(new URL('admin.html?mute', game.url).href); await page.waitForFunction(() => window.__admin);
+    assert.equal(await page.locator('#version-settings').evaluate((node) => node.open), false);
+    const box = await page.getByLabel('搜索武将').boundingBox();
+    assert.ok(box && box.y + box.height <= 844, `手机首屏应可到达武将搜索：${JSON.stringify(box)}`);
+    await page.getByText('版本管理与发布').click();
+    assert.equal(await page.getByLabel('版本名称').isVisible(), true);
+    await page.locator('#published').selectOption('builtin-sovereigns');
+    await page.getByRole('button', { name: '载入为新草稿' }).click();
+    await page.getByText('已载入新草稿').waitFor();
+    await page.getByText('版本管理与发布').click();
+    assert.equal(await page.getByText('已载入新草稿').isVisible(), true);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
 test('手机横屏真实洪灾显示资源损失，并保留原规则事件提示', { timeout: 180000 }, async () => {
   const page = await game.open('&flat&phone', { setup: (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns')) });
   try {
@@ -142,8 +271,22 @@ test('编辑器可启用或关闭君主被动，发布后玩家按所选设置�
     await admin.getByRole('button', { name: '载入为新草稿' }).click(); await admin.getByText('已载入新草稿').waitFor();
     await admin.getByLabel('版本名称').fill('君主被动发布验证');
     const content = admin.locator('#content');
+    assert.equal(await content.getByLabel('启用名将特色兵队').isChecked(), true);
+    await content.getByLabel('启用名将特色兵队').uncheck();
+    assert.equal(await admin.evaluate(() => window.__admin.draft.eliteTroops), undefined);
+    await content.getByLabel('启用名将特色兵队').check();
+    assert.equal(await content.getByLabel('平衡低级特色骑兵').isChecked(), true);
+    await content.getByLabel('平衡低级特色骑兵').uncheck();
+    assert.equal(await admin.evaluate(() => window.__admin.draft.balancedTroops), undefined);
+    await content.getByLabel('平衡低级特色骑兵').check();
     await content.getByLabel('搜索武将').fill('田豫'); await content.getByRole('button', { name: /No\.254\s+田豫/ }).click();
     assert.equal(await content.getByRole('checkbox', { name: '北疆守御' }).isChecked(), true);
+    assert.equal(await content.getByLabel('特色兵队', { exact: true }).inputValue(), 'lightcav');
+    await content.getByLabel('特色兵队', { exact: true }).selectOption('shield');
+    await content.getByLabel('特色队个人上限').fill('3');
+    await content.getByRole('button', { name: '应用修改' }).click();
+    assert.equal(await admin.evaluate(() => window.__admin.draft.specialTroops.find((entry) => entry.officer === 254).type), 'shield');
+    assert.equal(await admin.evaluate(() => window.__admin.draft.specialTroops.find((entry) => entry.officer === 254).maxSquads), 3);
     await content.getByLabel('搜索武将').fill('黄夫人'); await content.getByRole('button', { name: /No\.260\s+黄夫人/ }).click();
     assert.equal(await content.getByRole('checkbox', { name: '黄氏巧思' }).isChecked(), true);
     await content.getByAltText('立绘素材预览').evaluate((img) => img.decode());
@@ -159,6 +302,12 @@ test('编辑器可启用或关闭君主被动，发布后玩家按所选设置�
     assert.equal(await admin.evaluate(() => window.__admin.draft.skills.find((s) => s.name === '北疆守御').visualEffect), 'qianzhao');
     await content.getByLabel('技能演出').selectOption('tianyu');
     await content.getByRole('button', { name: '应用修改' }).click();
+    await admin.getByRole('tab', { name: '人物关系' }).click();
+    assert.equal(await content.getByLabel('启用人物关系效果').isChecked(), true);
+    await content.getByLabel('启用人物关系效果').uncheck();
+    assert.equal(await admin.evaluate(() => window.__admin.draft.relationshipEffects), undefined);
+    await content.getByLabel('启用人物关系效果').check();
+    assert.equal(await admin.evaluate(() => window.__admin.draft.relationshipEffects), true);
     await admin.getByRole('tab', { name: '君主候选' }).click();
     const toggle = content.getByLabel('启用君主被动技能'); assert.equal(await toggle.isChecked(), true);
     await toggle.uncheck(); assert.equal(await admin.evaluate(() => window.__admin.draft.rulerPassives), undefined);
@@ -170,11 +319,16 @@ test('编辑器可启用或关闭君主被动，发布后玩家按所选设置�
     assert.equal(await content.getByLabel('增强灾害影响').isChecked(), true);
     await content.getByLabel('增强灾害影响').uncheck(); assert.equal(await admin.evaluate(() => window.__admin.draft.enhancedDisasters), undefined);
     await content.getByLabel('增强灾害影响').check(); assert.equal(await admin.evaluate(() => window.__admin.draft.enhancedDisasters), true);
-    for (const [label, key] of [['优化电脑补兵优先级', 'smartAiReinforcement'], ['启用山贼海贼守城', 'cityRaids']]) {
+    for (const [label, key] of [['优化电脑补兵优先级', 'smartAiReinforcement'], ['启用山贼海贼守城', 'cityRaids'], ['修正电脑诱纳概率', 'safeAiLure']]) {
       assert.equal(await content.getByLabel(label).isChecked(), true);
       await content.getByLabel(label).uncheck(); assert.equal(await admin.evaluate((k) => window.__admin.draft[k], key), undefined);
       await content.getByLabel(label).check(); assert.equal(await admin.evaluate((k) => window.__admin.draft[k], key), true);
     }
+    assert.equal(await content.getByLabel('电脑战斗计入专属技能').isChecked(), true);
+    await content.getByLabel('电脑战斗计入专属技能').uncheck();
+    assert.equal(await admin.evaluate(() => window.__admin.draft.autoBattleSkills), undefined);
+    await content.getByLabel('电脑战斗计入专属技能').check();
+    assert.equal(await admin.evaluate(() => window.__admin.draft.autoBattleSkills), true);
     await content.getByLabel('公孙瓒开局金币').fill('800');
     await content.getByLabel('公孙瓒开局金币').locator('xpath=ancestor::form').getByRole('button', { name: '应用开局资源' }).click();
     assert.equal(await admin.evaluate(() => window.__admin.draft.factions[0].opening.gold), 800);
@@ -185,10 +339,28 @@ test('编辑器可启用或关闭君主被动，发布后玩家按所选设置�
     try {
       const result = await player.evaluate(() => {
         const { G } = window.__game, g = G.newGame(7, 1, 2);
-        return [G.data().rulerPassives, G.data().officers[254].name, G.rulerPassive(g, 7).name, G.data().fixedAiRecruitment, g.cities[0].gold, g.enhancedDisasters, g.smartAiReinforcement, g.cityRaids];
+        return [G.data().rulerPassives, G.data().officers[254].name, G.rulerPassive(g, 7).name, G.data().fixedAiRecruitment, g.cities[0].gold, g.enhancedDisasters, g.smartAiReinforcement, g.cityRaids, g.relationshipEffects, g.autoBattleSkills, g.eliteTroops, g.safeAiLure, g.balancedTroops, G.data().officers[254].troopType, G.data().officers[254].troopLimit];
       });
-      assert.deepEqual(result, [true, '田豫', '白马备战', true, 800, true, true, true]); assert.deepEqual(player.errors, []);
+      assert.deepEqual(result, [true, '田豫', '白马备战', true, 800, true, true, true, true, true, true, true, true, 'shield', 3]); assert.deepEqual(player.errors, []);
     } finally { await player.context().close(); }
+    await admin.getByRole('tab', { name: '人物关系' }).click();
+    await content.getByLabel('启用人物关系效果').uncheck();
+    await admin.getByRole('tab', { name: '君主候选' }).click();
+    await content.getByLabel('电脑战斗计入专属技能').uncheck();
+    await admin.getByRole('tab', { name: '人物与登场' }).click();
+    await content.getByLabel('启用名将特色兵队').uncheck();
+    await admin.getByLabel('版本名称').fill('关闭新玩法验证');
+    await admin.getByLabel('管理员令牌').fill(token); await admin.getByRole('button', { name: '发布新版本' }).click();
+    await admin.getByText(/已发布“关闭新玩法验证”/).waitFor();
+    const disabledId = await admin.evaluate(() => window.__admin.lastPublished);
+    const disabledPlayer = await game.open('&flat', { setup: (context) => context.addInitScript((version) => sessionStorage.setItem('haou-hd2d-scenario', version), disabledId) });
+    try {
+      assert.deepEqual(await disabledPlayer.evaluate(() => {
+        const { G } = window.__game, g = G.newGame(7, 1, 2);
+        return [G.data().relationshipEffects, G.data().autoBattleSkills, G.data().eliteTroops, g.relationshipEffects, g.autoBattleSkills, g.eliteTroops];
+      }), [false, false, false, undefined, undefined, undefined]);
+      assert.deepEqual(disabledPlayer.errors, []);
+    } finally { await disabledPlayer.context().close(); }
     assert.deepEqual(admin.errors, []);
   } finally { await admin.context().close(); }
 });

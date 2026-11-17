@@ -10,6 +10,7 @@ import { chooseRaid, startRaid, resolveRaid, finishRaid, resolveAiRaid, COASTAL_
 import { suspend, peekSuspend, takeSuspend } from '../src/core/suspend.js';
 import { aiTurn } from '../src/core/ai.js';
 import { setupWar } from '../src/core/warcore.js';
+import { Tactical } from '../src/core/tactical.js';
 
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
 const scenario = await loadScenario(SOVEREIGN_SCENARIO_ID, base);
@@ -22,6 +23,19 @@ function plan(g, city = 0, kind = 'pirate') {
   const c = g.cities[city];
   return { city, faction: c.faction, kind, troops: Math.min(2000, Math.max(100, Math.floor(G.troopsOf(g, c) * 0.4))) };
 }
+
+test('袭城敌军不继承编号零武将的特色兵队', () => {
+  try {
+    const g = fixture(), D = G.data();
+    Object.assign(D.officers[0], { troopType: 'lightcav', troopLimit: 3 });
+    const war = startRaid(g, { city: 0, faction: 7, kind: 'bandit', troops: 1000 });
+    for (const id of war.att.ids) {
+      assert.equal(D.officers[id].troopType, null); assert.equal(D.officers[id].troopLimit, null);
+      const battle = new Tactical(g, id, war.def.ids[0], 2, G.rng(g)); battle.deploy();
+      assert.ok(battle.units.filter((unit) => unit.side === 'a').every((unit) => !unit.special));
+    }
+  } finally { G.setData(base); }
+});
 
 test('旧游戏不抽袭扰随机数，新开局规则随记录保留', () => {
   try {
@@ -410,13 +424,17 @@ test('中断恢复临时敌军且不覆盖旧动态武将，战后不留临时�
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (k) => records.get(k) ?? null, setItem: (k, v) => records.set(k, String(v)), removeItem: (k) => records.delete(k) } });
   try {
     const g = fixture(), clone = g.officers.length;
+    Object.assign(G.data().officers[0], { troopType: 'lightcav', troopLimit: 3 });
     g.officers.push({ ...g.officers[0], id: clone, debut: 190 }); g.clones = [clone]; G.registerClones(g);
     const war = startRaid(g, plan(g)), field = new Field(g, war, 'def'), first = war.att.ids[0];
     const start = Object.fromEntries([...war.att.ids, ...war.def.ids].map((id) => [id, g.officers[id].soldiers]));
     assert.equal(suspend(g, war, field, { side: 'def', start, after: { kind: 'raid' } }), true);
-    G.setData(applyScenario(base, scenario), SOVEREIGN_SCENARIO_ID);
+    const restoredData = applyScenario(base, scenario);
+    Object.assign(restoredData.officers[0], { troopType: 'lightcav', troopLimit: 3 });
+    G.setData(restoredData, SOVEREIGN_SCENARIO_ID);
     assert.ok(peekSuspend()); const rec = takeSuspend();
     assert.equal(G.name(first), '海贼头目'); assert.equal(G.data().officers[clone].clone, true);
+    assert.equal(G.data().officers[first].troopType, null); assert.equal(G.data().officers[first].troopLimit, null);
     const resumed = Field.restore(rec.g, rec.war, rec.field); resumed.end('att', 'commander');
     resolveRaid(rec.g, rec.war, resumed.result()); finishRaid(rec.g, rec.war);
     assert.equal(rec.g.officers.length, clone + 1); assert.deepEqual(rec.g.clones, [clone]); assert.equal(G.name(clone), G.name(0));

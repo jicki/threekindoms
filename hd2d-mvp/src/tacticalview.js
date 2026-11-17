@@ -16,6 +16,7 @@ import { seasonEnv } from './seasonenv.js';
 import { buildTerrain, dressBoard, azureWaterTex, vnoise } from './diorama.js';
 import { loadTacticalGround, tacticalGround, fieldOf, bakeGround, groundMesh, waterMesh, wallMeshes, woodsOf, plantWoods, bannerMesh, WATER_Y } from './tacticalground.js';
 import { GW, GH } from './core/tactical.js';
+import { troopBySprite } from './core/troop-specialties.js';
 import { blastRig } from './blastfx.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -258,6 +259,8 @@ export function createTacticalView(T, sprites) {
       const id = battle.side[u.side].id, A = sprites[`duel-${id}`] || (sprites[`officer-${id}`] ? null : sprites[`duel-${look}`]);
       return [A || { tex: sprites[`officer-${id}`] || sprites[look] || unitTex(look), meta: null }];
     }
+    const special = u.special && sprites[`troop-${u.special}`];
+    if (special) return [special];
     const k = `troop-${look}-${KIND[u.kind]}`, list = [sprites[k], sprites[`${k}-v2`]].filter(Boolean);
     return list.length ? list : [{ tex: sprites[`${look}-${KIND[u.kind]}`] || sprites[`${look}-soldier`] || unitTex(look, 'soldier'), meta: null }];
   }
@@ -325,7 +328,7 @@ export function createTacticalView(T, sprites) {
     disc.receiveShadow = true; ring.add(disc, rim); ring.userData.part = 'base'; ring.userData.look = look; ring.traverse((o) => { o.userData.noSeason = true; });
     ring.scale.set(wide ? 0.95 : 0.72, 1, wide ? 0.78 : 0.6);
     g.add(ring, body);
-    const el = document.createElement('div'); el.className = `tk ${look} ${u.kind}`;
+    const el = document.createElement('div'); el.className = `tk ${look} ${u.kind}${troopBySprite(u.special) ? ' special' : ''}`;
     // Every tag lies at the unit's feet: no height over a general clears them all (a chariot's canopy, a raised blade), and nothing may cover his head.
     const lab = new CSS2DObject(el); lab.position.y = 0.05; g.add(lab);
     g.position.set(wx(u.x), cellH(u.x, u.y), wz(u.y)); set.add(g);
@@ -359,7 +362,9 @@ export function createTacticalView(T, sprites) {
       return;
     }
     // A squad holds at most 100 men (core/tactical.js splits ceil(N/100) ways), so the bar is out of 100.
-    v.el.innerHTML = `<i class="sb" style="--w:${Math.max(0, u.hp)}%" data-n="${Math.max(0, u.hp)}">${u.hp > 0 ? badges(u) : ''}</i>`;
+    const specialty = troopBySprite(u.special), name = specialty?.name ?? '';
+    const mark = name.includes('盾') ? '盾' : name.includes('锤') ? '锤' : name.includes('枪') ? '枪' : name.includes('弩') ? '弩' : name.includes('骑射') ? '射' : name.includes('弓') ? '弓' : name.includes('骑') ? '骑' : '步';
+    v.el.innerHTML = `<i class="sb" style="--w:${Math.max(0, u.hp)}%" data-n="${Math.max(0, u.hp)}" data-kind="${mark}">${u.hp > 0 ? badges(u) : ''}</i>`;
     if (u.hp <= 0) for (const M of [...v.alive]) fall(v, M, 60 + Math.random() * 120);
   }
   // A man drops where he stands and stays there, laid on the ground with the field's other dead.

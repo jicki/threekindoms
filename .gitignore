@@ -23,6 +23,14 @@ hd2d-mvp/assets/**/*.mp3
 !hd2d-mvp/assets/characters/**/*.png
 !hd2d-mvp/assets/ai/vignettes/v2/skill-*/story.webp
 !hd2d-mvp/assets/equipment/*.webp
+# 名将特色兵队使用的独立动作条随代码提供。
+!hd2d-mvp/assets/ai/sprites/troops/special-soldier.png
+!hd2d-mvp/assets/ai/sprites/troops/special-archer.png
+!hd2d-mvp/assets/ai/sprites/troops/special-cavalry.png
+!hd2d-mvp/assets/ai/sprites/troops/special-soldier-turn.png
+!hd2d-mvp/assets/ai/sprites/troops/special-archer-turn.png
+!hd2d-mvp/assets/ai/sprites/troops/special-cavalry-turn.png
+!hd2d-mvp/assets/ai/sprites/troops/unit-*.png
 # 已收录的原版和 PS 复刻版背景音乐。
 !hd2d-mvp/assets/audio/sfx-blast.mp3
 !hd2d-mvp/assets/audio/sfx-clash.mp3

@@ -56,7 +56,7 @@ export function registerRaidTemplates(g, war) {
   for (let i = 0; i < count; i++) {
     const id = first + i;
     D.officers[id] = { ...D.officers[0], id, name: `${label(kind)}${i ? '喽啰' : '头目'}`, hp: 70, army: kind === 'pirate' ? '水' : '山',
-      portraitId: 0, visual: null, skills: [], duelSkill: null, clone: true, raidTemp: true };
+      portraitId: 0, visual: null, skills: [], duelSkill: null, troopType: null, troopLimit: null, clone: true, raidTemp: true };
   }
   return true;
 }

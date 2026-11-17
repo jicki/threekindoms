@@ -1,6 +1,7 @@
 import { ORIGINAL_SCENARIO, newDraft, validateScenario } from './scenario.js';
 import { FEMALE_PRESETS, EXTRA_PRESETS, ROSTER_PRESETS, WARLORD_PRESETS, SOVEREIGN_PRESETS, FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, HERO_SCENARIO_ID, HERO_SCENARIO_NAME, ROSTER_SCENARIO_ID, ROSTER_SCENARIO_NAME, WARLORD_SCENARIO_ID, WARLORD_SCENARIO_NAME, SOVEREIGN_SCENARIO_ID, SOVEREIGN_SCENARIO_NAME, femaleOfficer, presetVisual } from './visuals.js';
 import { ensureFemaleGear } from './equipment.js';
+import { famousAssignments } from './troop-specialties.js';
 
 const SESSION = 'haou-hd2d-scenario';
 const api = () => new URL('/api/versions', location.href).href;
@@ -85,6 +86,7 @@ export async function loadScenario(id, base) {
   if (id === SOVEREIGN_SCENARIO_ID) {
     const scenario = await loadScenario(WARLORD_SCENARIO_ID, base);
     scenario.id = id; scenario.name = SOVEREIGN_SCENARIO_NAME; scenario.rulerPassives = true; scenario.enhancedRulerPassives = true; scenario.fixedAiRecruitment = true; scenario.enhancedDisasters = true;
+    scenario.relationshipEffects = true; scenario.autoBattleSkills = true; scenario.safeAiLure = true; scenario.balancedTroops = true;
     scenario.smartAiReinforcement = true; scenario.cityRaids = true;
     // 单城势力需要兼顾补兵和行军；仅改变新开局，不覆盖存档中的城市资源。
     for (const [i, amount] of [900, 450, 1200].entries()) scenario.factions[i].opening = { gold: amount, rice: amount };
@@ -103,6 +105,10 @@ export async function loadScenario(id, base) {
       const officer = scenario.officers.find((o) => o.name === preset.name);
       if (officer) officer.visual = presetVisual(`v2-${preset.key}`);
     }
+    scenario.eliteTroops = true;
+    const officers = base.officers.map((o) => scenario.officers.find((modified) => modified.id === o.id) ?? o);
+    officers.push(...scenario.officers.filter((o) => o.id >= base.officers.length));
+    scenario.specialTroops = famousAssignments(officers);
     validateScenario(scenario, base);
     return scenario;
   }

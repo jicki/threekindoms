@@ -2,6 +2,7 @@
 import { FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID, SOVEREIGN_SCENARIO_ID, MOODS, validVisualRef } from './visuals.js';
 import { WEAPON_CATEGORIES, validEquipmentIcon } from './equipment.js';
 import { DUEL_SKILLS } from './duel-skills.js';
+import { SPECIAL_TROOPS } from './troop-specialties.js';
 import { SKILL_VISUALS } from './skill-visuals.js';
 export const SCENARIO_FORMAT = 1;
 export const ORIGINAL_SCENARIO = 'original';
@@ -78,7 +79,7 @@ export function newScenarioId() {
 // 只接受已知结构；读取时也要验证，不能假定本地存储或导入文件可信。
 export function validateScenario(s, base, { draft = false } = {}) {
   obj(s, '版本');
-  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids'], '版本');
+  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops'], '版本');
   if (s.format !== SCENARIO_FORMAT) fail('不支持的版本文件格式');
   if (!(draft && s.id === null) && s.id !== FEMALE_SCENARIO_ID && s.id !== HERO_SCENARIO_ID && s.id !== ROSTER_SCENARIO_ID && s.id !== WARLORD_SCENARIO_ID && s.id !== SOVEREIGN_SCENARIO_ID && (typeof s.id !== 'string' || !ID.test(s.id))) fail('版本编号无效');
   text(s.name, '版本名称', 40);
@@ -89,12 +90,29 @@ export function validateScenario(s, base, { draft = false } = {}) {
   if (s.rulerPassives !== undefined && typeof s.rulerPassives !== 'boolean') fail('君主被动设置无效');
   if (s.enhancedRulerPassives !== undefined && typeof s.enhancedRulerPassives !== 'boolean') fail('增强君主被动设置无效');
   if (s.enhancedRulerPassives && !s.rulerPassives) fail('增强君主被动需要先启用君主被动');
+  if (s.relationshipEffects !== undefined && typeof s.relationshipEffects !== 'boolean') fail('人物关系效果设置无效');
+  if (s.autoBattleSkills !== undefined && typeof s.autoBattleSkills !== 'boolean') fail('电脑战斗技能设置无效');
+  if (s.eliteTroops !== undefined && typeof s.eliteTroops !== 'boolean') fail('特色兵队设置无效');
+  if (s.safeAiLure !== undefined && typeof s.safeAiLure !== 'boolean') fail('电脑诱纳修正设置无效');
+  if (s.balancedTroops !== undefined && typeof s.balancedTroops !== 'boolean') fail('特色兵队平衡设置无效');
   if (s.fixedAiRecruitment !== undefined && typeof s.fixedAiRecruitment !== 'boolean') fail('电脑补兵设置无效');
   if (s.enhancedDisasters !== undefined && typeof s.enhancedDisasters !== 'boolean') fail('增强灾害设置无效');
   if (s.smartAiReinforcement !== undefined && typeof s.smartAiReinforcement !== 'boolean') fail('电脑补兵优先级设置无效');
   if (s.cityRaids !== undefined && typeof s.cityRaids !== 'boolean') fail('守城事件设置无效');
   if (s.rulers !== undefined) array(s.rulers, '君主候选', base.officers.length + 100);
   const maxOfficer = base.officers.length + s.officers.filter((o) => Number.isInteger(o?.id) && o.id >= base.officers.length).length - 1;
+  if (s.specialTroops !== undefined) {
+    array(s.specialTroops, '特色兵队', maxOfficer + 1);
+    const assigned = new Set();
+    for (const entry of s.specialTroops) {
+      obj(entry, '特色兵队'); keys(entry, ['officer', 'type', 'maxSquads'], '特色兵队');
+      integer(entry.officer, '特色兵队武将', 0, maxOfficer);
+      if (entry.maxSquads !== undefined) integer(entry.maxSquads, '特色兵队个人上限', 1, 3);
+      if (assigned.has(entry.officer)) fail('武将的特色兵队重复');
+      if (typeof entry.type !== 'string' || !Object.hasOwn(SPECIAL_TROOPS, entry.type)) fail('特色兵队类型无效');
+      assigned.add(entry.officer);
+    }
+  }
   const factions = s.factions === undefined ? [] : s.factions;
   array(factions, '新势力', 3);
   const homes = new Set(), factionRulers = new Set(base.factions.map((f) => f.ruler));
@@ -261,6 +279,11 @@ export function applyScenario(base, scenario, { draft = false } = {}) {
   d.customSkills = clone(scenario.skills);
   d.rulerPassives = scenario.rulerPassives === true;
   d.enhancedRulerPassives = scenario.enhancedRulerPassives === true;
+  d.relationshipEffects = scenario.relationshipEffects === true;
+  d.autoBattleSkills = scenario.autoBattleSkills === true;
+  d.eliteTroops = scenario.eliteTroops === true;
+  d.safeAiLure = scenario.safeAiLure === true;
+  d.balancedTroops = scenario.balancedTroops === true;
   d.fixedAiRecruitment = scenario.fixedAiRecruitment === true;
   d.enhancedDisasters = scenario.enhancedDisasters === true;
   d.smartAiReinforcement = scenario.smartAiReinforcement === true;
@@ -291,6 +314,10 @@ export function applyScenario(base, scenario, { draft = false } = {}) {
       modifiedQueues.add(`${o.appear === 'search_city' ? 'search' : 'join'}:${o.appear === 'search_city' ? o.city : o.faction}`);
     }
     d.officers[o.id] = { ...(prior || { id: o.id, jp: o.name }), ...clone(o) };
+  }
+  for (const entry of scenario.specialTroops ?? []) {
+    d.officers[entry.officer].troopType = entry.type;
+    d.officers[entry.officer].troopLimit = entry.maxSquads ?? 2;
   }
   // 君主是所在城市的太守；旧武将编号可能排在新君主之前。
   for (const f of extraFactions) {

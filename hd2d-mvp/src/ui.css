@@ -825,6 +825,7 @@ body:has(.tq) #ui-top:has(> .shade) { z-index: 15; }
   font: 700 13px/17px var(--serif); text-align: center; color: #fff3d6; background: rgba(12,10,8,.85); box-shadow: 0 0 0 1.5px var(--kc), 0 1px 3px rgba(0,0,0,.7); text-shadow: none; }
 .tk.attacker { --kc: #6ab8ff; } .tk.defender { --kc: #ff8a70; }
 .tk.inf .sb::before { content: '步'; } .tk.arc .sb::before { content: '弓'; } .tk.cav .sb::before { content: '骑'; }
+.tk.special .sb::before { content: attr(data-kind); color: #ffe08a; outline: 1px solid #ffe08a; outline-offset: 1px; }
 /* tactic badges over the troop chip (tacticalview.js badges()): a corner mark in the effect's colour; a hindrance carries the rounds left */
 .tk .fxs { position: absolute; right: calc(100% + 3px); bottom: calc(50% + 10px); width: 17px; display: flex; flex-direction: column-reverse; align-items: center; gap: 2px; }
 .tk .fxs b { position: relative; display: block; width: 15px; height: 15px; border-radius: 50%; font: 700 11px/15px var(--serif); text-align: center; color: #14100a; background: var(--fx); box-shadow: 0 0 0 1px rgba(0,0,0,.75), 0 0 6px var(--fx); text-shadow: none; }

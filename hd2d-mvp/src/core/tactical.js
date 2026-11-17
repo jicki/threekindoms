@@ -8,6 +8,7 @@
 // The engine is stepped by the UI (one event per call) or run to the end for AI-only battles.
 import { data, addExp, isRuler, spared, sparedHp, weaponGroup } from './game.js';
 import { Duel } from './skirmish.js';
+import { SPECIAL_TROOPS, makeSquads, officerSpecialty, officerSquadLimit, troopDamage } from './troop-specialties.js';
 
 export const GW = 16, GH = 10, KINDS = ['inf', 'arc', 'cav', 'gen'];
 export const COMMANDS = { advance: '前进', retreat: '后退', wait: '待机', surround: '包围' };
@@ -67,6 +68,8 @@ export class Tactical {
       const band = S.baseWar >= 80 ? '80-99' : S.baseWar >= 50 ? '50-79' : '0-49';
       const comp = D.composition.find((c) => c.level === o.level && c.war === band) || { inf: 5, arc: 3, cav: 2 };
       const q = k ? Math.floor(n / k) : 0, rem = k ? n % k : 0, castle = s === 'd' && this.castleDef;
+      const special = officerSpecialty(D, this.g, S.id);
+      const squads = makeSquads(comp, Math.min(k, 10), castle, special, officerSquadLimit(D, this.g, S.id, special), this.g.balancedTroops === true && o.level < 3);
       const place = (idx, kind) => {
         const f = castle ? D.formations[kind === 'arc' ? 4 : 5] : D.formations[S.formation];
         const [ax, y, dx] = f[idx]; return [s === 'a' ? ax : castle ? 15 - ax : dx, y];
@@ -74,10 +77,9 @@ export class Tactical {
       const [gx, gy] = place(0, 'gen');
       this.units.push({ side: s, kind: 'gen', idx: 0, x: gx, y: gy, hp: S.hp, id: S.id });
       for (let i = 0; i < k && i < 10; i++) {
-        let kind = i < comp.inf ? 'inf' : i < comp.inf + comp.arc ? 'arc' : 'cav';
-        if (castle && kind === 'inf') kind = 'arc';
+        const { kind, special } = squads[i];
         const [x, y] = place(i + 1, kind);
-        this.units.push({ side: s, kind, idx: i + 1, x, y, hp: q + (i < rem ? 1 : 0) });
+        this.units.push({ side: s, kind, idx: i + 1, x, y, hp: q + (i < rem ? 1 : 0), ...(special ? { special } : {}) });
       }
     }
     this.buildQueue();
@@ -186,8 +188,9 @@ export class Tactical {
   pickTarget(u, cmd) {
     const S = this.side[u.side], skipGen = cmd === 'surround';
     const bowGeneral = u.kind === 'gen' && S.eq.wgrp === 4;
-    if (u.kind === 'arc' || bowGeneral) {
-      const range = bowGeneral ? 2 : S.fx.xbow > 0 ? 6 : 4;
+    const horsebow = u.kind === 'cav' && u.special === SPECIAL_TROOPS.horsebow.sprite;
+    if (u.kind === 'arc' || bowGeneral || horsebow) {
+      const range = bowGeneral ? 2 : horsebow ? 3 : S.fx.xbow > 0 ? 6 : 4;
       // The original skips the right ray whenever the left one finds nothing (`$C463`), so the attacker's archers,
       // who face right, walk on past foes in range; all four rays are scanned here (playtest of 2026-10-30, T08).
       for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
@@ -196,7 +199,7 @@ export class Tactical {
           const x = u.x + dx * d, y = u.y + dy * d;
           if (!this.inside(x, y) || !ARROW.includes(this.map[y][x])) break;
           const e = this.at(x, y);
-          if (bowGeneral && e?.side === u.side) break;
+          if ((bowGeneral || horsebow) && e?.side === u.side) break;
           if (e && e.side !== u.side) { if (d > 1 && !(skipGen && e.kind === 'gen')) hit = e; break; } // a foe alongside is fought hand to hand
         }
         if (hit) return { unit: hit, ranged: true };
@@ -213,12 +216,15 @@ export class Tactical {
     const S = this.side[u.side], T = this.side[t.side];
     let F = S.F, atk = u.kind === 'gen' ? S.eq.atk : 0; const fire = u.kind === 'arc' && ranged && S.fx.fire > 0; // 火矢 (S12): the view burns these arrows
     if (u.kind === 'arc') { F = Math.floor(((ranged ? 70 : 60) * F) / 100); if (fire) F = Math.min(100, F + this.r(10)); }
+    // 骑射每回合两次行动；远射缩至原战力的 42%，射程不享受强弩加成。
+    else if (u.kind === 'cav' && ranged && u.special === SPECIAL_TROOPS.horsebow.sprite) F = Math.floor(42 * F / 100);
     // 武将每回合行动两次；弓的两格远射折减战力和武器攻击，避免射程优势叠加完整近战伤害。
     else if (u.kind === 'gen' && ranged && S.eq.wgrp === 4) { F = Math.floor(55 * F / 100); atk = Math.floor(60 * atk / 100); }
     const H = u.kind === 'gen' ? S.hp : u.hp;
     let D = Math.floor(((F + atk) * B(H)) / 100);
     if (t.kind === 'cav') D = Math.floor(D / 2) + Math.floor(D / 4);
     if (t.kind === 'gen') D = Math.max(0, Math.floor(D / 2) - T.eq.def);
+    D = troopDamage(D, u, t, ranged);
     const before = t.kind === 'gen' ? T.hp : t.hp, dealt = Math.min(before, D);
     if (t.kind === 'gen') { T.hp -= dealt; t.hp = T.hp; } else t.hp -= dealt;
     addExp(this.g, S.id, Math.floor((t.hp <= 0 && !ranged ? D : dealt) / 2));

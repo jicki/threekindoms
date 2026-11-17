@@ -50,6 +50,38 @@ test('a broken record never becomes the backup', () => {
   assert.equal(G.load(6).year, 192);
 });
 
+test('结构损坏的普通记录回退备份，重新保存时不覆盖有效备份', () => {
+  const g = G.newGame(4, 1, 1); g.year = 192; assert.ok(G.save(g, 6));
+  g.year = 193; assert.ok(G.save(g, 6));
+  const key = `${KEY}:6`, backup = store.get(`${key}:bak`), damaged = JSON.parse(store.get(key));
+  const city = damaged.cities.find((item) => item.officers.length > 0), id = city.officers[0];
+  damaged.officers[id] = null; store.set(key, JSON.stringify(damaged));
+  const restored = G.load(6);
+  assert.equal(restored?.year, 192); assert.equal(G.restored(restored), true);
+  assert.doesNotThrow(() => G.troopsOf(restored, restored.cities[city.id]));
+  assert.ok(G.save(restored, 6));
+  assert.equal(store.get(`${key}:bak`), backup);
+});
+
+test('缺失的武将引用和无效武将数值不会写入普通记录', () => {
+  const g = G.newGame(4, 1, 1), city = g.cities.find((item) => item.officers.length > 0), id = city.officers[0];
+  assert.ok(G.save(g, 1));
+  for (const damage of [
+    (bad) => { bad.cities[city.id].officers[0] = 99999; },
+    (bad) => { bad.officers[id].soldiers = null; },
+    (bad) => { bad.factions[bad.player] = null; },
+    (bad) => { bad.cities[city.id].faction = 999; },
+    (bad) => { bad.cities[city.id].gold = null; },
+    (bad) => { bad.clones = {}; },
+    (bad) => { bad.clones = [0]; },
+  ]) {
+    const broken = structuredClone(g); damage(broken);
+    assert.equal(G.upgrade(broken), null);
+    assert.equal(G.save(broken, 1), false);
+    assert.equal(G.load(1).officers[id].soldiers, g.officers[id].soldiers);
+  }
+});
+
 test('an empty slot is not brought back from its backup', () => {
   store.set(`${KEY}:7:bak`, JSON.stringify(G.newGame(4, 1, 1)));
   assert.equal(G.load(7), null);

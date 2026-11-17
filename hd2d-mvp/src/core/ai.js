@@ -5,6 +5,7 @@ import { data, currentScenario, rng, NONE, SERVING, UNAPPEARED, RONIN, roads, ci
 import { setupWar, occupyEmpty, autoBattle } from './warcore.js';
 import { phantomWar } from './ahuinan.js';
 import { FEMALE_SCENARIO_ID } from './visuals.js';
+import { recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
 
 const KEEP = [[30, 60, 90], [20, 50, 80], [10, 40, 70]]; // cumulative cut-offs for keeping 4/3/2 (else 1)
 const REAR = [2, 3, 3, 2, 3, 3, 2], FRONT = [4, 5, 4, 3, 4, 5, 4]; // A303 thresholds by faction
@@ -106,14 +107,16 @@ export function housekeeping(g, f, r, spend) {
         const o = g.officers[id];
         if (D.officers[id].year > g.year) break;
         if (o.status !== UNAPPEARED) continue;
-        if (r(100) < (aff.includes(id) ? 90 : 10)) { o.status = SERVING; c.officers.push(id); break; }
+        if (r(100) < recruitThreshold(D, g, f, id, aff.includes(id) ? 90 : 10, null, false)) {
+          o.loyalty = recruitLoyaltyWithRelation(D, g, f, id, o.loyalty); o.status = SERVING; c.officers.push(id); break;
+        }
       }
     }
     if (r(100) < 10 && c.officers.length < 10) {
       // C6CC: every ronin spends its affinity draw (C66F 10/90) before the here-or-adjacent check.
       const near = [c.id, ...roads(c.id)];
-      const o = g.officers.find((x) => x.status === RONIN && r(100) < (aff.includes(x.id) ? 90 : 10) && near.includes(x.loc));
-      if (o) { o.status = SERVING; o.loyalty = recruitLoyalty(g.officers[ruler].virtue, o.loyalty); c.officers.push(o.id); }
+      const o = g.officers.find((x) => x.status === RONIN && r(100) < recruitThreshold(D, g, f, x.id, aff.includes(x.id) ? 90 : 10, null, false) && near.includes(x.loc));
+      if (o) { o.status = SERVING; o.loyalty = recruitLoyaltyWithRelation(D, g, f, o.id, recruitLoyalty(g.officers[ruler].virtue, o.loyalty)); c.officers.push(o.id); }
     }
   }
   medical(g, f, r, spend);
@@ -531,11 +534,13 @@ async function recruit(g, f, r, io) {
   if (target == null || g.officers[target].loyalty >= 70) return;
   const t = g.officers[target], lb = t.loyalty <= 30 ? 0 : t.loyalty <= 50 ? 1 : 2;
   const own = Math.max(...citiesOf(g, f).flatMap((c) => c.officers).map((id) => g.officers[id].level - 1)), diff = own - (t.level - 1);
-  const th = ([[40, 15, 0], [50, 20, 0], [60, 30, 10]][g.level][lb] + Math.floor(t.virtue / 20) + (diff >= 0 ? diff : 2 * diff)) & 255;
-  if (r(100) >= th) return;
+  const raw = [[40, 15, 0], [50, 20, 0], [60, 30, 10]][g.level][lb] + Math.floor(t.virtue / 20) + (diff >= 0 ? diff : 2 * diff);
+  // 原版按无符号字节回绕；新规则避免负概率变成必然成功，记录缺少标记时不改变旧行为。
+  const th = g.safeAiLure === true ? Math.max(0, Math.min(100, raw)) : raw & 255;
   const from = officerCity(g, target), lostF = from.faction;
+  if (r(100) >= recruitThreshold(data(), g, f, target, th, lostF, false)) return;
   from.officers = from.officers.filter((x) => x !== target); if (!from.officers.length) from.faction = NONE;
-  dest.officers.push(target); t.loyalty = recruitLoyalty(g.officers[g.factions[f].ruler].virtue, t.loyalty);
+  dest.officers.push(target); t.loyalty = recruitLoyaltyWithRelation(data(), g, f, target, recruitLoyalty(g.officers[g.factions[f].ruler].virtue, t.loyalty));
   await io.event({ type: 'aiLure', faction: f, id: target, from: lostF, city: dest.id });
 }
 async function ally(g, f, r, io) {

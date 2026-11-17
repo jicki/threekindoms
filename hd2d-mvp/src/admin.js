@@ -4,8 +4,10 @@ import { VISUAL_PRESETS, OFFICER_PRESETS, FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, 
 import { EQUIPMENT_ICONS, ensureFemaleGear, equipmentIconUrl } from './core/equipment.js';
 import { DUEL_SKILLS } from './core/duel-skills.js';
 import { SKILL_VISUALS } from './core/skill-visuals.js';
+import { SPECIAL_TROOPS } from './core/troop-specialties.js';
 
 const $ = (id) => document.getElementById(id);
+if (matchMedia('(max-width: 720px)').matches) $('version-settings').open = false;
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const el = (tag, attrs = {}, ...children) => {
   const node = document.createElement(tag);
@@ -170,6 +172,21 @@ if (base) {
     } }, '添加角色模板');
     const side = panel('list', el('h2', {}, `武将 · ${all.length}`), search, el('div', { class: 'actions' }, add, addPreset, addFemale), list);
     const o = editable(all[selected.officers] ?? all[0]), form = el('form');
+    const elite = el('input', { type: 'checkbox', checked: !!draft.eliteTroops });
+    elite.addEventListener('change', () => {
+      if (!abandonForm()) { elite.checked = !!draft.eliteTroops; return; }
+      update((d) => { if (elite.checked) d.eliteTroops = true; else delete d.eliteTroops; }, '特色兵队设置已应用到草稿');
+    });
+    const balancedTroops = el('input', { type: 'checkbox', checked: !!draft.balancedTroops });
+    balancedTroops.addEventListener('change', () => {
+      if (!abandonForm()) { balancedTroops.checked = !!draft.balancedTroops; return; }
+      update((d) => { if (balancedTroops.checked) d.balancedTroops = true; else delete d.balancedTroops; }, '低级骑兵平衡设置已应用到草稿');
+    });
+    const assignment = draft.specialTroops?.find((entry) => entry.officer === o.id);
+    const specialTroop = select('specialTroop', [['', '原默认兵队'], ...Object.entries(SPECIAL_TROOPS).map(([key, troop]) => [key, `${troop.name}（${troop.level}级，最多${troop.max}队）· ${troop.text}`])], assignment?.type ?? '');
+    const troopLimit = input('troopLimit', assignment?.maxSquads ?? 2, 1, 3);
+    const syncTroopLimit = () => { troopLimit.disabled = !specialTroop.value; };
+    specialTroop.addEventListener('change', syncTroopLimit); syncTroopLimit();
     const appearance = select('appear', [['initial', '开局已有'], ['search_city', '城市搜索'], ['automatic_faction', '自动出仕']], o.appear);
     const ownerForCity = (id) => {
       const home = (draft.factions ?? []).find((f) => f.city === id), owner = base.cities[id]?.faction;
@@ -265,6 +282,7 @@ if (base) {
     form.append(el('div', { class: 'form-grid' }, field('姓名', string('name', o.name)),
       field('人物图像', portraitSelect),
       field('兵种', select('army', [['平', '平军'], ['山', '山军'], ['水', '水军']], o.army)),
+      field('特色兵队', specialTroop), field('特色队个人上限', troopLimit),
       field('武器', select('weapon', weapons, o.weapon)), field('防具', select('armor', armors, o.armor)),
       field('专属单挑技', select('duelSkill', [['', '无'], ...Object.entries(DUEL_SKILLS).map(([key, skill]) => [key, `${skill.name}（命中${skill.hit >= 0 ? '+' : ''}${skill.hit}，伤害${skill.damage}%）`])], o.duelSkill ?? '')),
       ...stats.map(([key, label, lo, hi]) => field(label, input(key, o[key], lo, hi))),
@@ -290,9 +308,14 @@ if (base) {
         city: mode === 'automatic_faction' ? null : cid,
         faction: mode === 'automatic_faction' ? number(fd, 'faction') : mode === 'initial' ? ownerForCity(cid) : null,
         skills: fd.getAll('skills').map(Number), ...(mode === 'search_city' && fd.get('searchPriority') ? { searchPriority: true } : {}), ...(fd.get('duelSkill') ? { duelSkill: fd.get('duelSkill') } : {}), ...(customImage ? { portraitData: customImage } : {}), ...(Object.keys(visual).length ? { visual } : {}) };
-      update((d) => { const at = d.officers.findIndex((item) => item.id === o.id); if (at < 0) d.officers.push(next); else d.officers[at] = next; }, '人物修改已应用到草稿');
+      update((d) => {
+        const at = d.officers.findIndex((item) => item.id === o.id); if (at < 0) d.officers.push(next); else d.officers[at] = next;
+        d.specialTroops = (d.specialTroops ?? []).filter((entry) => entry.officer !== o.id);
+        if (fd.get('specialTroop')) d.specialTroops.push({ officer: o.id, type: String(fd.get('specialTroop')), maxSquads: number(fd, 'troopLimit') });
+      }, '人物修改已应用到草稿');
     });
-    return workspace(side, panel('detail', el('h2', {}, `${o.name} · No.${o.id}`), form));
+    return workspace(side, panel('detail', el('h2', {}, `${o.name} · No.${o.id}`),
+      field('启用名将特色兵队', elite), field('平衡低级特色骑兵', balancedTroops), el('p', { class: 'intro' }, '仅新开局生效。等级不足时使用对应低级兵种；特色队数取兵种、武将与等级上限的较小值，最多三队。野战无对应兵类时需六队以上才转换一队；启用平衡时，一、二级武将不会将步弓队强行转换为骑兵。守城步兵仍转为弓兵。'), form));
   }
 
   function renderWeapons() {
@@ -389,6 +412,11 @@ if (base) {
 
   function renderRelations() {
     const data = currentData(), choices = data.officers.map((o) => [o.id, `${o.name} · ${o.id}`]), form = el('form');
+    const effects = el('input', { type: 'checkbox', checked: !!draft.relationshipEffects });
+    effects.addEventListener('change', () => {
+      if (!abandonForm()) { effects.checked = !!draft.relationshipEffects; return; }
+      update((d) => { if (effects.checked) d.relationshipEffects = true; else delete d.relationshipEffects; }, '人物关系效果已应用到草稿');
+    });
     const relationKind = select('kind', [...RELATION_KINDS.map((k) => [k, k]), ['__custom__', '自定义关系']], RELATION_KINDS[0]);
     const customKind = el('input', { name: 'customKind', maxlength: 16, placeholder: '例如：同乡' }), customField = field('自定义关系名称', customKind);
     const showCustom = () => { customField.hidden = relationKind.value !== '__custom__'; customKind.required = !customField.hidden; };
@@ -418,7 +446,8 @@ if (base) {
         : [el('p', { class: 'empty' }, draft.relations.length ? '没有符合条件的关系。' : '原版没有内置人物关系；可在此添加。')]));
     };
     search.addEventListener('input', fill); kind.addEventListener('change', fill); fill();
-    return panel('detail', el('h2', {}, '人物关系'), el('p', { class: 'intro' }, `可用关系：${RELATION_KINDS.join('、')}，也可自定义。关系在双方资料中使用相同名称，不自动改变招募、忠诚或战斗规则。`), form,
+    return panel('detail', el('h2', {}, '人物关系'), field('启用人物关系效果', effects),
+      el('p', { class: 'intro' }, `可用关系：${RELATION_KINDS.join('、')}，也可自定义。启用后，已知亲友或敌对关系会有限影响招募、入仕忠诚和继位忠诚；其他自定义名称仅供展示。新开局生效，旧记录保留原规则。`), form,
       el('div', { class: 'form-grid' }, field('搜索人物关系', search), field('筛选关系类型', kind)), count, rows);
   }
 
@@ -453,6 +482,16 @@ if (base) {
     cityRaids.addEventListener('change', () => {
       if (!abandonForm()) { cityRaids.checked = !!draft.cityRaids; return; }
       update((d) => { if (cityRaids.checked) d.cityRaids = true; else delete d.cityRaids; }, '守城事件设置已应用到草稿');
+    });
+    const autoBattleSkills = el('input', { type: 'checkbox', checked: !!draft.autoBattleSkills });
+    autoBattleSkills.addEventListener('change', () => {
+      if (!abandonForm()) { autoBattleSkills.checked = !!draft.autoBattleSkills; return; }
+      update((d) => { if (autoBattleSkills.checked) d.autoBattleSkills = true; else delete d.autoBattleSkills; }, '电脑战斗技能设置已应用到草稿');
+    });
+    const safeAiLure = el('input', { type: 'checkbox', checked: !!draft.safeAiLure });
+    safeAiLure.addEventListener('change', () => {
+      if (!abandonForm()) { safeAiLure.checked = !!draft.safeAiLure; return; }
+      update((d) => { if (safeAiLure.checked) d.safeAiLure = true; else delete d.safeAiLure; }, '电脑诱纳修正设置已应用到草稿');
     });
     const openingForms = (draft.factions ?? []).map((f, index) => {
       const opening = el('form'), city = data.cities[f.city];
@@ -490,6 +529,8 @@ if (base) {
       field('优化电脑补兵优先级', smartReinforcement), el('p', { class: 'intro' }, '新开局在启用修正电脑补兵时，兼顾可补人数、前线和君主所在城；已启用的存档使用更新后的排序，未启用的旧存档保留原有排序。'),
       field('增强灾害影响', enhancedDisasters), el('p', { class: 'intro' }, '新开局启用后，旱灾和洪水会损失金、米、土地与产业；防灾越高损失越小，资源不足时最多损失现有数量。是否启用随开局保存，已启用的存档使用更新后的损失规则。'),
       field('启用山贼海贼守城', cityRaids), el('p', { class: 'intro' }, '新开局在首年之后可能遭遇守城战；近海为海贼、其他城市为山贼，内陆暴乱也可能引来山贼。同一势力和城市至少间隔18个月，受灾势力当月不会遭袭；电脑遭遇强度较低，敌人不会占领城市。'),
+      field('电脑战斗计入专属技能', autoBattleSkills), el('p', { class: 'intro' }, '新开局的电脑之间自动战争将专属技能折算为有限战力加成，双方规则相同；不逐次模拟施技，也不改变旧存档。'),
+      field('修正电脑诱纳概率', safeAiLure), el('p', { class: 'intro' }, '新开局限制诱纳概率，避免负值回绕为必然成功；旧存档保持开局时的规则。'),
       ...(openingForms.length ? [el('p', { class: 'intro' }, '开局资源只作用于新游戏，已有存档中的城市资源不会重置。'), ...openingForms] : []),
       el('p', { class: 'intro' }, '本版本各势力的君主始终可选。可将本势力的开局武将增加为候选；玩家选中后由该武将统领原势力，原君主留在该势力。候选不会创建新势力。'),
       el('p', { class: 'intro' }, `原有君主：${data.factions.map((f) => data.officers[f.ruler].name).join('、')}`), form,

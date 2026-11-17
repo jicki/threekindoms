@@ -108,6 +108,8 @@ const s = await loadScenario('builtin-sovereigns', base); s.id = 'v-' + 'b'.repe
             bad = copy.deepcopy(scenario); bad['enhancedDisasters'] = value; cases.append(bad)
             bad = copy.deepcopy(scenario); bad['smartAiReinforcement'] = value; cases.append(bad)
             bad = copy.deepcopy(scenario); bad['cityRaids'] = value; cases.append(bad)
+            bad = copy.deepcopy(scenario); bad['safeAiLure'] = value; cases.append(bad)
+            bad = copy.deepcopy(scenario); bad['balancedTroops'] = value; cases.append(bad)
         for value in (None, [], '100', -1, 10000, True, 1.5):
             bad = copy.deepcopy(scenario); bad['factions'][0]['opening'] = {'gold': value}; cases.append(bad)
         bad = copy.deepcopy(scenario); bad['factions'][0]['opening'] = {'unknown': 10}; cases.append(bad)
@@ -122,6 +124,52 @@ console.log(JSON.stringify(cases.map(s=>{try {validateScenario(s,base); return t
             try: validate(item, BASE); server.append(True)
             except ScenarioError: server.append(False)
         self.assertEqual(server, [True] * 13 + [False] * (len(cases) - 13))
+        self.assertEqual(browser, server)
+
+    def test_new_gameplay_switches_match_browser_validation(self):
+        enabled = version(); enabled.update({'relationshipEffects': True, 'autoBattleSkills': True, 'eliteTroops': True})
+        disabled = version(); disabled.update({'relationshipEffects': False, 'autoBattleSkills': False, 'eliteTroops': False})
+        cases = [version(), enabled, disabled]
+        for key in ('relationshipEffects', 'autoBattleSkills', 'eliteTroops'):
+            for value in (None, 0, 1, 'true', [], {}):
+                bad = copy.deepcopy(enabled); bad[key] = value; cases.append(bad)
+        code = """import {readFileSync} from 'node:fs'; import {validateScenario} from './hd2d-mvp/src/core/scenario.js';
+const base=JSON.parse(readFileSync('hd2d-mvp/data/game-data.json')), cases=JSON.parse(readFileSync(0,'utf8'));
+console.log(JSON.stringify(cases.map(s=>{try {validateScenario(s,base); return true;} catch {return false;}})));"""
+        browser = json.loads(subprocess.check_output(['node', '--input-type=module', '-e', code], cwd=ROOT, input=json.dumps(cases), text=True))
+        server = []
+        for item in cases:
+            try: validate(item, BASE); server.append(True)
+            except ScenarioError: server.append(False)
+        self.assertEqual(server, [True] * 3 + [False] * (len(cases) - 3))
+        self.assertEqual(browser, server)
+
+    def test_special_troop_assignments_match_browser_validation(self):
+        configured = version(); configured['eliteTroops'] = True
+        configured['specialTroops'] = [{'officer': 38, 'type': 'shield'}, {'officer': 75, 'type': 'crossbow'}, {'officer': 144, 'type': 'lightcav'}]
+        cases = [version(), configured]
+        kinds = ('infantry', 'heavyinfantry', 'spear', 'heavyspear', 'hammer', 'doublehammer', 'lightshield', 'shield', 'lightcav', 'heavycav', 'royalcav', 'bow', 'crossbow', 'horsebow')
+        for kind in kinds:
+            good = copy.deepcopy(configured); good['specialTroops'] = [{'officer': 38, 'type': kind, 'maxSquads': 3}]; cases.append(good)
+        for assignments in (None, {}, [{'officer': 38, 'type': 'unknown'}],
+                            [{'officer': 38, 'type': 'shield'}, {'officer': 38, 'type': 'lightcav'}],
+                            [{'officer': -1, 'type': 'shield'}], [{'officer': 9999, 'type': 'shield'}],
+                            [{'officer': 38, 'type': None}], [{'officer': 38, 'type': []}],
+                            [{'officer': 38, 'type': 'shield', 'damage': 100}],
+                            [{'officer': 38, 'type': 'shield', 'maxSquads': 0}],
+                            [{'officer': 38, 'type': 'shield', 'maxSquads': 4}],
+                            [{'officer': 38, 'type': 'shield', 'maxSquads': True}],
+                            [{'officer': 38, 'type': 'shield', 'maxSquads': '2'}]):
+            bad = copy.deepcopy(configured); bad['specialTroops'] = assignments; cases.append(bad)
+        code = """import {readFileSync} from 'node:fs'; import {validateScenario} from './hd2d-mvp/src/core/scenario.js';
+const base=JSON.parse(readFileSync('hd2d-mvp/data/game-data.json')), cases=JSON.parse(readFileSync(0,'utf8'));
+console.log(JSON.stringify(cases.map(s=>{try {validateScenario(s,base); return true;} catch {return false;}})));"""
+        browser = json.loads(subprocess.check_output(['node', '--input-type=module', '-e', code], cwd=ROOT, input=json.dumps(cases), text=True))
+        server = []
+        for item in cases:
+            try: validate(item, BASE); server.append(True)
+            except ScenarioError: server.append(False)
+        self.assertEqual(server, [True] * (2 + len(kinds)) + [False] * (len(cases) - 2 - len(kinds)))
         self.assertEqual(browser, server)
 
     def test_new_factions_match_browser_and_reject_inconsistent_rosters(self):

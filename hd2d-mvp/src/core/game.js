@@ -8,6 +8,7 @@ import { withRecordLock } from './record-lock.js';
 import { applyScenario, ORIGINAL_SCENARIO } from './scenario.js';
 import { loadScenario, selectedScenario } from './scenario-store.js';
 import { applyRulerPassive, describeRulerPassive } from './ruler-passives.js';
+import { relationDisposition, recruitDisposition, recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
 // 原版无主为 7；扩展剧本将无主编号放在实际势力编号之后。
 export let NONE = 7;
 export const DEAD = 3, SERVING = 2, UNAPPEARED = 1, RONIN = 0;
@@ -49,6 +50,11 @@ export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random(
   if (D.smartAiReinforcement) g.smartAiReinforcement = true;
   if (D.cityRaids) g.cityRaids = true;
   if (D.rulerPassives && D.enhancedRulerPassives) g.enhancedRulerPassives = true;
+  if (D.relationshipEffects) g.relationshipEffects = true;
+  if (D.autoBattleSkills) g.autoBattleSkills = true;
+  if (D.eliteTroops) g.eliteTroops = true;
+  if (D.safeAiLure) g.safeAiLure = true;
+  if (D.balancedTroops) g.balancedTroops = true;
   const r = rng(g);
   g.order = r(5); // 新游戏随机0–4 (5.2)
   g.cities = D.cities.map((c) => ({
@@ -326,7 +332,7 @@ export function crown(g, f, heir, oldRuler) {
     for (const id of heirCandidates(g, f)) {
       if (id === heir) continue;
       const o = g.officers[id];
-      o.loyalty = Math.max(10, Math.min(99, o.loyalty + dv - 10));
+      o.loyalty = Math.max(10, Math.min(99, o.loyalty + dv - 10 + 2 * relationDisposition(D, g, heir, id)));
       if (o.loyalty < 31 && r(100) < 20) quit.push(id);
     }
   }
@@ -708,9 +714,10 @@ export function search(g, cid, executor) {
   if (res === 5) { join(g, cid, cand); return { ok: true, msg: `${name(cand)} 愿意出仕`, joined: cand }; }
   if (res === 6) return { ok: true, offer: cand, price: Math.floor((t.hp + t.war + t.int) / 3), msg: `${name(cand)} 要求 ${Math.floor((t.hp + t.war + t.int) / 3)} 金` };
   const pf = Number(Object.entries(D.rules.search_preference).find(([, ids]) => ids.includes(cand))[0]);
-  const accept = c.faction === pf ? r(16) >= 2 : r(16) >= 13;
-  if (accept) { join(g, cid, cand); return { ok: true, msg: `${name(cand)} 被您的仁德打动，愿意出仕`, joined: cand }; }
-  return { ok: true, msg: `${name(cand)} 拒绝了出仕`, refused: cand };
+  const base = c.faction === pf ? 2 : 13, direction = recruitDisposition(D, g, c.faction, cand);
+  const threshold = Math.max(1, Math.min(15, base - direction)), draw = r(16), accept = draw >= threshold;
+  if (accept) { join(g, cid, cand); return { ok: true, msg: `${name(cand)} ${draw < base ? '因旧交情愿意出仕' : '被您的仁德打动，愿意出仕'}`, joined: cand }; }
+  return { ok: true, msg: `${name(cand)} ${draw >= base ? '因旧怨拒绝出仕' : '拒绝了出仕'}`, refused: cand };
 }
 function searchCandidate(g, cid) {
   const head = queueHead(g, searchOrder(g, cid));
@@ -727,7 +734,8 @@ export function hire(g, cid, id, price) {
 function join(g, cid, id) {
   const c = g.cities[cid], o = g.officers[id];
   if (g.visits) delete g.visits[id];
-  if (o.status === RONIN) o.loyalty = recruitLoyalty(g.officers[g.factions[c.faction].ruler].virtue, o.loyalty);
+  const loyalty = o.status === RONIN ? recruitLoyalty(g.officers[g.factions[c.faction].ruler].virtue, o.loyalty) : o.loyalty;
+  o.loyalty = recruitLoyaltyWithRelation(D, g, c.faction, id, loyalty);
   o.status = SERVING; c.officers.push(id);
 }
 
@@ -769,13 +777,32 @@ function validRaidState(g) {
     || !table(h.factions, g.factions.length) || !table(h.cities, g.cities.length) || !table(h.checked, g.factions.length))) return false;
   return g.raidWars == null || table(g.raidWars, g.factions.length);
 }
+// 旧记录可能包含动态武将或袭城临时武将，因此只验证实际记录和引用，不要求其存在于静态武将表。
+function validRoster(g) {
+  const validId = (id) => Number.isInteger(id) && id >= 0 && !!g.officers[id];
+  const fields = ['hp', 'war', 'int', 'loyalty', 'virtue', 'exp', 'soldiers', 'weapon', 'armor', 'level', 'status'];
+  if (!g.factions[g.player] || g.officers.some((o, id) => !o || o.id !== id || fields.some((key) => !Number.isFinite(o[key])))) return false;
+  if (g.clones != null) {
+    const firstClone = D?.officers?.filter((o) => o && !o.clone).length ?? 0;
+    if (!Array.isArray(g.clones) || new Set(g.clones).size !== g.clones.length || g.clones.some((id) => !validId(id) || id < firstClone)) return false;
+  }
+  if (g.factions.some((f) => !f || (f.ruler != null && !validId(f.ruler)))) return false;
+  const cityFields = ['gold', 'rice', 'pop', 'land', 'industry', 'disaster', 'gov', 'reserve', 'treasure'];
+  return g.cities.every((c, id) => c.id === id && Number.isInteger(c.faction) && (c.faction === NONE || !!g.factions[c.faction])
+    && cityFields.every((key) => Number.isFinite(c[key])) && c.officers.every(validId));
+}
 export function upgrade(g) {
   if (!g || typeof g !== 'object') return null;
   if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return null;
   try { g.version ??= 1; while (g.version < SAVE_VERSION) MIGRATIONS[g.version++](g); } catch { return null; }
   const ok = g.version === SAVE_VERSION && Number.isInteger(g.year) && Number.isInteger(g.month) && Number.isInteger(g.player)
     && (g.enhancedRulerPassives === undefined || typeof g.enhancedRulerPassives === 'boolean')
-    && Array.isArray(g.officers) && Array.isArray(g.factions) && Array.isArray(g.cities) && g.cities.length === 30 && g.cities.every((c) => Array.isArray(c?.officers)) && validRaidState(g);
+    && (g.relationshipEffects === undefined || typeof g.relationshipEffects === 'boolean')
+    && (g.autoBattleSkills === undefined || typeof g.autoBattleSkills === 'boolean')
+    && (g.eliteTroops === undefined || typeof g.eliteTroops === 'boolean')
+    && (g.safeAiLure === undefined || typeof g.safeAiLure === 'boolean')
+    && (g.balancedTroops === undefined || typeof g.balancedTroops === 'boolean')
+    && Array.isArray(g.officers) && Array.isArray(g.factions) && Array.isArray(g.cities) && g.cities.length === 30 && g.cities.every((c) => Array.isArray(c?.officers)) && validRoster(g) && validRaidState(g);
   return ok ? g : null;
 }
 const fromBak = new WeakSet();
@@ -797,6 +824,7 @@ function commitSave(g, slot, expected, previous, prepared) {
     if (current === undefined) return 'failed';
     if (current !== expected) return 'changed';
     if (futureVersion(parse(current)) || futureVersion(parse(previous))) return 'newer';
+    if (!upgrade(parse(prepared.text))) return 'failed';
     if (previous && upgrade(parse(previous))) localStorage.setItem(bakKey(slot), previous);
     localStorage.setItem(slotKey(slot), prepared.text);
     g.slot = slot; g.savedAt = prepared.savedAt; g.version = SAVE_VERSION;
@@ -994,11 +1022,12 @@ export function lure(g, cid, actor, id) {
   if (c.officers.length >= 10) return { ok: false, msg: '本城武将已满' };
   if (isRuler(g, id)) return { ok: false, msg: '无法诱纳君主' };
   const row = LURE.find(([l]) => o.loyalty <= l);
-  const p = row ? Math.floor((a.int * a.virtue + row[1] + 100 * (a.level - 1)) / row[2]) : 0;
+  const base = row ? Math.floor((a.int * a.virtue + row[1] + 100 * (a.level - 1)) / row[2]) : 0;
+  const p = recruitThreshold(D, g, c.faction, id, base, factionOf(g, id));
   if (roll100(r) >= p) return { ok: true, msg: `诱纳${name(id)}失败`, failed: true };
   const from = officerCity(g, id);
   from.officers = from.officers.filter((x) => x !== id); if (!from.officers.length) from.faction = NONE;
-  c.officers.push(id); o.loyalty = recruitLoyalty(g.officers[g.factions[c.faction].ruler].virtue, o.loyalty);
+  c.officers.push(id); o.loyalty = recruitLoyaltyWithRelation(D, g, c.faction, id, recruitLoyalty(g.officers[g.factions[c.faction].ruler].virtue, o.loyalty));
   return { ok: true, msg: `${name(id)}接受诱纳，加入我军`, joined: id };
 }
 export function sow(g, actor, id) {

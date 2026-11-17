@@ -1,6 +1,8 @@
 // War set-up and write-back shared by field battles (player involved) and AI-vs-AI auto battles.
 // 出阵 (5.9 §7), 战后 (6.10 §3–6), AI 自动战 (6.5 第五/六批).
 import { data, rng, NONE, DEAD, SERVING, RONIN, roads, officerCity, capturedLoyalty, recruitLoyalty, addExp, citiesOf, kill, isRuler, sparedHp, rulerPassive } from './game.js';
+import { DUEL_SKILLS } from './duel-skills.js';
+import { makeSquads, officerSpecialty, officerSquadLimit } from './troop-specialties.js';
 
 // Remove the expedition from its source city and empty the target into the defender's war chest.
 export function setupWar(g, { from, to, ids, commander, gold, rice }) {
@@ -179,6 +181,32 @@ export function resolveWar(g, war, res) {
   return { winner: winF, loser: loseF };
 }
 
+// 自动战斗仍是抽象结算：每名参战武将最多计入一个可负担的专属计略及一次单挑技。
+// 总加成不超过基础战力的 10% 且最多 12 点；不直接扣兵、扣米或追加随机数。
+export function autoSkillBonus(g, ids, enemyIds, base, faction, enemyRice) {
+  const D = data();
+  if (g.autoBattleSkills !== true || !ids.length || !enemyIds.length || base < 10) return 0;
+  const enemy = enemyIds.map((id) => g.officers[id]).filter(Boolean);
+  const maxSoldiers = Math.max(0, ...enemy.map((o) => o.soldiers));
+  const maxHp = Math.max(0, ...enemy.map((o) => o.hp));
+  const troops = ids.reduce((sum, id) => sum + (g.officers[id]?.soldiers ?? 0), 0);
+  const cap = D.rules.mobility_cap[Math.min(9, Math.floor(troops / 1000))] + (rulerPassive(g, faction)?.combat?.mobility ?? 0);
+  let raw = 0;
+  for (const id of ids) {
+    const officer = g.officers[id], spec = D.officers[id];
+    if (!officer || !spec || officer.hp <= 0 || officer.soldiers <= 0) continue;
+    let best = 0;
+    for (const skillId of spec.skills ?? []) {
+      const skill = D.customSkills?.find((item) => item.id === skillId);
+      if (!skill || skill.cost > cap) continue;
+      const value = Math.min(skill.soldiers, maxSoldiers) / 100 + Math.min(skill.hp, maxHp) / 10 + skill.stop / 2 + Math.min(skill.rice, Math.max(0, enemyRice)) / 100;
+      best = Math.max(best, Math.min(4, Math.ceil(value / (1 + skill.cost / 12))));
+    }
+    raw += best + (Object.hasOwn(DUEL_SKILLS, spec.duelSkill) ? 1 : 0);
+  }
+  return Math.min(raw, 12, Math.floor(base / 10));
+}
+
 // AI-vs-AI automatic battle (`10:ACD5`, `A91F`, `A9CC`, `AF9C`, `ABA3`, `11:CD68`).
 // The fight itself (`A91F`, `A9CC`, `AF9C`): strength, days, troop loss, deaths, experience and the losers' loyalty
 // draws (captured = draw100 ≥ loyalty). Settlement is the caller's: autoBattle for real cities, ahuinan.js for 王莆.
@@ -188,7 +216,27 @@ export function fight(g, war) {
     const bonus = rulerPassive(g, faction)?.combat?.war ?? 0;
     return Math.floor(ids.reduce((a, id) => a + Math.max(O(id).war, Math.min(99, O(id).war + bonus)), 0) / 10) + Math.floor(ids.reduce((a, id) => a + O(id).soldiers, 0) / 100) + 10 * (O(ids[0])?.exp >> 12 || 0);
   };
-  const sa = strength(war.att.ids, war.attacker), sd = war.def.ids.length ? strength(war.def.ids, war.defender) : 0;
+  const baseA = strength(war.att.ids, war.attacker), baseD = war.def.ids.length ? strength(war.def.ids, war.defender) : 0;
+  const bonus = war.phantom ? { att: 0, def: 0 } : {
+    att: autoSkillBonus(g, war.att.ids, war.def.ids, baseA, war.attacker, war.def.rice),
+    def: autoSkillBonus(g, war.def.ids, war.att.ids, baseD, war.defender, war.att.rice),
+  };
+  // 电脑间抽象战斗按有兵的特色武将计入少量战力，总加成不超过基础战力的约 3%。
+  const troopStrength = (ids, enemies, base) => {
+    if (!enemies.length || g.eliteTroops !== true) return 0;
+    const D = data(), able = ids.filter((id) => {
+      const o = O(id), special = officerSpecialty(D, g, id);
+      if (!o || o.hp <= 0 || o.soldiers <= 0 || !special) return false;
+      const band = o.war >= 80 ? '80-99' : o.war >= 50 ? '50-79' : '0-49';
+      const comp = D.composition.find((c) => c.level === o.level && c.war === band) || { inf: 5, arc: 3, cav: 2 };
+      return makeSquads(comp, Math.min(10, Math.ceil(o.soldiers / 100)), false, special, officerSquadLimit(D, g, id, special), g.balancedTroops === true && o.level < 3).some((squad) => squad.special);
+    });
+    return Math.min(Math.floor(base / 30), able.length);
+  };
+  const troops = war.phantom ? { att: 0, def: 0 } : {
+    att: troopStrength(war.att.ids, war.def.ids, baseA), def: troopStrength(war.def.ids, war.att.ids, baseD),
+  };
+  const sa = baseA + bonus.att + troops.att, sd = baseD + bonus.def + troops.def;
   const q = Math.floor((100 * sa) / Math.max(1, sa + sd));
   const days = 30 - Math.abs(Math.floor(q / 2) - 25);
   const proj = (ids) => Math.floor((Math.floor(ids.reduce((a, id) => a + O(id).soldiers, 0) / 100) * (days * 4)) / 10);
@@ -227,11 +275,12 @@ export function fight(g, war) {
     if (r(100) >= l) { (winSide === 'att' ? captured.byAtt : captured.byDef).push(id); return false; }
     return true;
   });
-  return { r, attWins, days, proj, surv, dead, captured, loseSide, winSide, ...(sparedRulers.length ? { sparedRulers } : {}) };
+  return { r, attWins, days, proj, surv, dead, captured, loseSide, winSide, ...(sparedRulers.length ? { sparedRulers } : {}),
+    ...(bonus.att || bonus.def ? { autoSkillBonus: bonus } : {}), ...(troops.att || troops.def ? { autoTroopBonus: troops } : {}) };
 }
 
 export function autoBattle(g, war) {
-  const { r, attWins, days, proj, surv, dead, captured, loseSide, sparedRulers } = fight(g, war);
+  const { r, attWins, days, proj, surv, dead, captured, loseSide, sparedRulers, autoSkillBonus: skillBonus, autoTroopBonus: troopBonus } = fight(g, war);
   // Rice: projected use, then defender rice/gold shrink by the byte-indexed table.
   const shrink = (v) => v - Math.floor((v * (v < 500 ? 50 : v < 1000 ? 0 : v < 3000 ? 60 : v < 5000 ? 0 : 70)) / 100);
   const chests = {
@@ -246,7 +295,7 @@ export function autoBattle(g, war) {
   }
   const res = resolveWar(g, war, { loser: loseSide, survivors: surv, dead, captured, retreated: [], chests, skipCut: true, ...(sparedRulers?.length ? { sparedRulers } : {}) });
   for (const id of dead) kill(g, id);
-  return { ...res, attWins, days, dead, captured: [...captured.byAtt, ...captured.byDef] };
+  return { ...res, attWins, days, dead, captured: [...captured.byAtt, ...captured.byDef], ...(skillBonus ? { autoSkillBonus: skillBonus } : {}), ...(troopBonus ? { autoTroopBonus: troopBonus } : {}) };
 }
 
 // Officers that can still be placed anywhere for a faction (used for fall checks).

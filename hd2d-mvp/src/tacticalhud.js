@@ -4,6 +4,7 @@
 import { PHONE } from './phone.js';
 import { h, avatar, figure, keyName } from './ui.js';
 import { COMMANDS, TACTICS, FORMATIONS, KINDS } from './core/tactical.js';
+import { troopBySprite } from './core/troop-specialties.js';
 import { ORIGINAL, paceSpeed } from './pace.js';
 import { realChance } from './core/origrng.js';
 import { stage as markStage, fresh, GUARD } from './commitguard.js'; // `stage` is runTactical's 单挑 stage below
@@ -140,8 +141,11 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
       // The field is the picture to choose by (暴力倾向@devblog, 2026-11-13): the title keeps to a band at the top and the cards to one at
       // the bottom, nothing darkens or blurs the ground between, and the camera fits the board into that gap (framePick), so every
       // squad and its troop chip shows as the pointed-at formation lines them up. The legend names the marks the cards draw.
+      const special = new Map();
+      for (const unit of battle.units) if (unit.side === hs && unit.special && troopBySprite(unit.special)) special.set(unit.special, (special.get(unit.special) ?? 0) + 1);
       const legend = h('div', { class: 'tq-kinds', 'aria-label': '我军编成' }, h('span', { class: 'gn' }, h('i', { html: '<svg viewBox="0 0 12 12"><circle class="gn" cx="6" cy="6" r="4.6"/></svg>' }), '将'),
-        ...[['inf', '步兵'], ['arc', '弓兵'], ['cav', '骑兵']].filter(([k]) => count(k)).map(([k, n]) => h('span', {}, h('i', { html: `<svg viewBox="0 0 12 12">${kindMark(k, 6, 6, 3.8)}</svg>` }), `${n} ×${count(k)}`)));
+        ...[['inf', '步兵'], ['arc', '弓兵'], ['cav', '骑兵']].filter(([k]) => count(k)).map(([k, n]) => h('span', {}, h('i', { html: `<svg viewBox="0 0 12 12">${kindMark(k, 6, 6, 3.8)}</svg>` }), `${n} ×${count(k)}`)),
+        ...[...special].map(([sprite, n]) => h('span', { class: 'tq-specialty', title: troopBySprite(sprite).text }, `特色：${troopBySprite(sprite).name} ×${n}`)));
       const head = h('div', { class: 'tq-form-head' }, h('div', { class: 'tq-kicker' }, '白兵战 · 布阵'), h('h2', {}, '选择阵形'),
         h('p', { class: 'tq-sub' }, `${name(S.id)} 率兵 ${S.o.soldiers}，迎战 ${name(E.id)}（${E.o.soldiers}）`));
       const foot = h('div', { class: 'tq-form-foot' }, legend, forms, h('div', { class: 'tq-deploybar' }, peek, deploy));

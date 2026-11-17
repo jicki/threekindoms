@@ -2,9 +2,10 @@
 // Ported: deployment blocks and AI role sub-lists, movement costs (600-troop split), shared daily
 // mobility, rice per day, 30-day limit, castle capture, commander loss, retreat thresholds, field
 // hospital/rice shop, AI roles 0–4 with their decision order. Strategies (计略) are not ported yet.
-import { data, rng, NONE, DEAD, roads, addExp, takeLevelUps, equipBlock, wearEquip, spared, sparedHp, isRuler, maxHp, rulerPassive } from './game.js';
+import { data, rng, NONE, DEAD, roads, addExp, takeLevelUps, equipBlock, wearEquip, spared, sparedHp, isRuler, maxHp, rulerPassive, recruitLoyalty } from './game.js';
 import { Tactical } from './tactical.js';
 import { roll100, realChance } from './origrng.js';
+import { recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
 
 const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0]]; // 上下左右
 export const W = 32, H = 19, FOREST = 0, SAND = 1, PLAIN = 2, RIVER = 3, MOUNT = 4, CASTLE = 5;
@@ -392,7 +393,7 @@ export class Field {
     const a = this.O(u.id), b = this.O(t.id);
     if (this.dist(u, t) >= 6 || b.loyalty >= 71) return 0;
     const base = (b.loyalty <= 30 ? 60 : b.loyalty <= 50 ? 30 : 10) + Math.floor(((a.int + a.virtue) & 255) / 10) + 2 * Math.max(a.level - b.level, 0);
-    return this.passiveChance(base, u.side, 100);
+    return recruitThreshold(data(), this.g, this.faction(u.side), t.id, this.passiveChance(base, u.side, 100), this.faction(t.side));
   }
   // What the player is told: the chance the cast really has. hitChance / lureChance are the numbers the roll is
   // compared with; the original's roll (core/origrng.js) comes under them more often than that many times in 100.
@@ -469,7 +470,8 @@ export class Field {
       case 7: fire(t); for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) { const n = this.unitAt(t.x + dx, t.y + dy); if (n && n.side === t.side) fire(n); } break;
       case 8: {
         t.side = u.side; t.role = 4; t.commander = false;
-        const o = this.O(t.id); o.loyalty = Math.min(90, Math.max(10, (70 + Math.floor(this.O(this.g.factions[this.faction(u.side)].ruler).virtue / 10) - o.loyalty) & 255));
+        const o = this.O(t.id), faction = this.faction(u.side), ruler = this.g.factions[faction].ruler;
+        o.loyalty = recruitLoyaltyWithRelation(data(), this.g, faction, t.id, recruitLoyalty(this.O(ruler).virtue, o.loyalty));
         lines.push(`${nm(t)} 倒戈投向我军`); break;
       }
       case 9: hp(t, Math.floor((L() + Math.floor(((a.war + a.int) & 255) / 10)) * (5 + U(3)) / 10)); if (!t.gone) loss(t, Math.floor((a.war * (14 + U(7))) / 10)); break;

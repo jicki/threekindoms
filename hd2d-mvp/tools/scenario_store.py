@@ -184,7 +184,7 @@ def image_info(data):
 
 
 def validate(s, base):
-    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids'])
+    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops'])
     if type(s.get('format')) is not int or s['format'] != 1:
         fail('不支持的版本文件格式')
     if not isinstance(s.get('id'), str) or not ID.fullmatch(s['id']):
@@ -196,6 +196,16 @@ def validate(s, base):
         fail('增强君主被动设置无效')
     if s.get('enhancedRulerPassives') and not s.get('rulerPassives'):
         fail('增强君主被动需要先启用君主被动')
+    if 'relationshipEffects' in s and type(s['relationshipEffects']) is not bool:
+        fail('人物关系效果设置无效')
+    if 'autoBattleSkills' in s and type(s['autoBattleSkills']) is not bool:
+        fail('电脑战斗技能设置无效')
+    if 'eliteTroops' in s and type(s['eliteTroops']) is not bool:
+        fail('特色兵队设置无效')
+    if 'safeAiLure' in s and type(s['safeAiLure']) is not bool:
+        fail('电脑诱纳修正设置无效')
+    if 'balancedTroops' in s and type(s['balancedTroops']) is not bool:
+        fail('特色兵队平衡设置无效')
     if 'fixedAiRecruitment' in s and type(s['fixedAiRecruitment']) is not bool:
         fail('电脑补兵设置无效')
     if 'enhancedDisasters' in s and type(s['enhancedDisasters']) is not bool:
@@ -217,6 +227,19 @@ def validate(s, base):
     array(rulers, '君主候选', len(base['officers']) + 100)
     nbase = len(base['officers'])
     max_officer = nbase + sum(isinstance(o, dict) and type(o.get('id')) is int and o['id'] >= nbase for o in officers) - 1
+    if 'specialTroops' in s:
+        array(s['specialTroops'], '特色兵队', max_officer + 1)
+        assigned = set()
+        for entry in s['specialTroops']:
+            obj(entry, '特色兵队', ['officer', 'type', 'maxSquads'])
+            integer(entry.get('officer'), '特色兵队武将', 0, max_officer)
+            if 'maxSquads' in entry:
+                integer(entry['maxSquads'], '特色兵队个人上限', 1, 3)
+            if entry['officer'] in assigned:
+                fail('武将的特色兵队重复')
+            if entry.get('type') not in ('infantry', 'heavyinfantry', 'spear', 'heavyspear', 'hammer', 'doublehammer', 'lightshield', 'shield', 'lightcav', 'heavycav', 'royalcav', 'bow', 'crossbow', 'horsebow'):
+                fail('特色兵队类型无效')
+            assigned.add(entry['officer'])
     factions = s.get('factions', []); array(factions, '新势力', 3)
     homes, faction_rulers = set(), {f['ruler'] for f in base['factions']}
     for i, faction in enumerate(factions):
