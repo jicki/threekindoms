@@ -39,7 +39,7 @@ const TACTIC_TIP = {
 };
 // The tactic badges (暴力倾向@devblog, 2026-11-13): the character each running effect wears on the field's tags (tacticalview.js
 // FX_CHAR), on the cards and on the tactic buttons, and what it does to the side it works on.
-const FX_INFO = { bind: ['缚', '被咒缚', '将领无法移动，仍可攻击相邻之敌'], xbow: ['弩', '强弩', '弓兵射程增至6格'], fire: ['火', '火矢', '弓兵远射威力提升'], morale: ['气', '士气向上', '全军攻击提升'] };
+const FX_INFO = { bind: ['缚', '被咒缚', '将领无法移动，仍可攻击射程内之敌'], xbow: ['弩', '强弩', '弓兵射程增至6格'], fire: ['火', '火矢', '弓兵远射威力提升'], morale: ['气', '士气向上', '全军攻击提升'] };
 // One troop type's mark, the same in a formation's picture and in the picker's legend: 步 a disc, 弓 a triangle, 骑 a diamond.
 const kindMark = (k, cx, cy, r) => k === 'arc' ? `<path class="k-arc" d="M${cx} ${cy - r * 1.2}L${cx + r * 1.15} ${cy + r * 0.85}L${cx - r * 1.15} ${cy + r * 0.85}Z"/>`
   : k === 'cav' ? `<path class="k-cav" d="M${cx} ${cy - r * 1.3}L${cx + r * 1.3} ${cy}L${cx} ${cy + r * 1.3}L${cx - r * 1.3} ${cy}Z"/>` : `<circle class="k-${k}" cx="${cx}" cy="${cy}" r="${r}"/>`;

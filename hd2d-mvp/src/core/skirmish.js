@@ -12,6 +12,8 @@ const CASTLE = 5;
 const B = (h) => (h < 15 ? 20 : h < 35 ? 40 : h < 60 ? 50 : h < 80 ? 70 : h < 90 ? 85 : h < 100 ? 95 : 100);
 const C = (w) => (w < 65 ? 45 : w < 80 ? 50 : w < 87 ? 55 : w < 92 ? 60 : w < 97 ? 65 : 70);
 const HIT = [[70, 75, 60], [55, 60, 70], [80, 50, 60]];
+// 扇、弓分别沿用剑、长兵的单挑命中表；类别仍独立，电脑不会把它们换成其他类。
+const DUEL_GROUP = [0, 1, 2, 0, 2];
 
 function squads(o, castleDef) {
   const D = data(), n = o.soldiers, k = Math.ceil(n / 100);
@@ -117,7 +119,7 @@ export class Duel {
     this.init = { a: 0, d: 0 }; this.curse = { a: 0, d: 0 }; this.taunted = { a: false, d: false }; this.last = 0;
   }
   base(s) { return this.base0[s]; }
-  hitChance(s) { const me = this.side[s], foe = this.side[s === 'a' ? 'd' : 'a']; return HIT[me.eq.wgrp][foe.eq.wgrp]; }
+  hitChance(s) { const me = this.side[s], foe = this.side[s === 'a' ? 'd' : 'a']; return HIT[DUEL_GROUP[me.eq.wgrp]][DUEL_GROUP[foe.eq.wgrp]]; }
   // `bank23:$B8D3` reads the striker's own 骂倒 counter (`$04B5,Y`, Y = `$04AA`) before it looks at the command: while
   // it runs, 20 is added to his hit roll and 3/10 to his damage, for 牵制, 攻击 and 舍身 alike (18,432 probe cases).
   cursed(s) { return this.curse[s] > 0; }

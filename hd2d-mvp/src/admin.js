@@ -1,5 +1,7 @@
 import { applyScenario, MAX_PORTRAIT_BYTES, MAX_PORTRAIT_SIDE, newDraft, newScenarioId, RELATION_KINDS, validateScenario } from './core/scenario.js';
-import { addScenario, listScenarios, loadScenario } from './core/scenario-store.js';
+import { addScenario, listScenarios, loadScenario, uploadVisualAsset, readVisualAsset } from './core/scenario-store.js';
+import { FEMALE_PRESETS, FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, MOODS, femaleOfficer, presetVisual, visualRefs, visualUrl } from './core/visuals.js';
+import { EQUIPMENT_ICONS, ensureFemaleGear, equipmentIconUrl } from './core/equipment.js';
 
 const $ = (id) => document.getElementById(id);
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -38,16 +40,71 @@ async function preparePortrait(file) {
     throw new Error('图片压缩后仍超过 64 KB，请选择更简单的图片');
   } finally { image.close(); }
 }
+async function prepareVisual(file, kind) {
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 8 * 1024 * 1024) throw new Error('请选择不超过 8 MB 的 PNG、JPEG 或 WebP 图片');
+  let image;
+  try { image = await createImageBitmap(file); } catch { throw new Error('无法读取图片，请选择有效的图片文件'); }
+  try {
+    if (!image.width || !image.height || image.width * image.height > 16_000_000) throw new Error('图片尺寸过大');
+    if (kind === 'motion' && (file.type === 'image/jpeg' || image.width !== image.height || image.width % 4 !== 0)) throw new Error('动作图须为正方形的 4×4 透明 PNG 或 WebP 网格');
+    const canvas = document.createElement('canvas'), scale = Math.min(1, (kind === 'portrait' ? 1152 : 512) / Math.max(image.width, image.height));
+    canvas.width = kind === 'motion' ? 512 : Math.max(1, Math.round(image.width * scale));
+    canvas.height = kind === 'motion' ? 512 : Math.max(1, Math.round(image.height * scale));
+    const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('浏览器无法处理图片');
+    ctx.imageSmoothingEnabled = kind !== 'motion'; ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    if (kind === 'motion') {
+      const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data; let transparent = false, visible = false;
+      for (let i = 3; i < pixels.length && !(transparent && visible); i += 4) { transparent ||= pixels[i] === 0; visible ||= pixels[i] > 0; }
+      if (!transparent || !visible) throw new Error('动作图须包含透明背景和可见图像');
+    }
+    const type = kind === 'motion' ? 'image/png' : 'image/webp';
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, type, 0.85));
+    if (!blob || blob.type !== type || blob.size > 1024 * 1024) throw new Error('压缩后的素材超过 1 MB 或浏览器不支持该格式');
+    return blob;
+  } finally { image.close(); }
+}
 const base = await (async () => {
   try { const response = await fetch('data/game-data.json', { cache: 'no-store' }); if (!response.ok) throw new Error('基础数据无法读取'); return await response.json(); }
   catch { report('无法读取游戏基础数据。请通过游戏服务器打开管理页面。', true); return null; }
 })();
+const existingMotions = await (async () => {
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch('assets/ai/sprites/march/index.json', { cache: 'no-store', signal: controller.signal });
+    const ids = response.ok ? await response.json() : [];
+    return Array.isArray(ids) ? ids.filter((id) => /^(0|[1-9]\d*)$/.test(String(id))) : [];
+  } catch { return []; } finally { clearTimeout(timer); }
+})();
 
 if (base) {
-  let draft = newDraft(base), tab = 'officers', selected = { officers: 0, weapons: null, skills: null }, formDirty = false, draftDirty = false, lastPublished = null, leaving = false, inFlight = false;
+  $('published').append(el('option', { value: FEMALE_SCENARIO_ID }, `${FEMALE_SCENARIO_NAME}（内置）`));
+  let draft = newDraft(base), tab = 'officers', selected = { officers: 0, weapons: null, armors: null, skills: null }, formDirty = false, draftDirty = false, lastPublished = null, leaving = false, inFlight = false;
+  const equipmentId = () => base.equipment.length + draft.weapons.length + (draft.armors?.length ?? 0);
+  const iconValue = (value) => /^\d+$/.test(value) ? Number(value) : value;
+  const iconChoices = (kind) => [...base.equipment.filter((e) => e.kind === kind).map((e) => [e.id, e.name]),
+    ...EQUIPMENT_ICONS.filter((e) => e.kind === kind).map((e) => [e.id, e.name])];
+  const gearRequirements = (item) => {
+    const r = item.requirements ?? {};
+    const grade = select('grade', [['', '未设置'], ...[1, 2, 3, 4, 5].map((n) => [n, `${n}级`])], item.grade ?? '');
+    const limit = (key) => el('input', { name: key, type: 'number', min: 1, max: 99, step: 1, value: r[key] ?? '', placeholder: '不限' });
+    const allowed = el('select', { name: 'allowedOfficers', multiple: true, size: 6, 'aria-label': '限定购买武将' },
+      currentData().officers.map((o) => el('option', { value: o.id, selected: r.officers?.includes(o.id) }, `No.${o.id} ${o.name}`)));
+    const clear = el('button', { type: 'button', onclick: () => {
+      for (const option of allowed.options) option.selected = false;
+      allowed.dispatchEvent(new Event('change', { bubbles: true }));
+    } }, '不限武将');
+    return [field('品级', grade), field('最低武力', limit('war')), field('最低智力', limit('int')), field('最低人德', limit('virtue')),
+      el('div', { class: 'wide' }, field('限定购买武将', allowed), clear, el('p', { class: 'intro' }, '可多选指定武将，未选择则不限；属性门槛与武将限制同时生效，仅限制购买。'))];
+  };
+  const readGearRequirements = (fd) => {
+    const requirement = {};
+    for (const key of ['war', 'int', 'virtue']) if (fd.get(key) !== '') requirement[key] = Number(fd.get(key));
+    const officers = fd.getAll('allowedOfficers').map(Number); if (officers.length) requirement.officers = officers;
+    return { ...(fd.get('grade') ? { grade: Number(fd.get('grade')) } : {}), ...(Object.keys(requirement).length ? { requirements: requirement } : {}) };
+  };
   const editFields = ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'appear', 'city', 'faction'];
   const editable = (o) => ({ ...Object.fromEntries(editFields.map((key) => [key, o[key]])), birthYear: o.birthYear ?? null, birthCity: o.birthCity ?? null,
-    portraitId: o.portraitId ?? (o.id < base.officers.length ? o.id : 0), portraitData: o.portraitData ?? null, skills: [...(o.skills ?? [])] });
+    portraitId: o.portraitId ?? (o.id < base.officers.length ? o.id : 0), portraitData: o.portraitData ?? null, skills: [...(o.skills ?? [])], visual: clone(o.visual ?? {}) });
   const currentData = () => applyScenario(base, draft, { draft: true });
   const hasChanges = () => formDirty || draftDirty || $('version-name').value !== draft.name;
   const abandonForm = () => !formDirty || confirm('当前表单尚未应用，确定放弃这些输入吗？');
@@ -98,7 +155,14 @@ if (base) {
         death: 240, birthYear: null, birthCity: null, portraitId: 0, appear: 'search_city', city: 0, faction: null, skills: [] };
       if (update((next) => next.officers.push(actor), `已添加 ${actor.name}`)) { selected.officers = id; render(); }
     } }, '＋ 新建武将');
-    const side = panel('list', el('h2', {}, `武将 · ${all.length}`), search, el('div', { class: 'actions' }, add), list);
+    const addPreset = select('femalePreset', FEMALE_PRESETS.map((p) => [p.key, p.name]), FEMALE_PRESETS[0].key);
+    addPreset.setAttribute('aria-label', '女性角色模板');
+    const addFemale = el('button', { type: 'button', onclick: () => {
+      if (!abandonForm()) return;
+      const preset = FEMALE_PRESETS.find((p) => p.key === addPreset.value), id = data.officers.length;
+      if (update((next) => next.officers.push(femaleOfficer(base, preset, id, ensureFemaleGear(next, base, preset.key))), `已添加 ${preset.name}`)) { selected.officers = id; render(); }
+    } }, '添加角色模板');
+    const side = panel('list', el('h2', {}, `武将 · ${all.length}`), search, el('div', { class: 'actions' }, add, addPreset, addFemale), list);
     const o = editable(all[selected.officers] ?? all[0]), form = el('form');
     const appearance = select('appear', [['initial', '开局已有'], ['search_city', '城市搜索'], ['automatic_faction', '自动出仕']], o.appear);
     const city = select('city', base.cities.map((c) => [c.id, `${c.name}${c.faction === 7 ? '（无主）' : ''}`]), o.city ?? 0);
@@ -113,20 +177,72 @@ if (base) {
     const note = el('span', { class: 'portrait-note' });
     const buttons = formButtons(), submit = buttons.querySelector('button');
     let customImage = o.portraitData, imageRequest = 0, imageBusy = false;
-    const showPortrait = () => { preview.src = customImage || `assets/ai/portraits/${portraitSelect.value}.webp`; note.textContent = customImage ? '使用自定义图片（各表情共用）' : '使用已有的立绘和表情'; };
-    preview.addEventListener('error', () => { if (customImage && preview.src === customImage) { preview.src = `assets/ai/portraits/${portraitSelect.value}.webp`; note.textContent = '自定义图片无法显示，预览已回退到已有图像'; } });
-    const clearImage = el('button', { type: 'button', onclick: () => { imageRequest++; imageBusy = false; submit.disabled = false; customImage = null; upload.value = ''; formDirty = true; showPortrait(); } }, '使用已有图像');
-    portraitSelect.addEventListener('change', () => { imageRequest++; imageBusy = false; submit.disabled = false; customImage = null; upload.value = ''; showPortrait(); });
+    const assetInputs = [], visuals = {}, refreshVisuals = [];
+    const busyImages = (busy) => { imageBusy = busy; submit.disabled = busy; for (const node of assetInputs) node.disabled = busy; };
+    const showPortrait = () => {
+      const visual = visualUrl(visuals.portrait?.value);
+      preview.src = visual || customImage || `assets/ai/portraits/${portraitSelect.value}.webp`;
+      note.textContent = visual ? '使用所选立绘素材' : customImage ? '使用自定义图片（未设置表情时共用）' : '使用已有的立绘和表情';
+    };
+    preview.addEventListener('error', () => {
+      const selected = visualUrl(visuals.portrait?.value);
+      if (selected && preview.getAttribute('src') === selected) { preview.src = customImage || `assets/ai/portraits/${portraitSelect.value}.webp`; note.textContent = '立绘素材无法显示，预览已回退'; }
+      else if (customImage && preview.src === customImage) { preview.src = `assets/ai/portraits/${portraitSelect.value}.webp`; note.textContent = '自定义图片无法显示，预览已回退到已有图像'; }
+    });
+    const clearImage = el('button', { type: 'button', onclick: () => { imageRequest++; customImage = null; upload.value = ''; if (visuals.portrait) visuals.portrait.value = ''; formDirty = true; refreshVisuals.forEach((f) => f()); showPortrait(); } }, '使用已有图像');
+    portraitSelect.addEventListener('change', () => { imageRequest++; customImage = null; upload.value = ''; if (visuals.portrait) visuals.portrait.value = ''; refreshVisuals.forEach((f) => f()); showPortrait(); });
     upload.addEventListener('change', async () => {
       const file = upload.files[0], request = ++imageRequest; if (!file) return;
-      imageBusy = true; submit.disabled = true;
+      busyImages(true);
       try {
         const data = await preparePortrait(file);
         if (request !== imageRequest || !form.isConnected) return;
-        customImage = data; showPortrait(); report('图片已准备，请应用人物修改');
+        customImage = data; if (visuals.portrait) visuals.portrait.value = ''; refreshVisuals.forEach((f) => f()); showPortrait(); report('图片已准备，请应用人物修改');
       } catch (error) { if (request === imageRequest && form.isConnected) report(error.message, true); }
-      finally { if (request === imageRequest && form.isConnected) { imageBusy = false; submit.disabled = false; } }
+      finally { if (request === imageRequest && form.isConnected) busyImages(false); }
     });
+    assetInputs.push(upload, clearImage, portraitSelect);
+    const captions = { portrait: '立绘素材', calm: '平静表情', joy: '喜悦表情', angry: '愤怒表情', grief: '悲伤表情', motion: '动作素材' };
+    const assetFields = Object.entries(captions).map(([kind, label]) => {
+      const current = kind === 'portrait' || kind === 'motion' ? o.visual[kind] : o.visual.faces?.[kind];
+      const options = [['', '沿用默认'], ...FEMALE_PRESETS.map((p) => [`b-${p.key}-${kind}`, `${p.name} · ${label}`])];
+      if (kind === 'motion') for (const id of existingMotions) if (base.officers[Number(id)]) options.push([`o-${id}`, `${base.officers[Number(id)].name} · 原有动作`]);
+      if (current && !options.some(([value]) => value === current)) options.push([current, current.startsWith('a-') ? '已上传素材' : `既有动作 ${current.slice(2)}`]);
+      const chosen = visuals[kind] = select(`visual_${kind}`, options, current ?? '');
+      const file = el('input', { type: 'file', accept: kind === 'motion' ? 'image/png,image/webp' : 'image/png,image/jpeg,image/webp', 'aria-label': `上传${label}` });
+      const assetPreview = el('img', { class: 'visual-asset-preview', alt: `${label}预览`, hidden: true });
+      const refresh = () => {
+        const existing = kind === 'motion' && /^o-(\d+)$/.exec(chosen.value);
+        const src = visualUrl(chosen.value) || (existing ? `assets/ai/sprites/march/${existing[1]}.png` : null);
+        assetPreview.hidden = !src; if (src) assetPreview.src = src;
+      };
+      assetPreview.addEventListener('error', () => { assetPreview.hidden = true; });
+      refreshVisuals.push(refresh); refresh();
+      assetInputs.push(file, chosen);
+      chosen.addEventListener('change', () => { refresh(); if (kind === 'portrait') showPortrait(); });
+      file.addEventListener('change', async () => {
+        const source = file.files[0]; file.value = ''; if (!source) return;
+        const request = ++imageRequest; busyImages(true);
+        try {
+          const blob = await prepareVisual(source, kind), result = await uploadVisualAsset(blob, $('token').value);
+          if (!/^a-[a-f0-9]{64}$/.test(result?.id ?? '')) throw new Error('服务器返回的素材编号无效');
+          if (request !== imageRequest || !form.isConnected) return;
+          chosen.append(el('option', { value: result.id }, '已上传素材')); chosen.value = result.id;
+          formDirty = true; refresh(); showPortrait(); report(`${label}已上传，请应用人物修改`);
+        } catch (error) { if (request === imageRequest && form.isConnected) report(error.message, true); }
+        finally { if (request === imageRequest && form.isConnected) busyImages(false); }
+      });
+      return el('div', {}, field(label, chosen), file, assetPreview);
+    });
+    const stylePreset = select('stylePreset', [['', '选择角色素材'], ...FEMALE_PRESETS.map((p) => [p.key, p.name])], '');
+    stylePreset.setAttribute('aria-label', '整套角色素材');
+    const applyPreset = el('button', { type: 'button', onclick: () => {
+      if (!stylePreset.value) return;
+      const v = presetVisual(stylePreset.value); visuals.portrait.value = v.portrait; visuals.motion.value = v.motion;
+      for (const mood of MOODS) visuals[mood].value = v.faces[mood];
+      customImage = null; upload.value = ''; formDirty = true; refreshVisuals.forEach((f) => f()); showPortrait();
+    } }, '应用整套素材');
+    assetInputs.push(stylePreset, applyPreset);
     showPortrait();
     const weapons = data.equipment.filter((e) => e.kind === 'weapon').map((e) => [e.id, `${e.name}（攻${e.atk}）`]);
     const armors = data.equipment.filter((e) => e.kind === 'armor').map((e) => [e.id - 24, `${e.name}（防${e.dfn}）`]);
@@ -143,17 +259,25 @@ if (base) {
       field('出生年份', born), field('出生地', select('birthCity', [['', '未知'], ...base.cities.map((c) => [c.id, c.name])], o.birthCity ?? '')),
       field('登场方式', appearance), cityField, factionField,
       el('div', { class: 'wide portrait-editor' }, preview, el('div', {}, field('上传人物图片', upload), note, clearImage)),
+      el('div', { class: 'wide' }, el('h3', {}, '立绘、表情与动作'), el('div', { class: 'actions' }, stylePreset, applyPreset),
+        el('p', { class: 'intro' }, '可选择内置素材或上传；上传前请填写管理员令牌。动作图为透明 4×4 网格，包含行军、转向、攻击与受伤帧。'),
+        el('div', { class: 'form-grid' }, ...assetFields)),
       el('div', { class: 'wide' }, '分配新技能', checks)),
       el('p', { class: 'intro' }, '自定义图片会随版本发布，最大 64 KB；各表情共用该图。开局武将必须放在所属势力的城市；原君主的开局位置保持不变。移走城中最后一名武将后，该城开局无主。'), buttons);
     markForm(form);
     form.addEventListener('submit', (event) => {
       event.preventDefault(); if (imageBusy) return; const fd = new FormData(form), mode = fd.get('appear'), cid = number(fd, 'city');
+      const visual = {}, faces = {};
+      if (visuals.portrait.value) visual.portrait = visuals.portrait.value;
+      if (visuals.motion.value) visual.motion = visuals.motion.value;
+      for (const mood of MOODS) if (visuals[mood].value) faces[mood] = visuals[mood].value;
+      if (Object.keys(faces).length) visual.faces = faces;
       const next = { id: o.id, name: String(fd.get('name')).trim(), ...Object.fromEntries(stats.map(([key]) => [key, number(fd, key)])),
         birthYear: fd.get('birthYear') === '' ? null : number(fd, 'birthYear'), birthCity: fd.get('birthCity') === '' ? null : number(fd, 'birthCity'), portraitId: number(fd, 'portraitId'),
         army: fd.get('army'), weapon: number(fd, 'weapon'), armor: number(fd, 'armor'), appear: mode,
         city: mode === 'automatic_faction' ? null : cid,
         faction: mode === 'automatic_faction' ? number(fd, 'faction') : mode === 'initial' ? base.cities[cid]?.faction : null,
-        skills: fd.getAll('skills').map(Number), ...(customImage ? { portraitData: customImage } : {}) };
+        skills: fd.getAll('skills').map(Number), ...(customImage ? { portraitData: customImage } : {}), ...(Object.keys(visual).length ? { visual } : {}) };
       update((d) => { const at = d.officers.findIndex((item) => item.id === o.id); if (at < 0) d.officers.push(next); else d.officers[at] = next; }, '人物修改已应用到草稿');
     });
     return workspace(side, panel('detail', el('h2', {}, `${o.name} · No.${o.id}`), form));
@@ -163,7 +287,7 @@ if (base) {
     const items = draft.weapons;
     const add = el('button', { type: 'button', onclick: () => {
       if (!abandonForm()) return;
-      const id = base.equipment.length + items.length;
+      const id = equipmentId();
       if (update((d) => d.weapons.push({ id, name: `新武器${id}`, cat: '剑', atk: 10, weight: 4, price: 100, icon: 0, shops: [] }), '已添加新武器')) { selected.weapons = id; render(); }
     } }, '＋ 新建武器');
     const side = panel('list', el('h2', {}, `新武器 · ${items.length}`), add, el('div', { class: 'stack' },
@@ -173,23 +297,53 @@ if (base) {
     selected.weapons = w.id;
     const form = el('form'), shops = el('div', { class: 'checks' }, base.cities.filter((c) => c.facilities.weapons).map((c) => el('label', {},
       el('input', { type: 'checkbox', name: 'shops', value: c.id, checked: w.shops.includes(c.id) }), c.name)));
-    const icon = select('icon', base.equipment.filter((e) => e.kind === 'weapon').map((e) => [e.id, e.name]), w.icon);
+    const icon = select('icon', iconChoices('weapon'), w.icon);
     const iconPreview = el('img', { class: 'weapon-preview', alt: '武器图标预览' });
-    const showIcon = () => { iconPreview.src = `assets/ai/icon/equip/${icon.value}.webp`; };
+    const showIcon = () => { iconPreview.src = equipmentIconUrl(iconValue(icon.value)); };
     icon.addEventListener('change', showIcon); showIcon();
     form.append(el('div', { class: 'form-grid' }, field('名称', string('name', w.name)),
-      field('类型', select('cat', [['剑', '剑'], ['刀', '刀'], ['枪', '长兵']], w.cat)),
+      field('类型', select('cat', [['剑', '剑'], ['刀', '刀'], ['枪', '长兵'], ['扇', '扇'], ['弓', '弓']], w.cat)),
       field('攻击', input('atk', w.atk, 0, 99)), field('重量', input('weight', w.weight, 0, 99)), field('价格', input('price', w.price, 0, 9999)),
-      field('沿用图标', icon), iconPreview,
+      field('沿用图标', icon), iconPreview, ...gearRequirements(w),
       el('div', { class: 'wide' }, '售卖城市', shops)),
-      el('p', { class: 'intro' }, '所选城市的武器屋和战场商店可购买此武器；电脑也可按原有换装规则选择。'), formButtons());
+      el('p', { class: 'intro' }, '弓可在白兵中沿直线射击两格，远射的战力和武器攻击分别按 55% 和 60% 计算；近身遇敌将仍单挑，扇使用近战。所选城市的武器屋出售，有战场武器店时也可购买；电脑按武器类别与购买条件换装。'), formButtons());
     markForm(form);
     form.addEventListener('submit', (event) => {
       event.preventDefault(); const fd = new FormData(form), value = { id: w.id, name: String(fd.get('name')).trim(), cat: fd.get('cat'),
-        atk: number(fd, 'atk'), weight: number(fd, 'weight'), price: number(fd, 'price'), icon: number(fd, 'icon'), shops: fd.getAll('shops').map(Number) };
+        atk: number(fd, 'atk'), weight: number(fd, 'weight'), price: number(fd, 'price'), icon: iconValue(fd.get('icon')), shops: fd.getAll('shops').map(Number), ...readGearRequirements(fd) };
       update((d) => { d.weapons[d.weapons.findIndex((item) => item.id === w.id)] = value; }, '武器修改已应用到草稿');
     });
     return workspace(side, panel('detail', el('h2', {}, w.name), form));
+  }
+
+  function renderArmors() {
+    const items = draft.armors ?? [];
+    const add = el('button', { type: 'button', onclick: () => {
+      if (!abandonForm()) return;
+      const id = equipmentId();
+      if (update((d) => (d.armors ??= []).push({ id, name: `新防具${id}`, dfn: 5, weight: 4, price: 100, icon: 24, shops: [] }), '已添加新防具')) { selected.armors = id; render(); }
+    } }, '＋ 新建防具');
+    const side = panel('list', el('h2', {}, `新防具 · ${items.length}`), add, el('div', { class: 'stack' },
+      items.map((a) => el('button', { type: 'button', class: selected.armors === a.id ? 'on' : '', onclick: () => choose('armors', a.id) }, a.name))));
+    const a = items.find((item) => item.id === selected.armors) ?? items[0];
+    if (!a) return workspace(side, panel('detail', el('h2', {}, '新防具'), el('p', { class: 'empty' }, '创建新防具后设置属性和售卖城市。')));
+    selected.armors = a.id;
+    const form = el('form'), shops = el('div', { class: 'checks' }, base.cities.filter((c) => c.facilities.weapons).map((c) => el('label', {},
+      el('input', { type: 'checkbox', name: 'shops', value: c.id, checked: a.shops.includes(c.id) }), c.name)));
+    const icon = select('icon', iconChoices('armor'), a.icon), preview = el('img', { class: 'weapon-preview', alt: '防具图标预览' });
+    const showIcon = () => { preview.src = equipmentIconUrl(iconValue(icon.value)); };
+    icon.addEventListener('change', showIcon); showIcon();
+    form.append(el('div', { class: 'form-grid' }, field('名称', string('name', a.name)), field('防御', input('dfn', a.dfn, 0, 99)),
+      field('重量', input('weight', a.weight, 0, 99)), field('价格', input('price', a.price, 0, 9999)), field('防具图标', icon), preview, ...gearRequirements(a),
+      el('div', { class: 'wide' }, '售卖城市', shops)),
+      el('p', { class: 'intro' }, '所选城市的武器屋出售此防具，有战场武器店时也可购买。'), formButtons());
+    markForm(form);
+    form.addEventListener('submit', (event) => {
+      event.preventDefault(); const fd = new FormData(form), value = { id: a.id, name: String(fd.get('name')).trim(), dfn: number(fd, 'dfn'),
+        weight: number(fd, 'weight'), price: number(fd, 'price'), icon: iconValue(fd.get('icon')), shops: fd.getAll('shops').map(Number), ...readGearRequirements(fd) };
+      update((d) => { d.armors[d.armors.findIndex((item) => item.id === a.id)] = value; }, '防具修改已应用到草稿');
+    });
+    return workspace(side, panel('detail', el('h2', {}, a.name), form));
   }
 
   function renderSkills() {
@@ -280,10 +434,10 @@ if (base) {
   }
 
   function render() {
-    const tabs = [['officers', '人物与登场'], ['weapons', '新武器'], ['skills', '新技能'], ['relations', '人物关系'], ['rulers', '君主候选']];
+    const tabs = [['officers', '人物与登场'], ['weapons', '新武器'], ['armors', '新防具'], ['skills', '新技能'], ['relations', '人物关系'], ['rulers', '君主候选']];
     $('tabs').replaceChildren(...tabs.map(([id, label]) => el('button', { id: `tab-${id}`, type: 'button', role: 'tab', 'aria-selected': id === tab ? 'true' : 'false', onclick: () => changeTab(id) }, label)));
     $('content').setAttribute('aria-labelledby', `tab-${tab}`);
-    $('content').replaceChildren(({ officers: renderOfficers, weapons: renderWeapons, skills: renderSkills, relations: renderRelations, rulers: renderRulers })[tab]());
+    $('content').replaceChildren(({ officers: renderOfficers, weapons: renderWeapons, armors: renderArmors, skills: renderSkills, relations: renderRelations, rulers: renderRulers })[tab]());
   }
   let listRequest = 0;
   async function refreshPublished() {
@@ -294,8 +448,8 @@ if (base) {
     if (sequence !== listRequest) return;
     if (!Array.isArray(versions)) throw new Error('版本列表格式错误');
     const old = $('published').value;
-    $('published').replaceChildren(el('option', { value: '' }, '从原版开始'), ...versions.map((v) => el('option', { value: v.id }, v.name)));
-    if (versions.some((v) => v.id === old)) $('published').value = old;
+    $('published').replaceChildren(el('option', { value: '' }, '从原版开始'), el('option', { value: FEMALE_SCENARIO_ID }, `${FEMALE_SCENARIO_NAME}（内置）`), ...versions.filter((v) => v.id !== FEMALE_SCENARIO_ID).map((v) => el('option', { value: v.id }, v.name)));
+    if (old === FEMALE_SCENARIO_ID || versions.some((v) => v.id === old)) $('published').value = old;
     const warning = $('version-warning');
     warning.hidden = !versions.skipped;
     warning.textContent = versions.skipped ? `有 ${versions.skipped} 个已发布版本无法读取，已跳过；请检查服务器日志和版本文件。` : '';
@@ -307,7 +461,7 @@ if (base) {
         const id = $('published').value;
         draft = id ? { ...clone(await loadScenario(id, base)), id: null } : newDraft(base);
         $('version-name').value = draft.name; formDirty = draftDirty = false; lastPublished = null;
-        selected = { officers: 0, weapons: null, skills: null }; render(); report('已载入新草稿');
+        selected = { officers: 0, weapons: null, armors: null, skills: null }; render(); report('已载入新草稿');
       } catch (error) { report(error.message, true); }
     });
   };
@@ -316,10 +470,28 @@ if (base) {
     const file = $('file').files[0]; $('file').value = ''; if (!file || !abandonDraft()) return;
     await withBusy(async () => {
       try {
-        if (file.size > 1024 * 1024) throw new Error('版本文件不能超过 1 MB');
-        const imported = JSON.parse(await file.text()); validateScenario(imported, base); applyScenario(base, imported);
+        if (file.size > 24 * 1024 * 1024) throw new Error('版本素材包不能超过 24 MB');
+        const parsed = JSON.parse(await file.text()), bundle = parsed?.bundle === 'threekindoms-assets-v1';
+        if (!bundle && file.size > 1024 * 1024) throw new Error('版本文件不能超过 1 MB');
+        const imported = bundle ? parsed.scenario : parsed;
+        validateScenario(imported, base); applyScenario(base, imported);
+        if (bundle) {
+          const assets = parsed.assets;
+          if (!assets || typeof assets !== 'object' || Array.isArray(assets)) throw new Error('版本素材包无效');
+          const needed = new Set(imported.officers.flatMap((o) => visualRefs(o.visual)).filter((id) => /^a-[a-f0-9]{64}$/.test(id)));
+          if (needed.size > 128 || Object.keys(assets).length !== needed.size || [...needed].some((id) => !Object.hasOwn(assets, id))) throw new Error('版本素材包不完整');
+          let total = 0;
+          for (const id of needed) {
+            const item = assets[id];
+            if (!item || !['image/png', 'image/webp'].includes(item.type) || typeof item.data !== 'string' || item.data.length > 1398104 || !/^[A-Za-z0-9+/]+={0,2}$/.test(item.data)) throw new Error('版本素材包无效');
+            let bytes; try { bytes = Uint8Array.from(atob(item.data), (c) => c.charCodeAt(0)); } catch { throw new Error('版本素材编码无效'); }
+            total += bytes.length; if (total > 16 * 1024 * 1024) throw new Error('版本素材总量超过 16 MB');
+            const uploaded = await uploadVisualAsset(new Blob([bytes], { type: item.type }), $('token').value);
+            if (uploaded.id !== id) throw new Error('版本素材校验失败');
+          }
+        }
         draft = clone(imported); $('version-name').value = draft.name; formDirty = false; draftDirty = true; lastPublished = null;
-        selected = { officers: 0, weapons: null, skills: null }; render(); report('版本已导入，未修改时可恢复原编号');
+        selected = { officers: 0, weapons: null, armors: null, skills: null }; render(); report('版本已导入，未修改时可恢复原编号');
       } catch (error) { report(error.message || '版本文件无效', true); }
     });
   };
@@ -332,12 +504,25 @@ if (base) {
     if (new TextEncoder().encode(JSON.stringify(next, null, 2)).byteLength > 1024 * 1024) throw new Error('版本文件超过 1 MB，请减少自定义图片');
     return next;
   }
-  $('export').onclick = () => {
-    try {
-      const next = prepared(), url = URL.createObjectURL(new Blob([JSON.stringify(next, null, 2)], { type: 'application/json' }));
-      el('a', { href: url, download: `threekindoms-${next.id}.json` }).click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-      draft = next; report('已导出版本文件');
-    } catch (error) { report(error.message, true); }
+  $('export').onclick = async () => {
+    await withBusy(async () => {
+      try {
+        const next = prepared(), ids = [...new Set(next.officers.flatMap((o) => visualRefs(o.visual)).filter((id) => /^a-[a-f0-9]{64}$/.test(id)))];
+        if (ids.length > 128) throw new Error('版本素材数量超过 128 个');
+        const assets = {}; let total = 0;
+        for (const id of ids) {
+          const blob = await readVisualAsset(id); total += blob.size;
+          if (total > 16 * 1024 * 1024) throw new Error('版本素材总量超过 16 MB');
+          const bytes = new Uint8Array(await blob.arrayBuffer()); let binary = '';
+          for (let at = 0; at < bytes.length; at += 8192) binary += String.fromCharCode(...bytes.subarray(at, at + 8192));
+          assets[id] = { type: blob.type, data: btoa(binary) };
+        }
+        const output = ids.length ? { bundle: 'threekindoms-assets-v1', scenario: next, assets } : next;
+        const url = URL.createObjectURL(new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' }));
+        el('a', { href: url, download: `threekindoms-${next.id}.json` }).click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+        draft = next; report(ids.length ? '已导出包含素材的版本文件' : '已导出版本文件');
+      } catch (error) { report(error.message, true); }
+    });
   };
   $('publish').onclick = async () => {
     await withBusy(async () => {

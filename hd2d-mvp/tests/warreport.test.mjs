@@ -107,10 +107,135 @@ test('fire arrows burn the final five rice: the surviving ruler is not reported 
   settle(b); assert.match(fate(b, b.ruler), /无路可退.*身亡/);
 });
 
-test('all friendly retreat cities full is also no escape, including with 武将不战死', () => {
+test('不战死: a stranded ruler is captured if the winning side has room', () => {
   const b = battle(); b.g.noWarDeath = true;
   for (const dest of G.roads(b.war.city)) { b.g.cities[dest].faction = 2; b.g.cities[dest].officers = Array(10).fill(b.enemy); }
-  settle(b); assert.match(fate(b, b.ruler), /无路可退.*身亡/); assert.match(fate(b, b.general), /下野/);
+  settle(b); assert.match(fate(b, b.ruler), /被俘归顺/); assert.match(fate(b, b.general), /下野/);
+});
+
+// 战场所在城和所有邻城均满员；其余城市为空城，不可作为无路可退时俘虏的远方安置地。
+function fillCaptors(b, { heir = false } = {}) {
+  const winSide = b.res.loser === 'def' ? 'att' : 'def';
+  const excluded = new Set([b.ruler, b.general, b.enemy, ...b.g.factions.map((f) => f.ruler)]);
+  const pool = b.g.officers.filter((o) => !excluded.has(o.id)).map((o) => o.id);
+  const take = () => { const id = pool.pop(); b.g.officers[id].status = G.SERVING; return id; };
+  for (const c of b.g.cities) { c.faction = G.NONE; c.officers = []; }
+  b.g.cities[b.war.city].faction = 1;
+  for (const n of G.roads(b.war.city)) { const c = b.g.cities[n]; c.faction = 1; c.officers = Array.from({ length: 10 }, take); }
+  const more = Array.from({ length: 9 }, take);
+  b.res.survivors[winSide].push(...more); b.war[winSide].ids.push(...more);
+  if (heir) {
+    const city = b.g.cities.find((c) => c.id !== b.war.city && !G.roads(b.war.city).includes(c.id));
+    const id = take(); city.faction = 2; city.officers = [id];
+    return id;
+  }
+  return null;
+}
+const ioFor = (events) => ({ event: async (e) => events.push(e), chooseHeir: async (_f, ids, why) => { events.push({ type: 'choose', why }); return ids[0]; } });
+
+for (const side of ['att', 'def']) for (const captured of [false, true]) {
+  test(`不战死: ${side} 方${captured ? '被俘' : '无路可退'}君主无安置空间时下野并继位`, async () => {
+    const b = battle(side); b.g.noWarDeath = true;
+    const heir = fillCaptors(b, { heir: true });
+    if (captured) {
+      b.res.survivors[side] = b.res.survivors[side].filter((id) => id !== b.ruler);
+      (side === 'def' ? b.res.captured.byAtt : b.res.captured.byDef).push(b.ruler);
+      b.res.sparedRulers = [b.ruler];
+      b.res.placementSide = side === 'def' ? 'att' : 'def'; b.res.placement = { [b.ruler]: 'auto' };
+    }
+    settle(b);
+    assert.equal(b.g.officers[b.ruler].status, G.RONIN);
+    assert.match(fate(b, b.ruler), /下野/);
+    assert.notEqual(warFate(b.g, b.war, b.res, b.ruler)[2], true);
+    // 战后选择前切换开关并经过 JSON 存读，仍保留已经发生的下野结果。
+    b.g.noWarDeath = false;
+    const g = JSON.parse(JSON.stringify(b.g)), events = [];
+    await G.checkFactions(g, ioFor(events));
+    assert.equal(g.officers[b.ruler].status, G.RONIN);
+    assert.equal(g.officers[b.ruler].warRulerRonin, undefined);
+    assert.equal(g.factions[2].ruler, heir);
+    assert.equal(events.find((e) => e.type === 'choose')?.why, 'ronin');
+    assert.equal(events.find((e) => e.type === 'heir' && e.faction === 2)?.ronin, true);
+    await G.checkFactions(g, ioFor(events));
+    assert.equal(events.filter((e) => e.type === 'heir' && e.faction === 2).length, 1);
+  });
+}
+
+test('不战死: 无继承人时玩家势力灭亡，君主仍然下野', async () => {
+  const b = battle(); b.g.noWarDeath = true; fillCaptors(b);
+  settle(b); const events = [];
+  await G.checkFactions(b.g, ioFor(events));
+  assert.equal(b.g.officers[b.ruler].status, G.RONIN);
+  assert.equal(b.g.factions[2].ruler, null);
+  assert.equal(b.g.over.type, 'gameover');
+  assert.ok(events.some((e) => e.type === 'fall' && e.faction === 2));
+});
+
+test('不战死: 被俘君主优先安置到俘获方其他有空位的城', () => {
+  const b = battle(); b.g.noWarDeath = true; fillCaptors(b);
+  const remote = b.g.cities.find((c) => c.faction === G.NONE && c.id !== b.war.city && !G.roads(b.war.city).includes(c.id));
+  remote.faction = 1;
+  b.res.survivors.def = [b.general]; b.res.captured.byAtt = [b.ruler]; b.res.sparedRulers = [b.ruler];
+  settle(b);
+  assert.equal(b.g.officers[b.ruler].status, G.SERVING);
+  assert.equal(G.officerCity(b.g, b.ruler).id, remote.id);
+  assert.match(fate(b, b.ruler), /被俘归顺/);
+});
+
+test('战斗中保护的君主即使结算前关闭不战死，也不会在无空间时死亡', async () => {
+  const b = battle(); b.g.noWarDeath = false; fillCaptors(b, { heir: true });
+  b.res.survivors.def = [b.general]; b.res.captured.byAtt = [b.ruler]; b.res.sparedRulers = [b.ruler];
+  settle(b); assert.equal(b.g.officers[b.ruler].status, G.RONIN);
+  assert.match(fate(b, b.ruler), /下野/);
+  await G.checkFactions(b.g, ioFor([]));
+  assert.equal(b.g.officers[b.ruler].status, G.RONIN);
+});
+
+test('败方携带的君主俘虏优先安置到俘获方的远方城市', () => {
+  const b = battle(), replacement = b.g.officers.find((o) => !G.isRuler(b.g, o.id) && o.id !== b.general).id;
+  b.g.noWarDeath = true; b.g.officers[replacement].status = G.SERVING;
+  b.res.survivors.att = [replacement]; b.war.att.ids.push(replacement);
+  b.res.captured.byDef = [b.enemy]; b.res.sparedRulers = [b.enemy];
+  const remote = b.g.cities.find((c) => c.id !== b.war.city && !G.roads(b.war.city).includes(c.id));
+  remote.faction = 2; remote.officers = [b.g.officers.find((o) => !G.isRuler(b.g, o.id) && ![replacement, b.general].includes(o.id)).id];
+  settle(b);
+  assert.equal(b.g.officers[b.enemy].status, G.SERVING);
+  assert.equal(G.officerCity(b.g, b.enemy).id, remote.id);
+  assert.match(fate(b, b.enemy), /被俘归顺/);
+});
+
+test('被俘君主在原势力继位前离开俘获方时，仍以活着下野处理', async () => {
+  const b = battle(); b.g.noWarDeath = true;
+  b.g.cities[0].faction = 2; b.g.cities[0].officers = [16]; b.g.officers[16].status = G.SERVING;
+  b.res.survivors.def = [b.general]; b.res.captured.byAtt = [b.ruler]; b.res.sparedRulers = [b.ruler];
+  settle(b); assert.equal(G.factionOf(b.g, b.ruler), 1);
+  b.g.noWarDeath = false;
+  G.toRonin(b.g, b.ruler); // 例如俘获方继位时低忠诚武将离去
+  const events = []; await G.checkFactions(b.g, ioFor(events));
+  assert.equal(b.g.officers[b.ruler].status, G.RONIN);
+  assert.equal(events.find((e) => e.type === 'heir' && e.faction === 2)?.ronin, true);
+});
+
+test('双方君主被俘时，先继位的一方令对方君主下野也不会造成死亡', async () => {
+  const b = battle(); b.g.noWarDeath = true; b.g.player = 1;
+  b.g.factions[1].ai = false; b.g.factions[2].ai = true;
+  const preferred = new Set(G.data().succession['1'] || []);
+  const replacement = b.g.officers.find((o) => !G.isRuler(b.g, o.id) && o.id !== b.general && !preferred.has(o.id)).id;
+  b.g.officers[replacement].status = G.SERVING; b.g.officers[replacement].virtue = 0;
+  b.g.officers[b.enemy].virtue = 100;
+  b.res.survivors.att = [replacement]; b.war.att.ids.push(replacement);
+  b.res.survivors.def = [b.general];
+  b.res.captured.byAtt = [b.ruler]; b.res.captured.byDef = [b.enemy]; b.res.sparedRulers = [b.ruler, b.enemy];
+  const dest = G.roads(b.war.city)[0]; b.g.cities[dest].faction = 2;
+  settle(b);
+  assert.equal(G.factionOf(b.g, b.ruler), 1); assert.equal(G.factionOf(b.g, b.enemy), 2);
+  b.g.noWarDeath = false;
+  b.g.seed = Array.from({ length: 1000 }, (_, n) => n).find((seed) => G.rng({ seed })(100) < 20);
+  const events = [];
+  await G.checkFactions(b.g, { event: async (e) => events.push(e), chooseHeir: async () => replacement });
+  assert.equal(b.g.officers[b.ruler].status, G.RONIN);
+  assert.equal(events.find((e) => e.type === 'heir' && e.faction === 2)?.ronin, true);
+  assert.notEqual(b.g.factions[2].ruler, b.ruler);
 });
 
 test('a winner placed in another city reports that final city', () => {

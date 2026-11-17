@@ -44,6 +44,50 @@ class ValidationTest(unittest.TestCase):
         s = version(); s['relations'] = [{'from': 0, 'to': 999, 'kind': '朋友'}]
         with self.assertRaises(ScenarioError): validate(s, BASE)
 
+    def test_new_equipment_validation_matches_browser_and_preserves_old_versions(self):
+        officer = BASE['officers'][130]
+        fields = ('id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'appear', 'city', 'faction')
+        scenario = version()
+        scenario['weapons'] = [
+            {'id': 32, 'name': '朱雀弓', 'cat': '弓', 'atk': 11, 'weight': 5, 'price': 220, 'icon': 'b-bow', 'shops': [8]},
+            {'id': 34, 'name': '白羽扇', 'cat': '扇', 'atk': 8, 'weight': 3, 'price': 160, 'icon': 'b-fan', 'shops': [8]},
+        ]
+        scenario['armors'] = [{'id': 33, 'name': '锦鳞轻甲', 'dfn': 8, 'weight': 5, 'price': 220, 'icon': 'b-female-armor', 'shops': [8]}]
+        scenario['officers'] = [{**{key: officer[key] for key in fields}, 'birthYear': None, 'birthCity': None, 'portraitId': 130,
+                                  'weapon': 32, 'armor': 9, 'skills': []}]
+        invalid = []
+        for change in ('duplicate', 'gap', 'icon', 'weapon', 'armor', 'null_armors'):
+            item = copy.deepcopy(scenario)
+            if change == 'duplicate': item['armors'][0]['id'] = 32
+            if change == 'gap': item['weapons'][1]['id'] = 35
+            if change == 'icon': item['weapons'][0]['icon'] = '../../.env'
+            if change == 'weapon': item['officers'][0]['weapon'] = 33
+            if change == 'armor': item['officers'][0]['armor'] = 8
+            if change == 'null_armors': item['armors'] = None
+            invalid.append(item)
+        gated = copy.deepcopy(scenario)
+        gated['weapons'][0].update({'grade': 5, 'requirements': {'war': 85, 'int': 40, 'officers': [0, 130]}})
+        gated['armors'][0].update({'grade': 4, 'requirements': {'virtue': 70}})
+        for field, value in [('grade', 0), ('grade', 6), ('grade', True), ('requirements', None),
+                             ('requirements', {'war': 0}), ('requirements', {'int': 100}),
+                             ('requirements', {'virtue': True}), ('requirements', {'officers': []}),
+                             ('requirements', {'officers': [0, 0]}), ('requirements', {'officers': [999]}),
+                             ('requirements', {'unknown': 1})]:
+            item = copy.deepcopy(gated); item['weapons'][0][field] = value; invalid.append(item)
+        cases = [version(), scenario, gated, *invalid]
+        code = """import {readFileSync} from 'node:fs';
+import {validateScenario} from './hd2d-mvp/src/core/scenario.js';
+const base = JSON.parse(readFileSync('hd2d-mvp/data/game-data.json'));
+const cases = JSON.parse(readFileSync(0, 'utf8'));
+console.log(JSON.stringify(cases.map((s) => { try { validateScenario(s, base); return true; } catch { return false; } })));"""
+        browser = json.loads(subprocess.check_output(['node', '--input-type=module', '-e', code], cwd=ROOT, input=json.dumps(cases), text=True))
+        server = []
+        for item in cases:
+            try: validate(item, BASE); server.append(True)
+            except ScenarioError: server.append(False)
+        self.assertEqual(server, [True, True, True] + [False] * len(invalid))
+        self.assertEqual(browser, server)
+
     def test_portraits_relations_and_candidates_match_browser_validation(self):
         code = "import {MAX_PORTRAIT_BYTES,MAX_PORTRAIT_SIDE} from './hd2d-mvp/src/core/scenario.js'; console.log(JSON.stringify([MAX_PORTRAIT_BYTES,MAX_PORTRAIT_SIDE]));"
         maximum, side = json.loads(subprocess.check_output(['node', '--input-type=module', '-e', code], cwd=ROOT, text=True))
@@ -140,6 +184,72 @@ class ServerTest(unittest.TestCase):
 
     def tearDown(self):
         self.stop_server(); self.temp.cleanup()
+
+    def asset_request(self, path, data=None, token=None, mime='image/png', origin=None):
+        headers = {'Content-Type': mime} if data is not None else {}
+        if token is not None: headers['Authorization'] = 'Bearer ' + token
+        if origin is not None: headers['Origin'] = origin
+        req = urllib.request.Request(self.url + path, data=data, headers=headers)
+        try:
+            with self.opener.open(req, timeout=5) as response:
+                body = response.read()
+                return response.status, body, response.headers
+        except urllib.error.HTTPError as error:
+            return error.code, error.read(), error.headers
+
+    def test_visual_assets_are_authenticated_validated_deduplicated_and_persistent(self):
+        image = (ROOT / 'hd2d-mvp/assets/characters/sun/motion.png').read_bytes()
+        self.assertEqual(self.asset_request('/api/assets', image)[0], 401)
+        self.assertEqual(self.asset_request('/api/assets', image, TOKEN, origin='https://other.example')[0], 403)
+        self.assertEqual(self.asset_request('/api/assets', b'not an image', TOKEN)[0], 400)
+        self.assertEqual(self.asset_request('/api/assets', image, TOKEN, mime='image/webp')[0], 400)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(lambda _: self.asset_request('/api/assets', image, TOKEN), range(4)))
+        self.assertTrue(all(status == 201 for status, _, _ in results))
+        asset = json.loads(results[0][1]); self.assertEqual((asset['width'], asset['height']), (512, 512))
+        self.assertTrue(all(json.loads(body)['id'] == asset['id'] for _, body, _ in results))
+        status, body, headers = self.asset_request('/api/assets/' + asset['id'])
+        self.assertEqual((status, body, headers['Content-Type']), (200, image, 'image/png'))
+        self.assertIn('immutable', headers['Cache-Control'])
+        status, _, headers = self.asset_request('/api/assets/a-' + '0' * 64)
+        self.assertEqual(status, 404); self.assertEqual(headers['Cache-Control'], 'no-store')
+        self.stop_server(); self.start_server()
+        self.assertEqual(self.asset_request('/api/assets/' + asset['id'])[1], image)
+        (Path(self.temp.name) / 'assets' / asset['id']).write_bytes(b'changed')
+        self.assertEqual(self.asset_request('/api/assets/' + asset['id'])[0], 500)
+
+    def test_visual_refs_must_exist_and_motion_has_the_required_grid(self):
+        image = (ROOT / 'hd2d-mvp/assets/characters/sun/portrait.webp').read_bytes()
+        status, body, _ = self.asset_request('/api/assets', image, TOKEN, mime='image/webp')
+        self.assertEqual(status, 201); asset = json.loads(body)['id']
+        old = BASE['officers'][130]
+        keys = ('id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'appear', 'city', 'faction')
+        officer = {**{k: old[k] for k in keys}, 'birthYear': None, 'birthCity': None, 'portraitId': 130, 'skills': [], 'visual': {'portrait': asset}}
+        s = version(); s['officers'] = [officer]
+        self.assertEqual(self.request('/api/versions', value=s, token=TOKEN)[0], 201)
+        missing = copy.deepcopy(s); missing['id'] = 'v-' + 'b' * 32; missing['officers'][0]['visual']['portrait'] = 'a-' + 'a' * 64
+        self.assertEqual(self.request('/api/versions', value=missing, token=TOKEN)[0], 400)
+        wrong = copy.deepcopy(s); wrong['id'] = 'v-' + 'c' * 32; wrong['officers'][0]['visual']['motion'] = asset
+        self.assertEqual(self.request('/api/versions', value=wrong, token=TOKEN)[0], 400)
+        unsafe = copy.deepcopy(s); unsafe['id'] = 'v-' + 'd' * 32; unsafe['officers'][0]['visual']['portrait'] = '../../.env'
+        self.assertEqual(self.request('/api/versions', value=unsafe, token=TOKEN)[0], 400)
+
+    def test_invalid_and_symlinked_assets_are_not_accepted(self):
+        image = (ROOT / 'hd2d-mvp/assets/characters/sun/motion.png').read_bytes()
+        corrupt = bytearray(image); corrupt[-1] ^= 1
+        self.assertEqual(self.asset_request('/api/assets', bytes(corrupt), TOKEN)[0], 400)
+        # 只发送请求头：服务器应在读取大文件之前拒绝，避免客户端继续发送时连接被重置。
+        port = int(self.url.rsplit(':', 1)[1])
+        with socket.create_connection(('127.0.0.1', port), timeout=5) as connection:
+            request = (f'POST /api/assets HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n'
+                       f'Authorization: Bearer {TOKEN}\r\nContent-Type: image/png\r\n'
+                       f'Content-Length: {1024 * 1024 + 1}\r\nConnection: close\r\n\r\n')
+            connection.sendall(request.encode('ascii'))
+            self.assertTrue(connection.recv(1024).startswith(b'HTTP/1.0 413 '))
+        with tempfile.TemporaryDirectory() as outside:
+            (Path(self.temp.name) / 'assets').symlink_to(outside, target_is_directory=True)
+            self.assertEqual(self.asset_request('/api/assets', image, TOKEN)[0], 500)
+            self.assertEqual(os.listdir(outside), [])
 
     def test_m4a_static_content_type(self):
         with tempfile.TemporaryDirectory(prefix='music-test-', dir=ROOT / 'hd2d-mvp') as temp:

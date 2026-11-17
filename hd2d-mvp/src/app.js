@@ -6,7 +6,7 @@ import { terrainTextures } from './pixel.js';
 import { createPost } from './post.js';
 import { createQuality, savedQuality, warView } from './quality.js';
 import { frameCap, pacer } from './framecap.js';
-import { loadManifest, loadPixelTexture, equipIcon } from './assets.js';
+import { loadManifest, loadPixelTexture, equipIcon, packSpriteStrip, loadGridMotion } from './assets.js';
 import { Audio } from './audio.js';
 import { playVignette, sceneFor, cueFor, sceneFrame, vignettesOn, setVignettes, recordText } from './vignette.js';
 import { playUnification, playFall } from './ending.js';
@@ -28,6 +28,7 @@ import { unitCard } from './warcard.js';
 import * as G from './core/game.js';
 import { listScenarios, selectScenario } from './core/scenario-store.js';
 import { ORIGINAL_SCENARIO } from './core/scenario.js';
+import { FEMALE_SCENARIO_ID, FEMALE_SCENARIO_NAME, visualUrl } from './core/visuals.js';
 import { aiTurn, aiDomestic } from './core/ai.js';
 import { suspend, peekSuspend, takeSuspend, dropSuspend, withSuspendLock } from './core/suspend.js';
 import { warFate } from './warreport.js';
@@ -79,7 +80,7 @@ const officerSprites = Array.isArray(officerList) ? officerList : [];
 const duelStrips = Array.isArray(duelList) ? duelList : [];
 async function loadDuelStrip(key) {
   if (!duelStrips.includes(String(key)) || sprites[`duel-${key}`]) return;
-  const strip = async (k) => ({ meta: await (await fetch(`assets/ai/sprites/duel/${k}.json`)).json(), tex: await loadPixelTexture(`assets/ai/sprites/duel/${k}.png`) });
+  const strip = async (k) => packSpriteStrip({ meta: await (await fetch(`assets/ai/sprites/duel/${k}.json`)).json(), tex: await loadPixelTexture(`assets/ai/sprites/duel/${k}.png`) });
   // The 白兵 board also turns him to face along a column with his front / back strip (<key>-turn); in a 单挑 his
   // horse wheels round through that strip and the three-quarter views between it and his side (<key>-wheel).
   // The third sheet (<key>-c: 舍身 run, crushing hit, defeat and triumph; tools/slice_duel_extra.py) only for the riders
@@ -96,7 +97,33 @@ const loadMarch = async (key) => {
   try { sprites[`march-${key}`] = { meta: await (await fetch(`assets/ai/sprites/march/${key}.json`, { cache: 'no-store' })).json(), tex: await loadPixelTexture(`assets/ai/sprites/march/${key}.png`) }; } catch {}
 };
 const marchStrips = Array.isArray(marchList) ? marchList : [];
-const loadOfficerMarch = (ids) => Promise.all(ids.filter((id) => marchStrips.includes(String(id)) && !sprites[`march-${id}`]).map(loadMarch));
+const configuredMotion = new Map();
+async function loadConfiguredMotion(id) {
+  const officer = G.data().officers[id], ref = officer?.clone ? null : officer?.visual?.motion;
+  if (!ref) return;
+  const existing = /^o-(\d+)$/.exec(ref);
+  if (existing) {
+    const key = existing[1];
+    if (marchStrips.includes(key) && !sprites[`march-${key}`]) await loadMarch(key);
+    await loadDuelStrip(key);
+    if (sprites[`march-${key}`]) sprites[`march-${id}`] = sprites[`march-${key}`];
+    if (sprites[`duel-${key}`]) sprites[`duel-${id}`] = sprites[`duel-${key}`];
+    return;
+  }
+  const url = visualUrl(ref); if (!url) return;
+  if (!configuredMotion.has(ref)) configuredMotion.set(ref, loadGridMotion(url));
+  try {
+    const { march, duel } = await configuredMotion.get(ref);
+    sprites[`march-${id}`] = march; sprites[`duel-${id}`] = duel;
+  } catch (error) {
+    configuredMotion.delete(ref);
+    console.warn('动作素材无法读取，使用默认动作', error);
+  }
+}
+const loadOfficerMarch = async (ids) => {
+  await Promise.all(ids.map(loadConfiguredMotion));
+  await Promise.all(ids.filter((id) => marchStrips.includes(String(id)) && !sprites[`march-${id}`]).map(loadMarch));
+};
 // 白兵 troop action strips (tools/slice_troop_frames.py): <side>-<soldier|archer|cavalry>[-v2], each with its -turn strip.
 const loadTroops = async () => {
   try {
@@ -113,6 +140,7 @@ await Promise.all([
   ...['attacker', 'defender'].map(loadMarch), loadTroops(),
 ]);
 async function loadOfficerSprites(ids) {
+  await Promise.all(ids.map(loadConfiguredMotion));
   for (const id of ids) if (officerSprites.includes(id) && !sprites[`officer-${id}`]) sprites[`officer-${id}`] = await loadPixelTexture(`assets/ai/sprites/officers/${id}.png`);
   await Promise.all([...ids, 'attacker', 'defender'].map(loadDuelStrip));
 }
@@ -856,15 +884,16 @@ function help() {
   return modal('说明', () => h('div', { class: 'help' },
     h('h4', {}, '操作'), controls({ input: pad.active ? 'pad' : 'keys', family: pad.family, east: pad.confirm === 'east', label: padKey }),
     h('h4', {}, '战略'), h('p', {}, '一个势力行动一轮为一个月。每月按占城数发放命令书（1–3城3张……28–30城13张），点击己方城市，在下方菜单下令；命令书用完即结束本月。4月收税金，10月收米；统治度低于50易生暴乱；5–6月洪水、8–9月旱灾，防灾可减损。'),
-    h('p', {}, '武将到史实卒年后一年比一年易病逝；开局或「☰ 系统」可选「武将不老」，「武将不战死」（体力归零改为被俘，体力回复至30；君主照常阵亡），「三顾模式」（同一位人才在该城至多搜索3次必定出仕），「武将不能读书」（敌我都不能入学问所提高智力），以及「免费记录」（存档不消耗命令书）。进度不会自动保存：城市菜单「城 → 记录」或「☰ 系统 → 记录进度」存入八个记录位置之一（消耗一张命令书，免费记录除外），「☰ 系统 → 读取记录」或标题画面读取。战争中可「☰ 系统 → 中断战斗」回到标题，之后从标题「继续战斗」接着打（不占记录位置，只能继续一次）。'),
+    h('p', {}, '武将到史实卒年后一年比一年易病逝；开局或「☰ 系统」可选「武将不老」，「武将不战死」（体力归零改为被俘，体力回复至30；君主不超过体力上限，无法安置时下野），「三顾模式」（同一位人才在该城至多搜索3次必定出仕），「武将不能读书」（敌我都不能入学问所提高智力），以及「免费记录」（存档不消耗命令书）。进度不会自动保存：城市菜单「城 → 记录」或「☰ 系统 → 记录进度」存入八个记录位置之一（消耗一张命令书，免费记录除外），「☰ 系统 → 读取记录」或标题画面读取。战争中可「☰ 系统 → 中断战斗」回到标题，之后从标题「继续战斗」接着打（不占记录位置，只能继续一次）。'),
     h('p', {}, `快捷存档（${quickSaveKey}）另有一个位置，不占八个普通记录；与普通记录一样，默认消耗一张命令书，开启免费记录后不消耗。己方回合的战略地图可存档，F8 快捷读档；在我军回合的战场读取会放弃当前战斗。快捷记录可以反复读取，不是只能继续一次的战场中断。`),
     h('p', {}, '武将不会自然回复体力、也不会自然增加忠诚，需靠病院与赏赐。每将最多带1000兵，征兵每百人20金，再用「分兵」分配。'),
     h('h4', {}, '战争'), h('p', {}, '出阵时选武将、总大将并携带金米。攻方先行动，机动力全军共用，按总兵数每天恢复。金色轮廓围出的范围可移动（指向其中一格会画出行军箭头和消耗）、橙框为城、四角红框的敌将可攻击（2机动力）、四角紫框为计略目标；按住 R（3D 战场也可点右下的「威」）显示敌军威胁范围（红色斜纹：敌军下次行动时任何一名敌将单独能打到的格子，指着敌将只看他一人）；[ 和 ] 切换我方武将；点名牌等于点这名武将，被山挡住的武将点他的剪影；选了计略后镜头会移到目标处，也可以直接在目标名单里点名字；拖动可平移。攻方踏上城格即胜；总大将阵亡/被俘/退却即败；30日未决或米尽则败。'),
     h('p', {}, '智力越高可用计略越多（40/60/75/85分档，诸葛亮等名士随等级解锁特殊计）。命中率看双方智力、等级与距离（6格内）。'),
     h('h4', {}, '白兵与单挑'), h('p', {}, '攻击会进入16×10的白兵战场：先选阵形（长蛇、雁行、锥行、鱼鳞），每100兵一队，按步→弓→骑→将的顺序行动。交战中可分别给将、骑、弓、步下令前进、后退、待机或包围（「全军」一栏可一次令各兵种待机或包围），并用战术点施展咒缚、挑发、强弩、士气向上、火矢、爆炎；也可暂停、变速、交给自动或全军撤退。'),
+    h('p', {}, '新版本中的弓将可向同一行或列两格远的敌军射击，地形和友军会遮挡；远射时战力和武器攻击分别按 55% 和 60% 计算，近身遇敌将仍进入单挑。强弩和火矢作用于弓兵，不改变弓将的射程或箭矢。'),
     // Rules players asked about (feedback F13, F22a, F23, 2026-11-02).
-    h('p', {}, '战术点每场按智力给出（智力×13÷100，用掉不回复）：爆炎需12点，即智力93以上；己方战术生效期间不能再用其他战术，只有爆炎可以照常施放。第4回合起，敌将体力低于45／40／30（LEVEL 1／2／3）且有两队以上与他相邻时，每回合有机会将他擒获；君主忠诚为100，不会被擒，只能击败或逼退。'),
-    h('p', {}, '两将相邻即进入单挑，我方武将单挑时可选择攻击、牵制、舍身、说得、骂倒或退却，也可查看资料；体力归零即阵亡。在单挑中斩杀君主有50%得到龙牙刀，全局只此一把；曹操、董卓、马腾、刘备各有专属宝物与条件。宝物只在单挑中斩杀时得到，白兵中击杀或对方退却都不会得到；宝物会替换胜者原有的装备。'),
+    h('p', {}, '战术点每场按智力给出（智力×13÷100，用掉不回复）：爆炎需12点，即智力93以上；己方战术生效期间不能再用其他战术，只有爆炎可以照常施放。第4回合起，敌将体力低于45／40／30（LEVEL 1／2／3）且有两队以上与他相邻时，每回合有机会将他擒获；忠诚100的君主不会被围捕，开启不战死后体力归零仍会被俘。'),
+    h('p', {}, '两将相邻即进入单挑，我方武将单挑时可选择攻击、牵制、舍身、说得、骂倒或退却，也可查看资料；体力归零通常阵亡，开启不战死后被俘。在单挑中斩杀君主有50%得到龙牙刀，全局只此一把；曹操、董卓、马腾、刘备各有专属宝物与条件。宝物只在单挑中斩杀时得到，俘虏、白兵中击杀或对方退却都不会得到；宝物会替换胜者原有的装备。'),
     h('p', {}, `${FLAT_RULE}：用左键拖动平移、滚轮缩放，H不起作用。${WAR_RULE}；平面战场不能旋转与远近缩放。`),
     // What the help used to leave out (feedback R11, 2026-11-02) is in the 操作 page's 键鼠 tabs (src/controls.js).
     h('p', {}, '节奏：电脑回合、AI之间的战争、计略与白兵默认按原版时长播放；「☰ 系统 → 游戏速度」可改为快速（2倍）或最快（4倍），演出中按 Enter／空格可跳过当前一段。')), { wide: true });
@@ -964,7 +993,7 @@ function sysButtons() {
     g ? item(() => `武将寿命 ${g.ageless ? '不老' : '原版'}`, (b) => { g.ageless = !g.ageless; b.textContent = `武将寿命 ${g.ageless ? '不老' : '原版'}`; },
       '原版：武将到史实卒年后一年比一年易病逝　不老：各势力武将都不会因年老病逝（战死、斩首照旧）。随本局记录保存') : '',
     g ? item(() => `战场生死 ${g.noWarDeath ? '不战死' : '原版'}`, (b) => { g.noWarDeath = !g.noWarDeath; b.textContent = `战场生死 ${g.noWarDeath ? '不战死' : '原版'}`; },
-      '原版：体力归零的武将阵亡　不战死：白兵、单挑、计略及电脑之间的战争中体力归零的武将改为被对方俘获，体力回复至30。君主不能被俘，照常阵亡；斩首照旧。随本局记录保存') : '',
+      '原版：体力归零的武将阵亡　不战死：白兵、单挑和计略的致命伤改为被俘并恢复体力至30；电脑战争中的伤亡改为被俘，君主也恢复体力至30（不超过上限）。君主无路可退时优先被俘，无法安置时下野。病逝由武将不老控制。随本局记录保存') : '',
     g ? item(() => `人才寻访 ${g.sangu ? '三顾' : '原版'}`, (b) => { g.sangu = !g.sangu; b.textContent = `人才寻访 ${g.sangu ? '三顾' : '原版'}`; refreshTalentNote(); },
       '原版：人才是否出仕看搜索结果与他心向的君主　三顾：某城的下一位人才可寻访时，在该城第3次搜索他必定出仕，不论他心向哪位君主。只对玩家的搜索有效，随本局记录保存') : '',
     g ? item(() => `电脑进攻 ${g.warlike ? '好战' : '原版'}`, (b) => { g.warlike = !g.warlike; b.textContent = `电脑进攻 ${g.warlike ? '好战' : '原版'}`; },
@@ -986,7 +1015,7 @@ function sysButtons() {
     g ? item(() => '回到标题', () => { close(); backToTitle(); }, '结束本局回到标题画面（记录编辑在那里打开）。未记录的进度会丢失，可先记录') : '',
     ), group('其他',
     g ? item(() => '欣赏模式', () => { close(); if (!canScenic()) return toast('<em>欣赏模式在己方回合的战略地图上可用</em>', 2500); setScenic(true); }, `隐藏界面欣赏地图与音乐，地图仍可${strategy.flat ? '' : '旋转、'}缩放、平移；按 V 或 Esc 恢复（V）`) : '',
-    !g && serverVersions ? item(() => `游戏版本 ${D.scenarioName ?? '原版'}`, () => { close(); chooseScenario(); }, '选择服务器已发布的游戏版本；各版本的记录分开保存') : '',
+    !g ? item(() => `游戏版本 ${D.scenarioName ?? '原版'}`, () => { close(); chooseScenario(); }, '选择内置或服务器已发布的游戏版本；各版本的记录分开保存') : '',
     !g && serverVersions ? item(() => '版本管理', () => { close(); location.replace(`admin.html${location.search}`); }, '创建并发布新的游戏版本') : '',
     // The save editor (save-editor.html, same origin, so the same record slots) is opened from the title only, where no
     // unsaved game is lost; the title's opening is skipped on the way back.
@@ -1000,13 +1029,16 @@ function sysButtons() {
   return wrap;
 }
 async function chooseScenario() {
-  let versions;
-  try { versions = await listScenarios(); }
-  catch { return toast('<em>无法读取已发布的游戏版本</em>', 3500); }
+  let versions = [], unavailable = false;
+  if (serverVersions) {
+    try { versions = await listScenarios(); }
+    catch { unavailable = true; }
+  }
   if (!Array.isArray(versions)) return toast('<em>游戏版本列表无效</em>', 3500);
-  const options = [{ id: ORIGINAL_SCENARIO, name: '原版' }, ...versions.filter((v) => /^v-[a-f0-9]{32}$/.test(v?.id) && typeof v.name === 'string')];
+  const options = [{ id: ORIGINAL_SCENARIO, name: '原版' }, { id: FEMALE_SCENARIO_ID, name: FEMALE_SCENARIO_NAME }, ...versions.filter((v) => v?.id !== FEMALE_SCENARIO_ID && /^v-[a-f0-9]{32}$/.test(v?.id) && typeof v.name === 'string')];
   const choice = await modal('选择游戏版本', (close) => [
     h('p', {}, '各版本的存档分开保存。切换版本后可在标题画面开始新游戏或读取该版本的记录。'),
+    unavailable ? h('p', {}, '无法读取服务器版本，仍可选择原版和内置版本。') : null,
     versions.skipped ? h('p', {}, `有 ${versions.skipped} 个已发布版本无法读取，请联系管理员。`) : null,
     h('div', { class: 'slots' }, options.map((v) => h('button', { class: 'btn slot', onclick: () => close(v.id) },
       h('b', {}, v.name), h('span', {}, v.id === G.currentScenario() ? '当前版本' : '选择此版本')))),
@@ -1222,7 +1254,7 @@ async function setup() {
     onclick: () => { ageless = !ageless; agelessBtn.classList.toggle('on', ageless); agelessBtn.setAttribute('aria-pressed', String(ageless)); } },
     h('i', {}), '武将不老 · 不会因年老病逝');
   const noDeathBtn = h('button', { class: 'cheat opt', 'aria-pressed': 'false',
-    title: '原版：体力归零的武将阵亡　不战死：白兵、单挑、计略及电脑之间的战争中体力归零的武将改为被对方俘获，体力回复至30。君主不能被俘，照常阵亡；斩首照旧。便于收集武将；游戏中也可在「☰ 系统」切换。',
+    title: '原版：体力归零的武将阵亡　不战死：白兵、单挑和计略的致命伤改为被俘并恢复体力至30；电脑战争中的伤亡改为被俘，君主也恢复体力至30（不超过上限）。君主无路可退时优先被俘，无法安置时下野。病逝由武将不老控制；游戏中也可在「☰ 系统」切换。',
     onclick: () => { noWarDeath = !noWarDeath; noDeathBtn.classList.toggle('on', noWarDeath); noDeathBtn.setAttribute('aria-pressed', String(noWarDeath)); } },
     h('i', {}), '武将不战死 · 体力归零改为被俘');
   const sanguBtn = h('button', { class: 'cheat opt', 'aria-pressed': 'false',
@@ -2416,7 +2448,7 @@ async function fieldWar(w, humanSide, { after = { kind: humanSide === 'att' ? 'a
 // Post-war settlement (`$CE9E`). A human loser sends each surviving officer (and our prisoners) to one of the
 // neighbouring own / ownerless cities or 下野 (never the ruler). A human winner gets the same menu only when
 // survivors and prisoners outnumber the battle city's 10 places (`$D2E1`: up to 10 go in directly), with
-// the battle city first. With nowhere to go there is no menu: the ruler is lost and the rest scatter (`$CDB8`).
+// the battle city first. With nowhere to go there is no menu; settlement applies the selected survival rule.
 async function settleMenu(w, res, side) {
   const lost = res.loser === side, f = side === 'att' ? w.attacker : w.defender, queue = lost ? loserQueue(res) : winnerQueue(res);
   const opts = lost ? retreatOptions(g, w, f) : [w.city, ...retreatOptions(g, w, f)];
@@ -2424,13 +2456,14 @@ async function settleMenu(w, res, side) {
   const base = Object.fromEntries(opts.map((n) => [n, (n === w.city ? 0 : g.cities[n].officers.length) + res.retreated.filter((x) => x.city === n).length]));
   if (!opts.some((n) => base[n] < 10)) return null; // every road leads to a full city: the no-retreat rule applies
   const pick = {}, used = { ...base };
+  const protectedRuler = (id) => G.isRuler(g, id) && (g.noWarDeath || res.sparedRulers?.includes(id));
   const order = [...opts].sort((a, b) => (b === w.city) - (a === w.city) || (b === w.from) - (a === w.from) || (g.cities[b].faction === f) - (g.cities[a].faction === f) || base[a] - base[b]);
-  for (const id of queue) { const n = order.find((c) => used[c] < 10); pick[id] = n ?? (G.isRuler(g, id) ? order[0] : 'ronin'); if (n != null) used[n]++; }
+  for (const id of queue) { const n = order.find((c) => used[c] < 10); pick[id] = n ?? (protectedRuler(id) ? 'auto' : G.isRuler(g, id) ? order[0] : 'ronin'); if (n != null) used[n]++; }
   const cmd = lost && res.retreated.find((x) => x.id === w[res.loser].ids[0]);
   const verb = (c) => (c === w.city ? `入${cityName(c)}` : `${lost ? '退往' : '前往'}${cityName(c)}`);
   return modal('战后安置', (close) => {
     const sum = h('div', { class: 'settle-sum' }), warn = h('p', { class: 'settle-warn' }), ok = h('button', { class: 'btn primary', onclick: () => close(pick) }, '确定');
-    const count = () => { const n = { ...base }; for (const v of Object.values(pick)) if (v !== 'ronin') n[v]++; return n; };
+    const count = () => { const n = { ...base }; for (const v of Object.values(pick)) if (typeof v === 'number') n[v]++; return n; };
     const draw = () => {
       const n = count();
       // A won city needs at least one officer to hold it.
@@ -2441,8 +2474,9 @@ async function settleMenu(w, res, side) {
     };
     const rows = queue.map((id) => h('div', { class: 'lrow settle' }, avatar(id, lost ? 'grief' : 'joy'),
       h('span', { class: 'nm' }, name(id), G.isRuler(g, id) ? h('em', {}, '君主') : null), h('span', { class: 'tr' }, `兵 ${g.officers[id].soldiers}`),
-      h('select', { 'aria-label': `${name(id)}的去向`, onchange: (e) => { pick[id] = e.target.value === 'ronin' ? 'ronin' : Number(e.target.value); draw(); } },
+      h('select', { 'aria-label': `${name(id)}的去向`, onchange: (e) => { pick[id] = ['ronin', 'auto'].includes(e.target.value) ? e.target.value : Number(e.target.value); draw(); } },
         ...opts.map((c) => h('option', { value: c, selected: pick[id] === c }, `${verb(c)}${g.cities[c].faction === NONE && c !== w.city ? '（空城）' : ''}`)),
+        protectedRuler(id) ? h('option', { value: 'auto', selected: pick[id] === 'auto' }, '自动安置（无处可去时下野）') : null,
         G.isRuler(g, id) ? null : h('option', { value: 'ronin', selected: pick[id] === 'ronin' }, '下野'))));
     draw();
     const hint = lost ? `${cmd ? `总大将已退往${cityName(cmd.city)}。` : ''}为战场上的武将选择退路，每城最多10人。`
@@ -2464,7 +2498,7 @@ function equipShop(id, stock, { gold, purse, block, title = '武器屋' }) {
         h('div', { class: 'shop-row head' }, h('span', {}, '名称'), h('span', {}, label), h('span', {}, '比较'), h('span', {}, '重'), h('span', {}, '价格'), h('span', {})),
         ...list.map((e) => { const why = block(e.id), dv = e[k] - (now[kind]?.[k] ?? 0);
           return h('button', { class: 'shop-row', disabled: gold < e.price || !!why, title: why || null, onclick: () => close(e.id) },
-            h('span', { class: 'nm' }, h('img', { class: 'eqi', src: equipIcon(e.id), alt: '' }), e.name), h('span', {}, e[k]), h('span', { class: dv > 0 ? 'up' : dv < 0 ? 'down' : '' }, dv > 0 ? `+${dv}` : dv || '—'), h('span', {}, e.weight), h('span', {}, `${e.price}金`), h('small', {}, why || (gold < e.price ? '金不足' : ''))); }));
+            h('span', { class: 'nm' }, h('img', { class: 'eqi', src: equipIcon(e.id), alt: '' }), `${e.name}${e.grade ? ` · ${e.grade}级` : ''}`), h('span', {}, e[k]), h('span', { class: dv > 0 ? 'up' : dv < 0 ? 'down' : '' }, dv > 0 ? `+${dv}` : dv || '—'), h('span', {}, e.weight), h('span', {}, `${e.price}金`), h('small', {}, why || (gold < e.price ? '金不足' : ''))); }));
     }),
     h('div', { class: 'foot' }, h('button', { class: 'btn', onclick: () => close(null) }, '取消'))], { wide: true });
 }
@@ -2978,7 +3012,7 @@ async function showEvent(e) {
     case 'join': addLog(`${name(e.id)}加入${factionName(e.faction)}军`); if (e.faction === P) await message('来投', e.lord != null ? `${name(e.id)}追随旧主${name(e.lord)}前来投奔，加入我军。` : `${name(e.id)}前来投奔，加入我军。`, e.id, 'joy'); break;
     case 'death': for (const id of e.list) { addLog(`<em>${name(id)}病逝</em>`); if (e.faction === P) await message('病逝', `${name(id)}因病去世了。`, id, 'grief'); } break;
     // Another faction's succession and fall close by themselves after the original's 240 frames.
-    case 'heir': addLog(`${name(e.old)}${e.captured ? '被俘' : '去世'}，${name(e.heir)}继位`); await message('继位', `君主${name(e.old)}${e.captured ? '被俘' : '去世'}，${name(e.heir)}继承了大业。${e.quit.length ? `<br>${e.quit.map(name).join('、')}因不服而离去。` : ''}`, e.heir, 'calm', { auto: e.faction === P ? 0 : paced(ORIGINAL.notice) }); break;
+    case 'heir': addLog(`${name(e.old)}${e.captured ? '被俘' : e.ronin ? '下野' : '去世'}，${name(e.heir)}继位`); await message('继位', `君主${name(e.old)}${e.captured ? '被俘' : e.ronin ? '下野' : '去世'}，${name(e.heir)}继承了大业。${e.quit.length ? `<br>${e.quit.map(name).join('、')}因不服而离去。` : ''}`, e.heir, 'calm', { auto: e.faction === P ? 0 : paced(ORIGINAL.notice) }); break;
     case 'fall': addLog(`<em>${factionName(e.faction)}势力灭亡</em>`); if (e.faction !== P) await message('灭亡', `<span style="color:${colorOf(e.faction)}">${factionName(e.faction)}</span>一族灭亡了。`, null, 'calm', { auto: paced(ORIGINAL.notice) }); break;
     case 'autobattle': {
       const { war: w, res } = e, winner = res.attWins ? w.attacker : w.defender;
@@ -3065,6 +3099,7 @@ const io = {
   async afterWar() { await G.checkFactions(g, io); strategy.refresh(g); },
   async chooseHeir(f, cands, why) {
     if (why === 'captured') await message('君主被俘', '君主被敌军俘获了。请从部下中选出继承者。');
+    else if (why === 'ronin') await message('君主下野', '君主战败后无法安置，已下野。请从部下中选出继承者。');
     else await message('君主驾崩', '君主去世了。请从部下中选出继承者。');
     let id = null;
     while (id == null) id = (await pickOfficers(g, '选择继承者', cands))?.[0];

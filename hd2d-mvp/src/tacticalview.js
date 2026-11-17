@@ -6,6 +6,7 @@
 // on the lit edge, so the sprites read as standing in the light rather than pasted over it. The DOM console
 // lives in app.js.
 import { PHONE } from './phone.js';
+import { spriteFrame } from './assets.js';
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { unitTex, canvasTex, rng } from './pixel.js';
@@ -264,7 +265,7 @@ export function createTacticalView(T, sprites) {
   function card(A, kind, face, shade, line) {
     const { meta } = A, img = A.tex.image, n = meta ? meta.frames.length : 1;
     const [cw, ch] = meta ? meta.cell : [img.width, img.height], figH = meta ? meta.figH : img.height;
-    const unit = FIG[kind] / figH, tex = A.tex.clone(); tex.repeat.set(1 / n, 1); tex.needsUpdate = true;
+    const unit = FIG[kind] / figH, tex = A.tex.clone(); if (meta) spriteFrame(tex, meta, 0); else tex.repeat.set(1 / n, 1); tex.needsUpdate = true;
     const geo = new THREE.PlaneGeometry(cw * unit, ch * unit); geo.translate((cw / 2 - (meta ? meta.anchor : cw / 2)) * unit, (ch * unit) / 2, 0);
     // emissive (map-shaped, off at rest) is only the hit flash
     const mat = troopLit(skyLit(new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 1, emissive: '#ffffff', emissiveIntensity: 0 })), new THREE.Vector2(1 / img.width, 1 / img.height), face, line);
@@ -295,9 +296,9 @@ export function createTacticalView(T, sprites) {
     M.frame = f; if (!M.meta) return;
     const ti = M.tv ? M.tv.meta.frames.indexOf(f) : -1, onTurn = ti >= 0;
     if (M.tv) { M.tv.plane.visible = M.tv.proxy.visible = onTurn; M.plane.visible = M.proxy.visible = !onTurn; }
-    if (onTurn) { M.tv.tex.offset.x = ti / M.tv.meta.frames.length; return; }
+    if (onTurn) { spriteFrame(M.tv.tex, M.tv.meta, ti); return; }
     let i = M.meta.frames.indexOf(f); if (i < 0) i = M.meta.frames.indexOf(FRAME_ALIAS[f]);
-    if (i >= 0) M.tex.offset.x = i / M.meta.frames.length;
+    if (i >= 0) spriteFrame(M.tex, M.meta, i);
   }
   const mats = (M) => (M.tv ? [M.mat, M.tv.mat] : [M.mat]);
   const clipOf = (M, c) => (M.dir !== 'side' && M.tv?.meta.clips[`${M.dir}:${c}`]) || M.meta?.clips[c] || M.meta?.clips[CLIP_ALIAS[c]] || FALLBACK[c] || FALLBACK.idle;
@@ -458,7 +459,8 @@ export function createTacticalView(T, sprites) {
           hooks.sfx?.('sfx-select');
           let landed = null;
           const targets = tv.alive.length ? tv.alive : [{ holder: tv.g }];
-          await volley(v, v.men[0]?.meta?.clips.volley ? 'volley' : 'attack', (M) => {
+          await volley(v, v.men[0]?.meta?.clips.volley ? 'volley' : 'attack', (M, mark) => {
+            if (ev.u.kind === 'gen' && mark !== 'hit' && mark !== 'loose') return;
             const T2 = targets[Math.floor(Math.random() * targets.length)], to = T2?.holder ? worldOf(T2).add(new THREE.Vector3(0, 0.3, 0)) : b;
             const fly = arrow(worldOf(M).add(new THREE.Vector3(0.1 * M.face, 0.42, 0)), to, ev.fire);
             landed ??= fly;

@@ -2,7 +2,7 @@
 // Ported: deployment blocks and AI role sub-lists, movement costs (600-troop split), shared daily
 // mobility, rice per day, 30-day limit, castle capture, commander loss, retreat thresholds, field
 // hospital/rice shop, AI roles 0–4 with their decision order. Strategies (计略) are not ported yet.
-import { data, rng, NONE, DEAD, roads, addExp, takeLevelUps, equipBlock, wearEquip, spared, SPARED_HP, maxHp } from './game.js';
+import { data, rng, NONE, DEAD, roads, addExp, takeLevelUps, equipBlock, wearEquip, spared, sparedHp, isRuler, maxHp } from './game.js';
 import { Tactical } from './tactical.js';
 import { roll100, realChance } from './origrng.js';
 
@@ -229,7 +229,7 @@ export class Field {
       const o = this.O(u.id);
       o.soldiers = info.soldiers; o.hp = info.hp;
       if (info.fate === 'dead') { o.status = DEAD; u.gone = true; u.fate = 'dead'; }
-      if (info.fate === 'captured') { u.gone = true; u.fate = 'captured'; u.capturedBy = u.side === 'att' ? 'def' : 'att'; }
+      if (info.fate === 'captured') { u.gone = true; u.fate = 'captured'; u.capturedBy = u.side === 'att' ? 'def' : 'att'; if (info.spared) u.spared = true; }
     }
     this.checkCommanders();
   }
@@ -396,11 +396,11 @@ export class Field {
     const L = () => a.level - 1;
     const loss = (v, n) => { const o = this.O(v.id), d = Math.min(o.soldiers, Math.max(0, n)); o.soldiers -= d; acc += d; addExp(this.g, u.id, Math.floor(acc / 2)); hits.push({ u: v, soldiers: -d }); lines.push(`${nm(v)} 损兵 ${d}`); };
     const hp = (v, n) => { const o = this.O(v.id), d = Math.min(o.hp, Math.max(0, n)); o.hp -= d; hits.push({ u: v, hp: -d }); lines.push(`${nm(v)} 体力 −${d}`); if (o.hp <= 0) fall(v); };
-    // 0 HP: slain, or under 武将不战死 taken by the caster's side at SPARED_HP (a ruler is slain all the same).
+    // 不战死保护的被俘结果记录在单位上，战斗中切换选项或中断后仍然有效。
     const fall = (v) => {
       const o = this.O(v.id);
-      if (!spared(this.g, v.id)) { o.status = DEAD; v.gone = true; v.fate = 'dead'; lines.push(`${nm(v)} 阵亡`); return; }
-      o.hp = SPARED_HP; v.gone = true; v.fate = 'captured'; v.capturedBy = u.side; lines.push(`${nm(v)} 被擒`);
+      if (!spared(this.g)) { o.status = DEAD; v.gone = true; v.fate = 'dead'; lines.push(`${nm(v)} 阵亡`); return; }
+      o.hp = sparedHp(this.g, v.id); v.gone = true; v.fate = 'captured'; v.capturedBy = u.side; if (isRuler(this.g, v.id)) v.spared = true; lines.push(`${nm(v)} 被擒`);
     };
     const nm = (v) => data().officers[v.id].name;
     const fire = (v) => loss(v, ((Math.floor((a.int * (9 + U(5))) / 10) + 10 * L()) & 255) + 30);
@@ -494,10 +494,10 @@ export class Field {
 
   // Build the write-back record for warcore.resolveWar.
   result() {
-    const surv = { att: [], def: [] }, captured = { byAtt: [], byDef: [] }, dead = [], retreated = [];
+    const surv = { att: [], def: [] }, captured = { byAtt: [], byDef: [] }, dead = [], retreated = [], sparedRulers = [];
     for (const u of this.units) {
       if (u.fate === 'dead') dead.push(u.id);
-      else if (u.fate === 'captured') captured[u.capturedBy === 'att' ? 'byAtt' : 'byDef'].push(u.id);
+      else if (u.fate === 'captured') { captured[u.capturedBy === 'att' ? 'byAtt' : 'byDef'].push(u.id); if (u.spared) sparedRulers.push(u.id); }
       else if (u.fate === 'retreat') { retreated.push({ id: u.id, city: u.to }); surv[u.side].push(u.id); }
       else surv[u.side].push(u.id);
     }
@@ -507,7 +507,7 @@ export class Field {
     // a mass capture of untouched officers.
     const loser = this.over.loser;
     this.war.day = this.day; // the occupation-loss tier in resolveWar reads the war's elapsed days
-    return { loser, survivors: surv, dead, captured, retreated, chests: { att: this.war.att, def: this.war.def } };
+    return { loser, survivors: surv, dead, captured, retreated, chests: { att: this.war.att, def: this.war.def }, ...(sparedRulers.length ? { sparedRulers } : {}) };
   }
 
   // ---------- War AI (6.8) ----------

@@ -137,6 +137,50 @@ test('on screen: a captured ruler\'s house is told of the capture, not of a deat
   assert.deepEqual(page.errors, []);
 });
 
+test('on screen: a protected ronin ruler is announced as 下野 and the house crowns an heir', async () => {
+  const page = await game.open();
+  await newCampaign(page, '刘备');
+  const stop = closeMessages(page), notice = said(page, '继');
+  let r, text;
+  try {
+    r = await page.evaluate(async () => {
+      const { g, G, io } = window.__game, f = 2, old = g.factions[f].ruler;
+      G.toRonin(g, old); g.officers[old].warRulerRonin = true; g.noWarDeath = false;
+      await G.checkFactions(g, io);
+      return { old: G.name(old), heir: G.name(g.factions[f].ruler), status: g.officers[old].status, ronin: G.RONIN };
+    });
+    text = await notice;
+  } finally { stop(); }
+  assert.notEqual(r.heir, r.old);
+  assert.equal(r.status, r.ronin);
+  assert.ok(text.includes(`${r.old}下野`) && text.includes(r.heir) && !text.includes('去世'), `notice: ${text}`);
+  assert.deepEqual(page.errors, []);
+  await page.close();
+});
+
+test('on screen: a player whose ruler went 下野 is asked to choose an heir', async () => {
+  const page = await game.open();
+  await newCampaign(page, '曹操');
+  const prompt = said(page, '选出继承者');
+  const done = page.evaluate(async () => {
+    const { g, G, io } = window.__game, f = g.player, old = g.factions[f].ruler;
+    G.toRonin(g, old); g.officers[old].warRulerRonin = true; g.noWarDeath = false;
+    await G.checkFactions(g, io);
+    return { old: G.name(old), heir: G.name(g.factions[f].ruler), status: g.officers[old].status, ronin: G.RONIN };
+  });
+  const asked = await prompt;
+  assert.ok(asked.includes('君主下野') && asked.includes('请从部下中选出继承者') && !asked.includes('去世'), `prompt: ${asked}`);
+  const stop = closeMessages(page), notice = said(page, '继承了大业');
+  try {
+    await page.locator('.otable-wrap tr[data-id]').first().click({ timeout: 15000 });
+    const text = await notice, r = await done;
+    assert.ok(text.includes(`${r.old}下野`) && text.includes(r.heir), `notice: ${text}`);
+    assert.notEqual(r.old, r.heir); assert.equal(r.status, r.ronin);
+  } finally { stop(); }
+  assert.deepEqual(page.errors, []);
+  await page.close();
+});
+
 test('on screen: a player whose ruler is taken is told so, then chooses the heir', async () => {
   const page = await game.open();
   await newCampaign(page, '曹操');

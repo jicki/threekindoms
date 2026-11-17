@@ -1,6 +1,6 @@
 // 白兵 撤退追击 (bank14 $A407–$A4F6; docs/原版白兵撤退追击逻辑与修复交接_2026-11-07.md): a general who leaves over his
 // own edge faces one pursuit draw. U(100) < 32 gets him away untouched (no damage draw); otherwise 5+U(10) off his HP,
-// clamped at 0, and at 0 the 退却 becomes a death (武将不战死: the existing capture policy; a ruler dies all the same).
+// clamped at 0, and at 0 the 退却 becomes a death or, under 武将不战死, a capture.
 // The same for both sides, AI or player, any difficulty, whatever the distance or the troops; squads never draw.
 // Feedback: 德华小酸奶@小红书, 2026-11-07.
 import { test } from 'node:test';
@@ -110,15 +110,17 @@ test('both at 0 men, the foe general across the field: still the same draw', () 
   assert.equal(t.side.d.hp, 10);
 });
 
-test('武将不战死: a pursuit to 0 takes an officer captive (SPARED_HP); a ruler dies; off, an officer dies', () => {
+test('武将不战死: a pursuit to 0 takes both officer and ruler captive; off, they die', () => {
   const on = edge('a', { hp: 5, noWarDeath: true });
   assert.equal(out(on.t, on.gu, [99, 9]).ev.pursuit.fell, 'captured');
   assert.equal(on.t.result().a.fate, 'captured'); assert.equal(on.t.result().a.hp, G.SPARED_HP); assert.equal(on.t.over.why, 'capture');
   const ruler = edge('a', { hp: 5, noWarDeath: true, ruler: true });
-  assert.equal(out(ruler.t, ruler.gu, [99, 9]).ev.pursuit.fell, 'dead');
-  assert.equal(ruler.t.result().a.fate, 'dead');
+  assert.equal(out(ruler.t, ruler.gu, [99, 9]).ev.pursuit.fell, 'captured');
+  assert.equal(ruler.t.result().a.fate, 'captured');
   const off = edge('a', { hp: 5 });
   assert.equal(out(off.t, off.gu, [99, 9]).ev.pursuit.fell, 'dead');
+  const offRuler = edge('a', { hp: 5, ruler: true });
+  assert.equal(out(offRuler.t, offRuler.gu, [99, 9]).ev.pursuit.fell, 'dead');
 });
 
 test('a general who broke off a 单挑 still faces the 白兵 pursuit when he leaves the field', () => {

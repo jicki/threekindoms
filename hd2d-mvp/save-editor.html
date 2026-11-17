@@ -242,6 +242,7 @@
 import * as G from './src/core/game.js';
 import { selectScenario } from './src/core/scenario-store.js';
 import { ORIGINAL_SCENARIO } from './src/core/scenario.js';
+import { equipmentIconUrl } from './src/core/equipment.js';
 import { h, modal, toast, avatar, figure, setPortraits, setFaces, setHalfbody } from './src/ui.js';
 import { OFFICER_FIELDS, CITY_FIELDS, ALLIANCE_MAX, hpText, setOfficer, setCity, setAlliance, checkRecord, setBug, setPhantomOwner } from './src/core/saveedit.js';
 import { PHANTOM_ROADS } from './src/core/ahuinan.js';
@@ -264,7 +265,7 @@ const slotName = (n) => n === 'quick' ? '快捷存档' : `记录${SLOT_NAMES[n -
 const STATUS = { [G.SERVING]: '仕官', [G.RONIN]: '在野', [G.UNAPPEARED]: '未登场', [G.DEAD]: '已故' };
 const STATUS_ORDER = [G.SERVING, G.RONIN, G.UNAPPEARED, G.DEAD];
 const WEAPONS = D.equipment.filter((e) => e.kind === 'weapon'), ARMORS = D.equipment.filter((e) => e.kind === 'armor');
-const icon = (id) => `assets/ai/icon/equip/${D.equipment[id]?.icon ?? id}.webp`;
+const icon = (id) => equipmentIconUrl(D.equipment[id]?.icon ?? id);
 const STATS = OFFICER_FIELDS.filter(([k]) => k !== 'weapon' && k !== 'armor');
 const color = (f) => (f == null || f === G.NONE ? '#5a5a66' : G.FACTION_COLORS[f]);
 const dot = (f) => h('i', { class: 'dot', style: { background: color(f) } });
@@ -365,7 +366,8 @@ function gearPicker(o) {
     return { k, btns, el: h('div', { class: 'se-gear-row' }, h('span', { class: 'k' }, label), btns) };
   };
   // Weapons in the original's three groups of eight (wgrp = id / 8: 剑, 刀, 长兵), then armour.
-  const lines = [line('weapon', '剑', WEAPONS.filter((e) => e.cat === '剑'), 0), line('weapon', '刀', WEAPONS.filter((e) => e.cat === '刀'), 0), line('weapon', '长兵', WEAPONS.filter((e) => e.cat === '枪'), 0), line('armor', '防具', ARMORS, 24)];
+  const lines = [line('weapon', '剑', WEAPONS.filter((e) => e.cat === '剑'), 0), line('weapon', '刀', WEAPONS.filter((e) => e.cat === '刀'), 0), line('weapon', '长兵', WEAPONS.filter((e) => e.cat === '枪'), 0),
+    ...['扇', '弓'].flatMap((cat) => { const items = WEAPONS.filter((e) => e.cat === cat); return items.length ? [line('weapon', cat, items, 0)] : []; }), line('armor', '防具', ARMORS, 24)];
   const paint = () => {
     for (const { k, btns } of lines) for (const b of btns) { b.classList.toggle('on', Number(b.dataset.v) === o[k]); b.classList.toggle('was', Number(b.dataset.v) === base.officers[o.id][k] && o[k] !== base.officers[o.id][k]); }
     const w = D.equipment[o.weapon], a = D.equipment[24 + o.armor];

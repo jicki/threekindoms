@@ -14,6 +14,7 @@
 // is the same at any frame rate, and leaving the scene cancels whatever is still playing.
 // Presentation only: core/skirmish.js Duel decides every action; tacticalhud.js drives the turns.
 import * as THREE from 'three';
+import { spriteFrame } from './assets.js';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { unitTex, treeTex, canvasTex, rng } from './pixel.js';
@@ -337,8 +338,8 @@ export function createDuelView(T, sprites = {}, audio) {
   // A rider is a group on the hoof line. With an action strip its plane shows one cell at a time,
   // offset so the horse's barrel (the strip's anchor) stays on the group origin in every frame.
   function framePlane(A, unit = unitOf(A.meta)) {
-    const { meta } = A, n = meta.frames.length, [cw, ch] = meta.cell;
-    const tex = A.tex.clone(); tex.repeat.set(1 / n, 1); tex.needsUpdate = true;
+    const { meta } = A, [cw, ch] = meta.cell;
+    const tex = A.tex.clone(); spriteFrame(tex, meta, 0); tex.needsUpdate = true;
     const body = billboard(tex, cw * unit, ch * unit, false);
     body.position.y = (ch * unit) / 2; body.userData.ax = (cw / 2 - meta.anchor) * unit;
     return { body, unit };
@@ -384,7 +385,7 @@ export function createDuelView(T, sprites = {}, audio) {
     for (const c of R.cards) c.body.visible = c === card;
     R.body.visible = !card;
     if (card) {
-      card.body.material.map.offset.x = card.meta.frames.indexOf(n) / card.meta.frames.length;
+      spriteFrame(card.body.material.map, card.meta, card.meta.frames.indexOf(n));
       if (card.follows) {
         card.body.scale.x = R.face; card.body.position.x = card.body.userData.ax * R.face;
         card.body.position.y = card.body.userData.y0 - (card.meta.base?.[n] || 0) * R.unit;
@@ -393,7 +394,7 @@ export function createDuelView(T, sprites = {}, audio) {
     }
     if (!R.meta) { R.body.rotation.z = R.face * (LEAN[name] ?? LEAN[ALIAS[name]] ?? 0); return; }
     const i = R.meta.frames.indexOf(n);
-    if (i >= 0) R.body.material.map.offset.x = i / R.meta.frames.length;
+    if (i >= 0) spriteFrame(R.body.material.map, R.meta, i);
   }
   const clip = (R, name) => R.meta?.clips[name] || DEFAULT_CLIPS[name];
   // The idle breath runs in update(); a clip or a ride takes the rider over until it ends.
@@ -791,7 +792,8 @@ export function createDuelView(T, sprites = {}, audio) {
     let d = pixels.get(img);
     if (!d) { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const g = c.getContext('2d'); g.drawImage(img, 0, 0); d = g.getImageData(0, 0, c.width, c.height); pixels.set(img, d); }
     let x0 = cw, y0 = ch, x1 = -1, y1 = -1;
-    for (let y = from; y < ch; y++) for (let x = 0; x < cw; x++) if (d.data[(y * d.width + i * cw + x) * 4 + 3] >= 128) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    const cols = A.meta.atlasCols || frames.length, px = (i % cols) * cw, py = Math.floor(i / cols) * ch;
+    for (let y = from; y < ch; y++) for (let x = 0; x < cw; x++) if (d.data[((py + y) * d.width + px + x) * 4 + 3] >= 128) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
     return x1 < 0 ? null : { x0, y0, x1: x1 + 1, y1: y1 + 1, cx: (x0 + x1 + 1) / 2, cy: (y0 + y1 + 1) / 2 };
   }
   // The general on foot, apart from his horse: a copy of his side strip (DOWNED) and his third card (thrown, landing,
@@ -818,7 +820,7 @@ export function createDuelView(T, sprites = {}, audio) {
   function looseWeapon(R, A, over = true) {
     const u = unitOf(A.meta), [cw, ch] = A.extra.meta.cell, b = frameBox(A.extra, 'weapon');
     const { body } = framePlane(A.extra, u), g = new THREE.Group();
-    body.material.map.offset.x = A.extra.meta.frames.indexOf('weapon') / A.extra.meta.frames.length;
+    spriteFrame(body.material.map, A.extra.meta, A.extra.meta.frames.indexOf('weapon'));
     body.scale.x = R.face; body.position.set(-(b ? b.cx - cw / 2 : 0) * u * R.face, (b ? b.cy - ch / 2 : 0) * u, 0);
     body.material.transparent = true; if (over) onTop(body, 11);
     g.add(body); scene.add(g);

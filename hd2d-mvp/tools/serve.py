@@ -20,7 +20,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock
 from urllib.parse import unquote, urlsplit
-from scenario_store import MAX_BYTES, ScenarioError, VersionRepository
+from scenario_store import MAX_BYTES, MAX_ASSET_BYTES, ScenarioError, VersionRepository
 
 root = Path(__file__).resolve().parents[2]
 mods = root / 'hd2d-mvp/desktop/node_modules'
@@ -149,9 +149,13 @@ class NoCache(SimpleHTTPRequestHandler):
     extensions_map = {**SimpleHTTPRequestHandler.extensions_map, '.m4a': 'audio/mp4'}
 
     def end_headers(self):
-        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Cache-Control', 'public, max-age=31536000, immutable' if getattr(self, '_immutable_asset', False) else 'no-store')
         super().end_headers()
     def log_message(self, *a): pass
+
+    def do_HEAD(self):
+        self._immutable_asset = False
+        return super().do_HEAD()
 
     def json_response(self, status, value, headers=None):
         body = json.dumps(value, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
@@ -165,7 +169,24 @@ class NoCache(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        self._immutable_asset = False
         path = urlsplit(self.path).path
+        asset = re.fullmatch(r'/api/assets/(a-[a-f0-9]{64})', path)
+        if asset:
+            try:
+                body, (content_type, _, _) = versions.read_asset(asset.group(1))
+                self._immutable_asset = True
+                self.send_response(200)
+                self.send_header('Content-Type', content_type)
+                self.send_header('Content-Length', str(len(body)))
+                self.send_header('X-Content-Type-Options', 'nosniff')
+                self.end_headers(); self.wfile.write(body)
+            except FileNotFoundError: self.json_response(404, {'error': '素材不存在'})
+            except (BrokenPipeError, ConnectionResetError): return
+            except (OSError, ValueError) as error:
+                print(f'读取游戏素材失败：{error}', file=sys.stderr)
+                self.json_response(500, {'error': '素材无法读取'})
+            return
         if path == '/api/versions':
             try:
                 skipped = []
@@ -189,8 +210,11 @@ class NoCache(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
-        if urlsplit(self.path).path != '/api/versions':
+        self._immutable_asset = False
+        path = urlsplit(self.path).path
+        if path not in ('/api/versions', '/api/assets'):
             self.json_response(404, {'error': '接口不存在'}); return
+        uploading = path == '/api/assets'
         digest = current_admin_digest()
         if not digest:
             self.json_response(503, {'error': '服务器未配置有效的管理员令牌'}); return
@@ -208,26 +232,31 @@ class NoCache(SimpleHTTPRequestHandler):
         if len(lengths) != 1 or not re.fullmatch(r'[0-9]+', lengths[0]) or self.headers.get('Transfer-Encoding'):
             self.json_response(400, {'error': '请求长度无效'}); return
         digits = lengths[0].lstrip('0') or '0'
-        if len(digits) > len(str(MAX_BYTES)):
-            self.json_response(413, {'error': '版本文件过大或为空'}); return
+        limit = MAX_ASSET_BYTES if uploading else MAX_BYTES
+        if len(digits) > len(str(limit)):
+            self.json_response(413, {'error': '文件过大或为空'}); return
         size = int(digits)
-        if size <= 0 or size > MAX_BYTES:
-            self.json_response(413, {'error': '版本文件过大或为空'}); return
-        if self.headers.get('Content-Type', '').split(';', 1)[0].strip().lower() != 'application/json':
-            self.json_response(415, {'error': '需要 JSON 格式'}); return
+        if size <= 0 or size > limit:
+            self.json_response(413, {'error': '文件过大或为空'}); return
+        content_type = self.headers.get('Content-Type', '').split(';', 1)[0].strip().lower()
+        if content_type not in (('image/png', 'image/webp') if uploading else ('application/json',)):
+            self.json_response(415, {'error': '素材需要 PNG 或 WebP 格式' if uploading else '需要 JSON 格式'}); return
         try:
             self.connection.settimeout(10)
             raw = self.rfile.read(size)
             if len(raw) != size: raise ValueError('incomplete body')
-            value = json.loads(raw, parse_constant=lambda _: (_ for _ in ()).throw(ValueError('invalid number')))
-            result = versions.publish(value)
+            if uploading:
+                result = versions.put_asset(raw, content_type)
+            else:
+                value = json.loads(raw, parse_constant=lambda _: (_ for _ in ()).throw(ValueError('invalid number')))
+                result = versions.publish(value)
         except FileExistsError:
             self.json_response(409, {'error': '版本编号已存在且内容不同'}); return
         except (ValueError, UnicodeError, RecursionError, socket.timeout) as error:
-            self.json_response(400, {'error': str(error) if isinstance(error, ScenarioError) else '版本文件无效'}); return
+            self.json_response(400, {'error': str(error) if isinstance(error, ScenarioError) else '素材文件无效' if uploading else '版本文件无效'}); return
         except OSError as error:
-            print(f'发布游戏版本失败：{error}', file=sys.stderr)
-            self.json_response(500, {'error': '无法保存游戏版本，请检查服务器存储'}); return
+            print(f'保存游戏{"素材" if uploading else "版本"}失败：{error}', file=sys.stderr)
+            self.json_response(500, {'error': '无法保存游戏素材，请检查服务器存储' if uploading else '无法保存游戏版本，请检查服务器存储'}); return
         self.json_response(201, result)
 
     def translate_path(self, path):

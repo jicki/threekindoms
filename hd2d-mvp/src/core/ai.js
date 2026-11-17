@@ -1,7 +1,7 @@
 // Strategic AI (6.5). Budget = command books × 10 points; the main dispatch draws 0–15 against the
 // faction/difficulty/situation weights (`10:A19C` uses D4AD, so sums above 16 never reach the last
 // branches), then attack/vacant expansion, inner moves + BD7A reinforcement, diplomacy, or domestic work.
-import { data, rng, NONE, SERVING, UNAPPEARED, RONIN, roads, citiesOf, troopsOf, recruitLoyalty, books, isRuler, officerCity, searchQueue, maxHp, weaponGroup } from './game.js';
+import { data, rng, NONE, SERVING, UNAPPEARED, RONIN, roads, citiesOf, troopsOf, recruitLoyalty, books, isRuler, officerCity, searchQueue, maxHp, weaponGroup, equipBlock } from './game.js';
 import { setupWar, occupyEmpty, autoBattle } from './warcore.js';
 import { phantomWar } from './ahuinan.js';
 
@@ -438,12 +438,14 @@ export function equip(g, c, r, spend) {
     for (const id of c.officers) {
       const o = g.officers[id], grp = weaponGroup(o.weapon), currentAtk = D.equipment[o.weapon]?.atk ?? 0;
       let it = stock.find((e) => e < 24 && Math.floor(e / 8) === grp && (o.weapon < 24 ? e > o.weapon : D.equipment[e].atk > currentAtk));
-      if (it == null) it = stock.find((e) => e >= 32 && D.equipment[e]?.kind === 'weapon' && weaponGroup(e) === grp && D.equipment[e].atk > currentAtk);
-      if (it == null) it = stock.find((e) => e >= 24 && e < 32 && e - 24 > o.armor);
+      if (it == null) it = stock.find((e) => e >= 32 && D.equipment[e]?.kind === 'weapon' && weaponGroup(e) === grp && D.equipment[e].atk > currentAtk && D.equipment[e].price <= c.gold && !equipBlock(g, id, e));
+      const currentDef = D.equipment[24 + o.armor]?.dfn ?? 0;
+      if (it == null) it = stock.find((e) => e >= 24 && e < 32 && (o.armor < 8 ? e - 24 > o.armor : D.equipment[e].dfn > currentDef));
+      if (it == null) it = stock.find((e) => e >= 32 && D.equipment[e]?.kind === 'armor' && D.equipment[e].dfn > currentDef && D.equipment[e].price <= c.gold && !equipBlock(g, id, e));
       if (it != null && (best == null || o.war >= g.officers[best].war)) { best = id; item = it; }
     }
     if (best == null) return bought;
-    const price = D.equipment[item].kind === 'weapon' ? D.equipment[item].price : 240;
+    const price = D.equipment[item].kind === 'weapon' || item >= 32 ? D.equipment[item].price : 240;
     if (c.gold < price) return bought;
     c.gold -= price;
     if (D.equipment[item].kind === 'weapon') g.officers[best].weapon = item; else g.officers[best].armor = item - 24;

@@ -20,6 +20,286 @@ after(async () => {
   if (directory) rmSync(directory, { recursive: true, force: true });
 });
 
+test('女性角色支持分开上传立绘、表情和动作，导出素材包可在另一服务器导入发布', async () => {
+  const admin = await game.open(), otherDir = mkdtempSync(join(tmpdir(), 'threekindoms-asset-import-'));
+  let other;
+  try {
+    await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
+    const content = admin.locator('#content');
+    await admin.getByLabel('版本名称').fill('女性角色素材测试');
+    await content.getByLabel('女性角色模板').selectOption('sun');
+    await content.getByRole('button', { name: '添加角色模板' }).click();
+    await content.getByRole('heading', { name: /孙尚香/ }).waitFor();
+    assert.equal(await content.getByAltText('立绘素材预览').isVisible(), true);
+    await content.getByRole('button', { name: '使用已有图像' }).click();
+    assert.equal(await content.getByAltText('立绘素材预览').isHidden(), true);
+    const motion = content.getByLabel('动作素材', { exact: true });
+    const oldMotion = motion.locator('option[value^="o-"]');
+    if (await oldMotion.count()) {
+      const ref = await oldMotion.first().getAttribute('value');
+      await motion.selectOption(ref);
+      const motionPreview = content.getByAltText('动作素材预览');
+      assert.match(await motionPreview.getAttribute('src'), new RegExp(`assets/ai/sprites/march/${ref.slice(2)}\\.png$`));
+      await motionPreview.evaluate((img) => img.decode());
+    }
+    await admin.getByLabel('管理员令牌').fill(token);
+    const asset = (name) => readFileSync(new URL(`../assets/characters/sun/${name}`, import.meta.url));
+    const opaque = await admin.evaluate(() => {
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 4;
+      canvas.getContext('2d').fillRect(0, 0, 4, 4); return canvas.toDataURL('image/png').split(',')[1];
+    });
+    await content.getByLabel('上传动作素材').setInputFiles({ name: 'opaque.png', mimeType: 'image/png', buffer: Buffer.from(opaque, 'base64') });
+    await admin.getByText('动作图须包含透明背景和可见图像').waitFor();
+    await content.getByLabel('上传立绘素材').setInputFiles({ name: 'portrait.webp', mimeType: 'image/webp', buffer: asset('portrait.webp') });
+    await admin.getByText('立绘素材已上传，请应用人物修改').waitFor();
+    await content.getByLabel('上传愤怒表情').setInputFiles({ name: 'angry.webp', mimeType: 'image/webp', buffer: asset('angry.webp') });
+    await admin.getByText('愤怒表情已上传，请应用人物修改').waitFor();
+    await content.getByAltText('愤怒表情预览').evaluate((img) => img.decode());
+    await content.getByLabel('上传动作素材').setInputFiles({ name: 'motion.png', mimeType: 'image/png', buffer: asset('motion.png') });
+    await admin.getByText('动作素材已上传，请应用人物修改').waitFor();
+    await content.getByAltText('动作素材预览').evaluate((img) => img.decode());
+    await content.getByRole('button', { name: '应用修改' }).click();
+    const visual = await admin.evaluate(() => window.__admin.draft.officers.find((o) => o.name === '孙尚香').visual);
+    for (const ref of [visual.portrait, visual.faces.angry, visual.motion]) assert.match(ref, /^a-[a-f0-9]{64}$/);
+    const download = admin.waitForEvent('download');
+    await admin.getByRole('button', { name: '导出草稿' }).click();
+    const bundle = JSON.parse(readFileSync(await (await download).path(), 'utf8'));
+    assert.equal(bundle.bundle, 'threekindoms-assets-v1'); assert.equal(Object.keys(bundle.assets).length, 3);
+    await admin.getByRole('button', { name: '发布新版本' }).click();
+    await admin.getByText(/已发布“女性角色素材测试”/).waitFor();
+    const id = await admin.evaluate(() => window.__admin.lastPublished);
+    const requested = [];
+    const player = await game.open('', { setup: async (context) => {
+      context.on('request', (request) => requested.push(new URL(request.url()).pathname));
+      await context.addInitScript((version) => sessionStorage.setItem('haou-hd2d-scenario', version), id);
+    } });
+    try {
+      const sources = await player.evaluate(async () => {
+        const { face, figure } = await import('./src/ui.js'), panel = document.createElement('div');
+        panel.append(figure(237), face(237, '', 'angry')); document.body.append(panel);
+        await Promise.all([...panel.querySelectorAll('img')].map((img) => img.decode()));
+        return [...panel.querySelectorAll('img')].map((img) => img.getAttribute('src'));
+      });
+      assert.deepEqual(sources, [`/api/assets/${visual.portrait}`, `/api/assets/${visual.faces.angry}`]);
+      await player.evaluate(() => { window.__game.debug.quickTactical(237, 38, 2); });
+      await player.waitForSelector('.tq-form', { timeout: 60000 });
+      assert.ok(requested.includes(`/api/assets/${visual.motion}`), '白兵加载已发布的动作素材');
+      assert.deepEqual(player.errors, []);
+    } finally { await player.context().close(); }
+    const savedDir = process.env.GAME_VERSION_DIR;
+    process.env.GAME_VERSION_DIR = otherDir;
+    try { other = await startGame(); } finally { process.env.GAME_VERSION_DIR = savedDir; }
+    const importer = await other.open();
+    try {
+      await importer.goto(new URL('admin.html?mute', other.url).href); await importer.waitForFunction(() => window.__admin);
+      await importer.getByLabel('管理员令牌').fill(token);
+      await importer.locator('#file').setInputFiles({ name: 'version.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(bundle)) });
+      await importer.getByText('版本已导入，未修改时可恢复原编号').waitFor();
+      await importer.getByRole('button', { name: '发布新版本' }).click();
+      await importer.getByText(/已发布“女性角色素材测试”/).waitFor();
+      assert.equal(await importer.evaluate(() => window.__admin.lastPublished), id);
+      const published = await (await fetch(new URL(`/api/versions/${id}`, other.url))).json();
+      assert.deepEqual(published.officers.find((o) => o.name === '孙尚香').visual, visual);
+      for (const ref of [visual.portrait, visual.faces.angry, visual.motion]) assert.equal((await fetch(new URL(`/api/assets/${ref}`, other.url))).status, 200);
+      assert.deepEqual(importer.errors, []);
+    } finally { await importer.context().close(); }
+    assert.deepEqual(admin.errors, []);
+  } finally { await other?.close(); await admin.context().close(); rmSync(otherDir, { recursive: true, force: true }); }
+});
+
+test('版本列表与可选旧动作不可用时仍可载入内置版本', async () => {
+  const admin = await game.open();
+  try {
+    await admin.route('**/api/versions', (route) => route.abort());
+    await admin.route('**/assets/ai/sprites/march/index.json', (route) => route.abort());
+    await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
+    await admin.getByText('无法读取服务器版本列表；仍可编辑草稿，发布前请检查服务器。').waitFor();
+    await admin.locator('#published').selectOption('builtin-female');
+    await admin.getByRole('button', { name: '载入为新草稿' }).click();
+    await admin.getByText('已载入新草稿').waitFor();
+    const names = await admin.evaluate(() => window.__admin.draft.officers.map((officer) => officer.name));
+    assert.deepEqual(names, ['孙尚香', '甄宓', '貂蝉']);
+    assert.deepEqual(admin.errors, []);
+  } finally { await admin.context().close(); }
+});
+
+test('已发布版本列表返回时保留用户选择的内置版本', async () => {
+  const admin = await game.open();
+  let release;
+  const wait = new Promise((resolve) => { release = resolve; });
+  const id = `v-${'e'.repeat(32)}`;
+  try {
+    await admin.route('**/api/versions', async (route) => {
+      await wait;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id, name: '延迟版本' }]) });
+    });
+    await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
+    await admin.locator('#published').selectOption('builtin-female');
+    release();
+    await admin.waitForFunction((expected) => [...document.querySelector('#published').options].some((option) => option.value === expected), id);
+    assert.equal(await admin.locator('#published').inputValue(), 'builtin-female');
+    assert.deepEqual(admin.errors, []);
+  } finally { release(); await admin.context().close(); }
+});
+
+test('编辑器可添加扇、弓与新防具，发布后可在游戏和记录编辑器使用', async () => {
+  const admin = await game.open();
+  try {
+    await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
+    const content = admin.locator('#content');
+    await admin.getByLabel('版本名称').fill('巾帼装备测试');
+    await content.getByLabel('女性角色模板').selectOption('sun');
+    await content.getByRole('button', { name: '添加角色模板' }).click();
+    await content.getByRole('heading', { name: /孙尚香/ }).waitFor();
+    let draft = await admin.evaluate(() => window.__admin.draft);
+    assert.equal(draft.weapons[0].cat, '弓'); assert.equal(draft.armors[0].name, '锦鳞轻甲');
+    await admin.getByRole('tab', { name: '新武器' }).click();
+    await content.getByRole('button', { name: '＋ 新建武器' }).click();
+    await content.getByLabel('名称', { exact: true }).fill('凤羽扇');
+    await content.getByLabel('类型', { exact: true }).selectOption('扇');
+    await content.getByLabel('攻击', { exact: true }).fill('12');
+    await content.getByLabel('品级', { exact: true }).selectOption('5');
+    await content.getByLabel('最低武力').fill('85');
+    await content.getByLabel('限定购买武将').selectOption(['237']);
+    await content.getByLabel('沿用图标').selectOption('b-fan');
+    await content.getByAltText('武器图标预览').evaluate((img) => img.decode());
+    await content.getByRole('checkbox', { name: '长安' }).check();
+    await content.getByRole('button', { name: '应用修改' }).click();
+    await admin.getByText('武器修改已应用到草稿').waitFor();
+    await content.getByRole('button', { name: '不限武将' }).click();
+    await content.getByRole('button', { name: '应用修改' }).click();
+    assert.deepEqual((await admin.evaluate(() => window.__admin.draft.weapons.find((item) => item.name === '凤羽扇'))).requirements, { war: 85 });
+    await content.getByLabel('限定购买武将').selectOption(['237']);
+    await content.getByRole('button', { name: '应用修改' }).click();
+    await admin.getByRole('tab', { name: '新防具' }).click();
+    await content.getByRole('button', { name: '＋ 新建防具' }).click();
+    await content.getByLabel('名称', { exact: true }).fill('锦绣女甲');
+    await content.getByLabel('防御', { exact: true }).fill('12');
+    await content.getByLabel('品级', { exact: true }).selectOption('4');
+    await content.getByLabel('最低人德').fill('75');
+    await content.getByLabel('防具图标').selectOption('b-female-armor');
+    await content.getByAltText('防具图标预览').evaluate((img) => img.decode());
+    await content.getByRole('checkbox', { name: '长安' }).check();
+    await content.getByRole('button', { name: '应用修改' }).click();
+    await admin.getByText('防具修改已应用到草稿').waitFor();
+    draft = await admin.evaluate(() => window.__admin.draft);
+    const fan = draft.weapons.find((item) => item.name === '凤羽扇'), armor = draft.armors.find((item) => item.name === '锦绣女甲');
+    assert.equal(armor.id, fan.id + 1);
+    assert.deepEqual([fan.grade, fan.requirements, armor.grade, armor.requirements], [5, { war: 85, officers: [237] }, 4, { virtue: 75 }]);
+    await admin.getByRole('tab', { name: '人物与登场' }).click();
+    await content.getByLabel('武器', { exact: true }).selectOption(String(fan.id));
+    await content.getByLabel('防具', { exact: true }).selectOption(String(armor.id - 24));
+    await content.getByRole('button', { name: '应用修改' }).click();
+    await admin.getByText('人物修改已应用到草稿').waitFor();
+    await admin.getByLabel('管理员令牌').fill(token); await admin.getByRole('button', { name: '发布新版本' }).click();
+    await admin.getByText(/已发布“巾帼装备测试”/).waitFor();
+    const id = await admin.evaluate(() => window.__admin.lastPublished);
+    const player = await game.open('', { setup: (context) => context.addInitScript((version) => sessionStorage.setItem('haou-hd2d-scenario', version), id) });
+    try {
+      const result = await player.evaluate(({ armorId, fanId }) => {
+        const { G } = window.__game, data = G.data(), game = G.newGame(4, 1, 5), actor = game.officers[237];
+        game.cities[8].gold = 2000; actor.armor = 0;
+        const denied = G.buyEquip(game, 8, 0, fanId), afterDenied = game.cities[8].gold;
+        const bought = G.buyEquip(game, 8, 237, armorId); actor.status = G.SERVING; actor.loc = game.factions[game.player].city;
+        game.cities[actor.loc].officers.push(237);
+        return { weapon: data.equipment[actor.weapon].name, armor: data.equipment[24 + actor.armor].name, bought: bought.ok,
+          denied: denied.msg, afterDenied, saved: G.save(game, 1) };
+      }, { armorId: armor.id, fanId: fan.id });
+      assert.deepEqual(result, { weapon: '凤羽扇', armor: '锦绣女甲', bought: true, denied: '凤羽扇：仅限孙尚香购买', afterDenied: 2000, saved: true });
+      await player.goto(new URL('save-editor.html?mute', game.url).href); await player.waitForFunction(() => window.__editor?.g);
+      await player.getByLabel('搜索武将').fill('孙尚香'); await player.locator('.rows button[data-id="237"]').click();
+      await player.getByRole('button', { name: '锦鳞轻甲' }).click();
+      assert.equal(await player.evaluate(() => window.__editor.g.officers[237].armor), 9);
+      await player.getByRole('button', { name: '锦绣女甲' }).click();
+      assert.equal(await player.evaluate(() => window.__editor.g.officers[237].armor), armor.id - 24);
+      await player.getByRole('button', { name: '朱雀弓' }).click();
+      assert.equal(await player.evaluate(() => window.__editor.g.officers[237].weapon), 32);
+      assert.deepEqual(player.errors, []);
+    } finally { await player.context().close(); }
+    assert.deepEqual(admin.errors, []);
+  } finally { await admin.context().close(); }
+});
+
+test('巾帼版本的战场商店显示品级与条件，符合条件后可购买', async () => {
+  const player = await game.open('&flat', { setup: (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-female')) });
+  try {
+    await newCampaign(player);
+    await player.evaluate(() => {
+      const { g, debug } = window.__game, home = g.factions[g.player].city;
+      const foe = g.cities.find((c) => c.faction !== g.player && g.factions[c.faction] && c.officers.length);
+      g.officers[237].soldiers = 500; g.officers[237].war = 84;
+      g.officers[foe.officers[0]].soldiers ||= 500;
+      debug.fieldWar({ city: 15, from: home, attacker: g.player, defender: foe.faction, day: 1,
+        att: { ids: [237], gold: 1000, rice: 400 }, def: { ids: [foe.officers[0]], gold: 0, rice: 400 } }, 'att');
+    });
+    await player.waitForFunction(() => window.__game.war?.finishDeploy && document.body.dataset.screen === 'war', null, { timeout: 30000 });
+    const stop = closeMessages(player);
+    try {
+      await player.locator('.deploybtn .btn', { hasText: '布阵完成' }).click({ timeout: 30000 });
+      await player.waitForFunction(() => { const f = window.__game.war.field; return f.turn === f.human && !document.querySelector('.banner, .panel.msg'); }, null, { timeout: 30000 });
+    } finally { stop(); }
+    await player.evaluate(() => {
+      const { war } = window.__game, field = war.field, shop = field.villages.find((v) => v.kind === '武器店');
+      const me = field.alive.find((unit) => unit.id === 237), there = field.unitAt(shop.x, shop.y);
+      if (there && there !== me) {
+        const free = [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [0, 2]].map(([dx, dy]) => [shop.x + dx, shop.y + dy]).find(([x, y]) => field.inside(x, y) && !field.unitAt(x, y));
+        [there.x, there.y] = free;
+      }
+      [me.x, me.y] = [shop.x, shop.y]; war.clickCell(me.x, me.y);
+    });
+    const openShop = () => player.locator('.unitacts button, .unitpanel:not(.compare) button', { hasText: '武器店' }).click({ timeout: 15000 });
+    await openShop();
+    const row = player.locator('.modal .shop-row', { hasText: '落日弓' });
+    assert.match(await row.textContent(), /落日弓 · 5级/);
+    assert.match(await row.textContent(), /需武力85/);
+    assert.equal(await row.isDisabled(), true);
+    await player.locator('.modal .foot button', { hasText: '取消' }).click();
+    await player.evaluate(() => { window.__game.g.officers[237].war = 85; });
+    await openShop();
+    assert.equal(await row.isEnabled(), true);
+    await row.click(); await player.locator('.shade .btn.primary', { hasText: '确定' }).click();
+    const after = await player.evaluate(() => ({ name: window.__game.G.data().equipment[window.__game.g.officers[237].weapon].name,
+      gold: window.__game.war.field.chest('att').gold }));
+    assert.deepEqual(after, { name: '落日弓', gold: 600 });
+    assert.deepEqual(player.errors, []);
+  } finally { await player.context().close(); }
+});
+
+test('无防具字段的旧草稿可先添加防具再添加武器并发布', async () => {
+  const admin = await game.open();
+  try {
+    await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
+    assert.equal(await admin.evaluate(() => Object.hasOwn(window.__admin.draft, 'armors')), false);
+    const content = admin.locator('#content');
+    await admin.getByLabel('版本名称').fill('旧草稿装备兼容');
+    await admin.getByRole('tab', { name: '新防具' }).click();
+    await content.getByRole('button', { name: '＋ 新建防具' }).click();
+    await content.getByLabel('名称', { exact: true }).fill('绣甲');
+    await content.getByLabel('防具图标').selectOption('b-female-armor');
+    await content.getByRole('button', { name: '应用修改' }).click();
+    await admin.getByText('防具修改已应用到草稿').waitFor();
+    await admin.getByRole('tab', { name: '新武器' }).click();
+    await content.getByRole('button', { name: '＋ 新建武器' }).click();
+    await content.getByLabel('名称', { exact: true }).fill('新弓');
+    await content.getByLabel('类型', { exact: true }).selectOption('弓');
+    await content.getByLabel('沿用图标').selectOption('b-bow');
+    await content.getByRole('button', { name: '应用修改' }).click();
+    await admin.getByText('武器修改已应用到草稿').waitFor();
+    await admin.getByRole('tab', { name: '人物与登场' }).click();
+    await content.getByLabel('武器', { exact: true }).selectOption('33');
+    await content.getByLabel('防具', { exact: true }).selectOption('8');
+    await content.getByRole('button', { name: '应用修改' }).click();
+    await admin.getByText('人物修改已应用到草稿').waitFor();
+    await admin.getByLabel('管理员令牌').fill(token); await admin.getByRole('button', { name: '发布新版本' }).click();
+    await admin.getByText(/已发布“旧草稿装备兼容”/).waitFor();
+    const draft = await admin.evaluate(() => window.__admin.draft);
+    assert.equal(draft.armors[0].id, 32); assert.equal(draft.weapons[0].id, 33);
+    assert.equal(draft.officers.find((o) => o.id === 0).armor, 8);
+    assert.equal(draft.officers.find((o) => o.id === 0).weapon, 33);
+    assert.deepEqual(admin.errors, []);
+  } finally { await admin.context().close(); }
+});
+
 test('上传人物图像、管理关系并发布额外君主供玩家开局', async () => {
   const admin = await game.open();
   try {
@@ -374,7 +654,12 @@ test('moving the only starting officer makes that city neutral in the published 
 test('damaged versions are reported while healthy versions remain publishable and playable', async () => {
   const damaged = join(directory, `v-${'f'.repeat(32)}.json`);
   writeFileSync(damaged, '{broken');
-  const admin = await game.open();
+  let bootPage;
+  const admin = await game.open('', { setup: (context) => context.on('page', (page) => { bootPage = page; }) }).catch(async (error) => {
+    const details = await bootPage?.evaluate(() => ({ ready: document.readyState, screen: document.body?.dataset.screen,
+      stage: document.querySelector('#stage')?.children.length, game: typeof window.__game })).catch(() => null);
+    throw new Error(`游戏启动失败: ${JSON.stringify({ details, errors: bootPage?.errors })}`, { cause: error });
+  });
   try {
     await admin.goto(new URL('admin.html?mute', game.url).href); await admin.waitForFunction(() => window.__admin);
     const warning = admin.locator('#version-warning');
@@ -399,7 +684,7 @@ test('damaged versions are reported while healthy versions remain publishable an
     } finally { await player.context().close(); }
     rmSync(damaged);
     await admin.reload(); await admin.waitForFunction(() => window.__admin);
-    await admin.waitForFunction(() => document.querySelector('#published').options.length > 1);
+    await admin.waitForFunction((expected) => [...document.querySelector('#published').options].some((option) => option.value === expected), id);
     assert.equal(await admin.locator('#version-warning').isHidden(), true);
     assert.deepEqual(admin.errors, []);
   } finally { rmSync(damaged, { force: true }); await admin.context().close(); }

@@ -24,10 +24,10 @@
       <button type="button" id="import" class="quiet">导入版本</button>
       <input type="file" id="file" accept="application/json,.json" hidden>
       <button type="button" id="export" class="quiet">导出草稿</button>
-      <label>管理员令牌<input id="token" type="password" autocomplete="off" placeholder="发布时输入"></label>
+      <label>管理员令牌<input id="token" type="password" autocomplete="off" placeholder="上传或发布时输入"></label>
       <button type="button" id="publish" class="primary">发布新版本</button>
     </div>
-    <p class="notice">每次修改后发布会生成新编号。令牌仅用于本次发布，不会保存到浏览器。</p>
+    <p class="notice">每次修改后发布会生成新编号。令牌用于素材上传和版本发布，发布成功后清空，不会保存到浏览器。</p>
     <p id="version-warning" class="status error" role="status" aria-live="polite" hidden></p>
     <p id="status" class="status" role="status" aria-live="polite"></p>
   </section>

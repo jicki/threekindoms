@@ -1,18 +1,26 @@
 """校验并原子保存发布后的游戏版本。已发布的编号不可覆盖。"""
 import base64
 import binascii
+import hashlib
 import json
 import logging
 import os
 import re
 import stat
 import tempfile
+import zlib
+from collections import OrderedDict
 from pathlib import Path
+from threading import Lock
 
 ID = re.compile(r'^v-[a-f0-9]{32}$')
 MAX_BYTES = 1024 * 1024
 MAX_PORTRAIT_BYTES = 64 * 1024
 MAX_PORTRAIT_SIDE = 384
+MAX_ASSET_BYTES = 1024 * 1024
+ASSET_ID = re.compile(r'^a-[a-f0-9]{64}$')
+BUILTIN_VISUAL = re.compile(r'^b-(sun|zhen|diao)-(portrait|calm|joy|angry|grief|motion)$')
+MOODS = ('calm', 'joy', 'angry', 'grief')
 
 
 class ScenarioError(ValueError):
@@ -97,8 +105,86 @@ def portrait(value):
         fail('人物图像内容或尺寸无效')
 
 
+def visual_ref(value, kind, count):
+    if not isinstance(value, str):
+        fail('人物素材引用无效')
+    builtin = BUILTIN_VISUAL.fullmatch(value)
+    officer = re.fullmatch(r'o-(0|[1-9][0-9]{0,5})', value) if kind == 'motion' else None
+    if ASSET_ID.fullmatch(value) or (builtin and builtin.group(2) == kind) or (officer and int(officer.group(1)) < count):
+        return
+    fail('人物素材引用无效')
+
+
+def visual(value, count):
+    obj(value, '人物素材', ('portrait', 'faces', 'motion'))
+    for kind in ('portrait', 'motion'):
+        if kind in value:
+            visual_ref(value[kind], kind, count)
+    if 'faces' in value:
+        obj(value['faces'], '人物表情', MOODS)
+        for kind, ref in value['faces'].items():
+            visual_ref(ref, kind, count)
+
+
+def image_info(data):
+    """受限静态 PNG/WebP，限制压缩文件与解码尺寸；PNG 同时检查块、CRC 和解压长度。"""
+    if not data or len(data) > MAX_ASSET_BYTES:
+        fail('素材文件过大或为空')
+    if data.startswith(b'\x89PNG\r\n\x1a\n'):
+        pos, chunks, header, compressed = 8, [], None, bytearray()
+        while pos + 12 <= len(data):
+            length = int.from_bytes(data[pos:pos + 4], 'big'); end = pos + 12 + length
+            if end > len(data): fail('PNG 内容无效')
+            tag, payload = data[pos + 4:pos + 8], data[pos + 8:pos + 8 + length]
+            if zlib.crc32(tag + payload) & 0xffffffff != int.from_bytes(data[end - 4:end], 'big'): fail('PNG 校验失败')
+            chunks.append(tag)
+            if tag == b'IHDR':
+                if header is not None or len(payload) != 13 or pos != 8: fail('PNG 头无效')
+                header = payload
+            elif tag == b'IDAT': compressed.extend(payload)
+            elif tag == b'acTL': fail('不支持动态 PNG')
+            elif tag == b'IEND':
+                if length or end != len(data): fail('PNG 结尾无效')
+                break
+            pos = end
+        if not header or not compressed or not chunks or chunks[-1] != b'IEND': fail('PNG 内容无效')
+        width, height = int.from_bytes(header[:4], 'big'), int.from_bytes(header[4:8], 'big')
+        depth, color, comp, filt, interlace = header[8:13]
+        channels = {0: 1, 2: 3, 4: 2, 6: 4}.get(color)
+        if not channels or depth != 8 or comp or filt or interlace: fail('PNG 格式不受支持')
+        if not width or not height or width > 1536 or height > 1536 or width * height > 2_000_000: fail('素材尺寸无效')
+        stride, expected = width * channels + 1, (width * channels + 1) * height
+        try:
+            decoder = zlib.decompressobj(); pixels = decoder.decompress(compressed, expected + 1)
+            if not decoder.eof or decoder.unused_data or len(pixels) != expected or any(pixels[i] > 4 for i in range(0, expected, stride)):
+                fail('PNG 像素内容无效')
+        except zlib.error:
+            fail('PNG 像素内容无效')
+        return 'image/png', width, height
+    if len(data) >= 30 and data[:4] == b'RIFF' and data[8:12] == b'WEBP' and int.from_bytes(data[4:8], 'little') == len(data) - 8:
+        tag, size = data[12:16], int.from_bytes(data[16:20], 'little')
+        if size > len(data) - 20: fail('WebP 内容无效')
+        width = height = 0
+        if tag == b'VP8 ' and size >= 10 and data[23:26] == b'\x9d\x01\x2a':
+            width, height = int.from_bytes(data[26:28], 'little') & 0x3fff, int.from_bytes(data[28:30], 'little') & 0x3fff
+        elif tag == b'VP8L' and size >= 5 and data[20] == 0x2f:
+            bits = int.from_bytes(data[21:25], 'little'); width, height = (bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1
+        elif tag == b'VP8X' and size >= 10 and not data[20] & 2:
+            width, height = int.from_bytes(data[24:27], 'little') + 1, int.from_bytes(data[27:30], 'little') + 1
+        if not width or not height or width > 1536 or height > 1536 or width * height > 2_000_000: fail('素材尺寸无效')
+        pos, found = 12, False
+        while pos + 8 <= len(data):
+            chunk, length = data[pos:pos + 4], int.from_bytes(data[pos + 4:pos + 8], 'little')
+            pos += 8 + length + (length & 1)
+            if pos > len(data) or chunk in (b'ANIM', b'ANMF'): fail('WebP 内容无效')
+            found |= chunk in (b'VP8 ', b'VP8L')
+        if pos != len(data) or not found: fail('WebP 内容无效')
+        return 'image/webp', width, height
+    fail('素材只支持静态 PNG 或 WebP')
+
+
 def validate(s, base):
-    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'skills', 'relations', 'rulers'])
+    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers'])
     if type(s.get('format')) is not int or s['format'] != 1:
         fail('不支持的版本文件格式')
     if not isinstance(s.get('id'), str) or not ID.fullmatch(s['id']):
@@ -107,28 +193,69 @@ def validate(s, base):
     if s.get('base') != base_signature(base):
         fail('版本所需的基础数据与当前游戏不一致')
     officers, weapons, skills, relations = (s.get(k) for k in ('officers', 'weapons', 'skills', 'relations'))
+    armors = s.get('armors', [])
     array(officers, '武将', len(base['officers']) + 100)
     array(weapons, '新武器', 64)
+    array(armors, '新防具', 64)
     array(skills, '新技能', 64)
     array(relations, '人物关系', 1000)
     rulers = s.get('rulers', [])
     array(rulers, '君主候选', len(base['officers']) + 100)
-    for i, w in enumerate(weapons):
-        obj(w, '武器', ['id', 'name', 'cat', 'atk', 'weight', 'price', 'icon', 'shops'])
-        if type(w.get('id')) is not int or w['id'] != len(base['equipment']) + i:
-            fail('新武器编号不连续')
-        text(w.get('name'), '武器名称')
-        if w.get('cat') not in ('剑', '刀', '枪'):
-            fail('武器类型无效')
-        for key, label, maximum in [('atk', '武器攻击', 99), ('weight', '武器重量', 99), ('price', '武器价格', 9999), ('icon', '武器图标', 23)]:
-            integer(w.get(key), label, 0, maximum)
-        shops = w.get('shops'); array(shops, '售卖城市', len(base['cities']))
+    nbase = len(base['officers'])
+    max_officer = nbase + sum(isinstance(o, dict) and type(o.get('id')) is int and o['id'] >= nbase for o in officers) - 1
+    kinds = {}
+    for item, kind in [(w, 'weapon') for w in weapons] + [(a, 'armor') for a in armors]:
+        obj(item, '武器' if kind == 'weapon' else '防具', ['id', 'name', 'cat', 'atk', 'dfn', 'weight', 'price', 'icon', 'shops', 'grade', 'requirements'])
+        integer(item.get('id'), '新装备编号', len(base['equipment']), len(base['equipment']) + len(weapons) + len(armors) - 1)
+        if item['id'] in kinds:
+            fail('新装备编号重复')
+        kinds[item['id']] = kind
+
+    def check_shops(item):
+        shops = item.get('shops'); array(shops, '售卖城市', len(base['cities']))
         for city in shops:
             integer(city, '售卖城市', 0, len(base['cities']) - 1)
             if not base['cities'][city]['facilities']['weapons']:
                 fail('只能在设有武器屋的城市售卖')
         if len(set(shops)) != len(shops):
             fail('售卖城市重复')
+
+    def check_icon(icon, kind):
+        if type(icon) is int:
+            integer(icon, '装备图标', 0 if kind == 'weapon' else 24, 23 if kind == 'weapon' else 31)
+        elif not isinstance(icon, str) or icon not in (('b-bow', 'b-fan') if kind == 'weapon' else ('b-female-armor',)):
+            fail('装备图标无效')
+
+    def check_requirements(item):
+        if 'grade' in item:
+            integer(item['grade'], '装备品级', 1, 5)
+        if 'requirements' not in item:
+            return
+        requirement = item['requirements']
+        obj(requirement, '购买条件', ['war', 'int', 'virtue', 'officers'])
+        for key, label in [('war', '最低武力'), ('int', '最低智力'), ('virtue', '最低人德')]:
+            if key in requirement:
+                integer(requirement[key], label, 1, 99)
+        if 'officers' in requirement:
+            ids = requirement['officers']; array(ids, '指定武将', max_officer + 1)
+            if not ids: fail('指定武将不能为空')
+            for officer_id in ids: integer(officer_id, '指定武将', 0, max_officer)
+            if len(ids) != len(set(ids)): fail('指定武将重复')
+
+    for w in weapons:
+        obj(w, '武器', ['id', 'name', 'cat', 'atk', 'weight', 'price', 'icon', 'shops', 'grade', 'requirements'])
+        text(w.get('name'), '武器名称')
+        if w.get('cat') not in ('剑', '刀', '枪', '扇', '弓'):
+            fail('武器类型无效')
+        for key, label, maximum in [('atk', '武器攻击', 99), ('weight', '武器重量', 99), ('price', '武器价格', 9999)]:
+            integer(w.get(key), label, 0, maximum)
+        check_icon(w.get('icon'), 'weapon'); check_shops(w); check_requirements(w)
+    for a in armors:
+        obj(a, '防具', ['id', 'name', 'dfn', 'weight', 'price', 'icon', 'shops', 'grade', 'requirements'])
+        text(a.get('name'), '防具名称')
+        for key, label, maximum in [('dfn', '防具防御', 99), ('weight', '防具重量', 99), ('price', '防具价格', 9999)]:
+            integer(a.get(key), label, 0, maximum)
+        check_icon(a.get('icon'), 'armor'); check_shops(a); check_requirements(a)
     for i, skill in enumerate(skills):
         obj(skill, '技能', ['id', 'name', 'cost', 'soldiers', 'hp', 'stop', 'rice'])
         if type(skill.get('id')) is not int or skill['id'] != 16 + i:
@@ -138,18 +265,18 @@ def validate(s, base):
             integer(skill.get(key), label, minimum, maximum)
         if not any(skill[key] for key in ('soldiers', 'hp', 'stop', 'rice')):
             fail('技能至少需要一种效果')
-    nbase = len(base['officers'])
-    max_officer = nbase + sum(isinstance(o, dict) and type(o.get('id')) is int and o['id'] >= nbase for o in officers) - 1
     seen, rosters = set(), [list(c['officers']) for c in base['cities']]
     for o in officers:
-        obj(o, '武将', ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'portraitData', 'appear', 'city', 'faction', 'skills'])
+        obj(o, '武将', ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'portraitData', 'appear', 'city', 'faction', 'skills', 'visual'])
         integer(o.get('id'), '武将编号', 0, max_officer); oid = o['id']
         if oid in seen:
             fail('武将编号重复')
         seen.add(oid); text(o.get('name'), '武将姓名')
-        for key, label, minimum, maximum in [('hp', '体力', 1, 99), ('war', '武力', 1, 99), ('int', '智力', 1, 99), ('virtue', '人德', 1, 99), ('loyalty', '忠诚', 0, 100), ('level', '等级', 1, 8), ('exp', '经验', 0, 49999), ('soldiers', '兵数', 0, 1000), ('armor', '防具', 0, 7), ('year', '登场年份', 0, 9999), ('death', '寿命年份', 0, 9999), ('portraitId', '人物图像', 0, nbase - 1)]:
+        for key, label, minimum, maximum in [('hp', '体力', 1, 99), ('war', '武力', 1, 99), ('int', '智力', 1, 99), ('virtue', '人德', 1, 99), ('loyalty', '忠诚', 0, 100), ('level', '等级', 1, 8), ('exp', '经验', 0, 49999), ('soldiers', '兵数', 0, 1000), ('year', '登场年份', 0, 9999), ('death', '寿命年份', 0, 9999), ('portraitId', '人物图像', 0, nbase - 1)]:
             integer(o.get(key), label, minimum, maximum)
         portrait(o.get('portraitData'))
+        if 'visual' in o:
+            visual(o['visual'], nbase)
         if 'birthYear' not in o:
             fail('出生年份格式错误')
         if 'birthCity' not in o:
@@ -163,9 +290,16 @@ def validate(s, base):
                 fail('出生年份不能晚于登场年份')
         if o['death'] < o['year']:
             fail('寿命年份不能早于登场年份')
-        integer(o.get('weapon'), '武器', 0, len(base['equipment']) + len(weapons) - 1)
-        if 24 <= o['weapon'] < len(base['equipment']):
+        last = len(base['equipment']) + len(weapons) + len(armors) - 1
+        integer(o.get('weapon'), '武器', 0, last)
+        weapon_kind = base['equipment'][o['weapon']]['kind'] if o['weapon'] < len(base['equipment']) else kinds.get(o['weapon'])
+        if weapon_kind != 'weapon':
             fail('武器不能选择防具')
+        integer(o.get('armor'), '防具', 0, last - 24)
+        armor_id = 24 + o['armor']
+        armor_kind = base['equipment'][armor_id]['kind'] if armor_id < len(base['equipment']) else kinds.get(armor_id)
+        if armor_kind != 'armor':
+            fail('防具不能选择武器')
         if o.get('army') not in ('平', '山', '水'):
             fail('兵种无效')
         appear = o.get('appear')
@@ -235,6 +369,52 @@ def validate(s, base):
 class VersionRepository:
     def __init__(self, directory, base_file):
         self.directory, self.base_file = Path(directory), Path(base_file)
+        self._asset_cache, self._asset_lock = OrderedDict(), Lock()
+
+    def asset_directory(self, create=False):
+        directory = self.directory / 'assets'
+        if create:
+            directory.mkdir(parents=True, exist_ok=True)
+        if directory.is_symlink() or not directory.is_dir():
+            raise FileNotFoundError('素材目录不可用')
+        return directory
+
+    def read_asset(self, asset_id):
+        if not ASSET_ID.fullmatch(asset_id): raise FileNotFoundError(asset_id)
+        directory = self.asset_directory()
+        fd = os.open(directory / asset_id, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode): fail('素材文件须为普通文件')
+            with os.fdopen(fd, 'rb') as f:
+                fd = None; data = f.read(MAX_ASSET_BYTES + 1)
+        finally:
+            if fd is not None: os.close(fd)
+        if 'a-' + hashlib.sha256(data).hexdigest() != asset_id: fail('素材校验失败')
+        # 哈希不变则图片校验结果不变；限制缓存并串行处理首个解码，避免公开读取时重复解压。
+        with self._asset_lock:
+            info = self._asset_cache.get(asset_id)
+            if info is None:
+                info = image_info(data); self._asset_cache[asset_id] = info
+                if len(self._asset_cache) > 256: self._asset_cache.popitem(last=False)
+            else: self._asset_cache.move_to_end(asset_id)
+        return data, info
+
+    def put_asset(self, data, content_type):
+        info = image_info(data)
+        if info[0] != content_type: fail('素材类型与内容不一致')
+        asset_id = 'a-' + hashlib.sha256(data).hexdigest()
+        directory = self.asset_directory(create=True)
+        fd, temporary = tempfile.mkstemp(prefix='.asset-', dir=directory)
+        try:
+            with os.fdopen(fd, 'wb') as f:
+                f.write(data); f.flush(); os.fsync(f.fileno())
+            try: os.link(temporary, directory / asset_id)
+            except FileExistsError:
+                existing, _ = self.read_asset(asset_id)
+                if existing != data: fail('素材编号冲突')
+        finally:
+            os.unlink(temporary)
+        return {'id': asset_id, 'type': info[0], 'width': info[1], 'height': info[2]}
 
     def read(self, version_id):
         if not ID.fullmatch(version_id):
@@ -285,6 +465,20 @@ class VersionRepository:
     def publish(self, value):
         base = json.loads(self.base_file.read_text(encoding='utf-8'))
         validate(value, base)
+        checked, total = {}, 0
+        for officer in value['officers']:
+            art = officer.get('visual', {})
+            for kind, ref in [('portrait', art.get('portrait')), ('motion', art.get('motion')), *art.get('faces', {}).items()]:
+                if ref and ASSET_ID.fullmatch(ref):
+                    if ref not in checked:
+                        if len(checked) >= 128: fail('版本素材数量超过 128 个')
+                        try: data, info = self.read_asset(ref)
+                        except FileNotFoundError: fail('版本引用的素材不存在，请先上传')
+                        total += len(data)
+                        if total > 16 * 1024 * 1024: fail('版本素材总量超过 16 MB')
+                        checked[ref] = info
+                    info = checked[ref]
+                    if kind == 'motion' and info != ('image/png', 512, 512): fail('动作素材须为 512×512 的 PNG 网格图')
         raw = json.dumps(value, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
         if len(raw) > MAX_BYTES:
             fail('版本文件过大')

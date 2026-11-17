@@ -1,6 +1,6 @@
 // War set-up and write-back shared by field battles (player involved) and AI-vs-AI auto battles.
 // 出阵 (5.9 §7), 战后 (6.10 §3–6), AI 自动战 (6.5 第五/六批).
-import { data, rng, NONE, DEAD, SERVING, RONIN, roads, officerCity, capturedLoyalty, recruitLoyalty, addExp, citiesOf, kill, isRuler } from './game.js';
+import { data, rng, NONE, DEAD, SERVING, RONIN, roads, officerCity, capturedLoyalty, recruitLoyalty, addExp, citiesOf, kill, isRuler, sparedHp } from './game.js';
 
 // Remove the expedition from its source city and empty the target into the defender's war chest.
 export function setupWar(g, { from, to, ids, commander, gold, rice }) {
@@ -69,6 +69,12 @@ export function resolveWar(g, war, res) {
   const r = rng(g), city = g.cities[war.city];
   const winF = res.loser === 'def' ? war.attacker : war.defender, loseF = res.loser === 'def' ? war.defender : war.attacker;
   const winSide = res.loser === 'def' ? 'att' : 'def', loseSide = res.loser;
+  // 一旦战斗中受保护被俘，即使结算前关闭选项，也保留该结果。
+  const protectedRuler = (id) => isRuler(g, id) && (g.noWarDeath || res.sparedRulers?.includes(id));
+  const roninAt = (id, cid) => {
+    toRoninAt(g, id, cid);
+    if (protectedRuler(id)) g.officers[id].warRulerRonin = true;
+  };
   for (const id of res.dead) if (g.officers[id].status !== DEAD) g.officers[id].status = DEAD;
   // Occupation losses (`$BF0A`, only when the defender loses).
   if (res.loser === 'def' && !res.skipCut) {
@@ -80,7 +86,10 @@ export function resolveWar(g, war, res) {
   // Prisoners join their captors with recomputed loyalty. Each side's settlement queue ends with its own prisoner list (`$BDCD`/`$D0E1`): the loser's
   // prisoners retreat with the loser rather than being dropped.
   const held = (side) => (side === 'att' ? res.captured.byAtt : res.captured.byDef);
-  for (const id of [...held('att'), ...held('def')]) { const o = g.officers[id]; o.loyalty = capturedLoyalty(o.loyalty); o.status = SERVING; }
+  for (const id of [...held('att'), ...held('def')]) {
+    const o = g.officers[id]; o.loyalty = capturedLoyalty(o.loyalty); o.status = SERVING;
+    if (protectedRuler(id)) o.warRulerSpared = true;
+  }
   const prisoners = held(winSide);
   const left = new Map(res.retreated.map((x) => [x.id, x.city])); // units that walked off the field
   // A human side's settlement menu (`$CE9E`, `$D20D`) chose each officer's city or 下野. Those choices are
@@ -92,7 +101,7 @@ export function resolveWar(g, war, res) {
     const keep = garrison && city.officers.length === 0 && !ids.some((id) => res.placement[id] === war.city) ? ids[0] : null;
     return ids.filter((id) => {
       const p = res.placement[id];
-      if (id === keep || p == null) return true;
+      if (id === keep || p == null || p === 'auto') return true;
       if (p === 'ronin' && !isRuler(g, id)) { const n = roads(war.city)[r(8)]; toRoninAt(g, id, n ?? war.city); return false; }
       const c = g.cities[p];
       if (c && (c.faction === f || c.faction === NONE) && c.officers.length < 10) { place(g, f, [id], p); return false; }
@@ -107,7 +116,7 @@ export function resolveWar(g, war, res) {
     const f = res.survivors[winSide].includes(id) ? winF : loseF;
     let over = g.cities[dest].faction === f || g.cities[dest].faction === NONE ? place(g, f, [id], dest) : [id];
     if (over.length && g.noWarDeath && isRuler(g, id)) { const c = citiesOf(g, f).find((c) => c.officers.length < 10); if (c) over = place(g, f, [id], c.id); }
-    if (over.length) toRoninAt(g, id, dest);
+    if (over.length) roninAt(id, dest);
   }
   let queue = [...res.survivors[winSide].filter((id) => !left.has(id)), ...prisoners], back = loserQueue(res);
   if (res.placementSide === winSide) queue = chosen(queue, winF, true);
@@ -116,14 +125,36 @@ export function resolveWar(g, war, res) {
   queue = place(g, winF, queue, war.city);
   while (queue.length) {
     const dest = retreatCity(g, war.city, winF);
-    if (dest == null) { for (const id of queue) toRoninAt(g, id, war.city); break; }
+    if (dest == null) {
+      for (const id of queue) {
+        const room = protectedRuler(id) && citiesOf(g, winF).find((c) => c.officers.length < 10);
+        if (room) place(g, winF, [id], room.id); else roninAt(id, war.city);
+      }
+      break;
+    }
     queue = place(g, winF, queue, dest);
   }
   // Losers retreat (attackers prefer their source city).
   const loseChest = res.chests[loseSide];
   while (back.length) {
     const dest = retreatCity(g, war.city, loseF, loseSide === 'att' ? war.from : null);
-    if (dest == null) { for (const id of back) toRoninAt(g, id, war.city); break; }
+    if (dest == null) {
+      for (const id of back) {
+        // 败方尚未被俘的君主无路可退时，由胜方优先安置；没有空位则下野。
+        const room = g.noWarDeath && isRuler(g, id) && res.survivors[loseSide].includes(id)
+          && citiesOf(g, winF).find((c) => c.officers.length < 10);
+        if (room) {
+          const o = g.officers[id]; o.status = SERVING; o.loyalty = capturedLoyalty(o.loyalty); o.warRulerSpared = true;
+          place(g, winF, [id], room.id); held(winSide).push(id);
+          res.survivors[loseSide] = res.survivors[loseSide].filter((x) => x !== id);
+        } else {
+          // 败方携带的君主俘虏也优先安置到该俘获方的其他城市。
+          const captorRoom = protectedRuler(id) && held(loseSide).includes(id) && citiesOf(g, loseF).find((c) => c.officers.length < 10);
+          if (captorRoom) place(g, loseF, [id], captorRoom.id); else roninAt(id, war.city);
+        }
+      }
+      break;
+    }
     back = place(g, loseF, back, dest);
   }
   // Gold/rice (`$C027`): winner chest to the battle city. The loser's chest follows its commander
@@ -164,7 +195,7 @@ export function fight(g, war) {
     if (n < 5) continue;
     for (let k = 0; k < Math.floor(n / 4); k++) {
       let pick = null;
-      for (const id of surv[side]) if (O(id).loyalty !== 100 && (pick == null || O(id).war + O(id).int < O(pick).war + O(pick).int)) pick = id;
+      for (const id of surv[side]) if ((O(id).loyalty !== 100 || (g.noWarDeath && isRuler(g, id))) && (pick == null || O(id).war + O(id).int < O(pick).war + O(pick).int)) pick = id;
       if (pick == null) break;
       surv[side] = surv[side].filter((x) => x !== pick); dead.push(pick); deadN[side]++;
     }
@@ -176,19 +207,23 @@ export function fight(g, war) {
   // Prisoners: loser officers with draw100 ≥ loyalty are captured.
   const loseSide = attWins ? 'def' : 'att', winSide = attWins ? 'att' : 'def';
   const captured = { byAtt: [], byDef: [] };
-  // 武将不战死: those who would have fallen are the other side's prisoners instead (rulers, loyalty 100, never fall here).
-  if (g.noWarDeath) for (const id of dead.splice(0)) (war.att.ids.includes(id) ? captured.byDef : captured.byAtt).push(id);
+  // 不战死时伤亡改为被俘，君主恢复体力并保留这一结果供战后安置使用。
+  const sparedRulers = [];
+  if (g.noWarDeath) for (const id of dead.splice(0)) {
+    (war.att.ids.includes(id) ? captured.byDef : captured.byAtt).push(id);
+    if (isRuler(g, id)) { O(id).hp = sparedHp(g, id); sparedRulers.push(id); }
+  }
   surv[loseSide] = surv[loseSide].filter((id) => {
     const l = O(id).loyalty;
     if (l === 100) { if (!attWins) r(100); return true; }
     if (r(100) >= l) { (winSide === 'att' ? captured.byAtt : captured.byDef).push(id); return false; }
     return true;
   });
-  return { r, attWins, days, proj, surv, dead, captured, loseSide, winSide };
+  return { r, attWins, days, proj, surv, dead, captured, loseSide, winSide, ...(sparedRulers.length ? { sparedRulers } : {}) };
 }
 
 export function autoBattle(g, war) {
-  const { r, attWins, days, proj, surv, dead, captured, loseSide } = fight(g, war);
+  const { r, attWins, days, proj, surv, dead, captured, loseSide, sparedRulers } = fight(g, war);
   // Rice: projected use, then defender rice/gold shrink by the byte-indexed table.
   const shrink = (v) => v - Math.floor((v * (v < 500 ? 50 : v < 1000 ? 0 : v < 3000 ? 60 : v < 5000 ? 0 : 70)) / 100);
   const chests = {
@@ -201,7 +236,7 @@ export function autoBattle(g, war) {
     c.pop -= Math.floor((c.pop * (10 + r(10))) / 100);
     for (const k of ['land', 'industry', 'gov']) c[k] -= Math.floor((c[k] * pct) / 100);
   }
-  const res = resolveWar(g, war, { loser: loseSide, survivors: surv, dead, captured, retreated: [], chests, skipCut: true });
+  const res = resolveWar(g, war, { loser: loseSide, survivors: surv, dead, captured, retreated: [], chests, skipCut: true, ...(sparedRulers?.length ? { sparedRulers } : {}) });
   for (const id of dead) kill(g, id);
   return { ...res, attWins, days, dead, captured: [...captured.byAtt, ...captured.byDef] };
 }

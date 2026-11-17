@@ -30,7 +30,8 @@ export function setOfficer(g, id, key, v) {
   if (!f || !o || !Number.isFinite(Number(v))) return null;
   if (o.status === DEAD && key === 'hp') return null; // a dead officer keeps hp 0
   const weapon = key === 'weapon' && Number.isInteger(Number(v)) && Number(v) >= 32 && data()?.equipment[Number(v)]?.kind === 'weapon';
-  o[key] = weapon ? Number(v) : clamp(v, f[2], f[3]); if (key === 'hp') o.maxHp = o.hp; // 体力 and 体力上限 move together
+  const armor = key === 'armor' && Number.isInteger(Number(v)) && Number(v) >= 8 && data()?.equipment[24 + Number(v)]?.kind === 'armor';
+  o[key] = weapon || armor ? Number(v) : clamp(v, f[2], f[3]); if (key === 'hp') o.maxHp = o.hp; // 体力 and 体力上限 move together
   g.edited = true;
   return o[key];
 }

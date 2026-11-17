@@ -1,4 +1,6 @@
 // 版本文件只包含受校验的修改，不接受可执行脚本，也不修改原始数据。
+import { FEMALE_SCENARIO_ID, MOODS, validVisualRef } from './visuals.js';
+import { WEAPON_CATEGORIES, validEquipmentIcon } from './equipment.js';
 export const SCENARIO_FORMAT = 1;
 export const ORIGINAL_SCENARIO = 'original';
 export const RELATION_KINDS = ['亲属', '夫妻', '朋友', '对手', '师徒', '父子', '兄弟', '姐妹', '结义', '君臣', '同僚', '姻亲', '宿敌'];
@@ -74,26 +76,57 @@ export function newScenarioId() {
 // 只接受已知结构；读取时也要验证，不能假定本地存储或导入文件可信。
 export function validateScenario(s, base, { draft = false } = {}) {
   obj(s, '版本');
-  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'skills', 'relations', 'rulers'], '版本');
+  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers'], '版本');
   if (s.format !== SCENARIO_FORMAT) fail('不支持的版本文件格式');
-  if (!(draft && s.id === null) && (typeof s.id !== 'string' || !ID.test(s.id))) fail('版本编号无效');
+  if (!(draft && s.id === null) && s.id !== FEMALE_SCENARIO_ID && (typeof s.id !== 'string' || !ID.test(s.id))) fail('版本编号无效');
   text(s.name, '版本名称', 40);
   if (s.base !== baseSignature(base)) fail('版本所需的基础数据与当前游戏不一致');
   array(s.officers, '武将', base.officers.length + 100);
-  array(s.weapons, '新武器', 64); array(s.skills, '新技能', 64); array(s.relations, '人物关系', 1000);
+  const armors = s.armors === undefined ? [] : s.armors;
+  array(s.weapons, '新武器', 64); array(armors, '新防具', 64); array(s.skills, '新技能', 64); array(s.relations, '人物关系', 1000);
   if (s.rulers !== undefined) array(s.rulers, '君主候选', base.officers.length + 100);
+  const maxOfficer = base.officers.length + s.officers.filter((o) => Number.isInteger(o?.id) && o.id >= base.officers.length).length - 1;
   const seenOfficers = new Set(), seenRelations = new Set();
-  for (let i = 0; i < s.weapons.length; i++) {
-    const w = s.weapons[i]; obj(w, '武器');
-    keys(w, ['id', 'name', 'cat', 'atk', 'weight', 'price', 'icon', 'shops'], '武器');
-    if (w.id !== base.equipment.length + i) fail('新武器编号不连续');
+  const equipment = [...s.weapons.map((item) => ({ item, kind: 'weapon' })), ...armors.map((item) => ({ item, kind: 'armor' }))];
+  const equipmentKinds = new Map();
+  for (const { item, kind } of equipment) {
+    obj(item, kind === 'weapon' ? '武器' : '防具');
+    integer(item.id, '新装备编号', base.equipment.length, base.equipment.length + equipment.length - 1);
+    if (equipmentKinds.has(item.id)) fail('新装备编号重复');
+    equipmentKinds.set(item.id, kind);
+  }
+  const shops = (item) => {
+    array(item.shops, '售卖城市', base.cities.length);
+    for (const city of item.shops) { integer(city, '售卖城市', 0, base.cities.length - 1); if (!base.cities[city].facilities.weapons) fail('只能在设有武器屋的城市售卖'); }
+    if (new Set(item.shops).size !== item.shops.length) fail('售卖城市重复');
+  };
+  const requirements = (item) => {
+    if (item.grade !== undefined) integer(item.grade, '装备品级', 1, 5);
+    if (item.requirements === undefined) return;
+    const r = item.requirements; obj(r, '购买条件'); keys(r, ['war', 'int', 'virtue', 'officers'], '购买条件');
+    for (const [key, label] of [['war', '最低武力'], ['int', '最低智力'], ['virtue', '最低人德']]) {
+      if (r[key] !== undefined) integer(r[key], label, 1, 99);
+    }
+    if (r.officers !== undefined) {
+      array(r.officers, '指定武将', maxOfficer + 1);
+      if (!r.officers.length) fail('指定武将不能为空');
+      for (const id of r.officers) integer(id, '指定武将', 0, maxOfficer);
+      if (new Set(r.officers).size !== r.officers.length) fail('指定武将重复');
+    }
+  };
+  for (const w of s.weapons) {
+    keys(w, ['id', 'name', 'cat', 'atk', 'weight', 'price', 'icon', 'shops', 'grade', 'requirements'], '武器');
     text(w.name, '武器名称');
-    if (!['剑', '刀', '枪'].includes(w.cat)) fail('武器类型无效');
+    if (!WEAPON_CATEGORIES.includes(w.cat)) fail('武器类型无效');
     integer(w.atk, '武器攻击', 0, 99); integer(w.weight, '武器重量', 0, 99); integer(w.price, '武器价格', 0, 9999);
-    integer(w.icon, '武器图标', 0, 23);
-    array(w.shops, '售卖城市', base.cities.length);
-    for (const city of w.shops) { integer(city, '售卖城市', 0, base.cities.length - 1); if (!base.cities[city].facilities.weapons) fail('只能在设有武器屋的城市售卖'); }
-    if (new Set(w.shops).size !== w.shops.length) fail('售卖城市重复');
+    if (!validEquipmentIcon(w.icon, 'weapon')) fail('武器图标无效');
+    shops(w); requirements(w);
+  }
+  for (const a of armors) {
+    keys(a, ['id', 'name', 'dfn', 'weight', 'price', 'icon', 'shops', 'grade', 'requirements'], '防具');
+    text(a.name, '防具名称'); integer(a.dfn, '防具防御', 0, 99); integer(a.weight, '防具重量', 0, 99); integer(a.price, '防具价格', 0, 9999);
+    if (!validEquipmentIcon(a.icon, 'armor')) fail('防具图标无效');
+    shops(a); requirements(a);
   }
   for (let i = 0; i < s.skills.length; i++) {
     const skill = s.skills[i]; obj(skill, '技能');
@@ -104,20 +137,30 @@ export function validateScenario(s, base, { draft = false } = {}) {
     integer(skill.stop, '限制移动天数', 0, 10); integer(skill.rice, '粮草损失', 0, 9999);
     if (!skill.soldiers && !skill.hp && !skill.stop && !skill.rice) fail('技能至少需要一种效果');
   }
-  const maxOfficer = base.officers.length + s.officers.filter((o) => Number.isInteger(o?.id) && o.id >= base.officers.length).length - 1;
   for (const o of s.officers) {
-    obj(o, '武将'); keys(o, ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'portraitData', 'appear', 'city', 'faction', 'skills'], '武将');
+    obj(o, '武将'); keys(o, ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'portraitData', 'appear', 'city', 'faction', 'skills', 'visual'], '武将');
     integer(o.id, '武将编号', 0, maxOfficer);
     if (seenOfficers.has(o.id)) fail('武将编号重复'); seenOfficers.add(o.id);
     text(o.name, '武将姓名');
-    for (const [key, label, min, max] of [['hp', '体力', 1, 99], ['war', '武力', 1, 99], ['int', '智力', 1, 99], ['virtue', '人德', 1, 99], ['loyalty', '忠诚', 0, 100], ['level', '等级', 1, 8], ['exp', '经验', 0, 49999], ['soldiers', '兵数', 0, 1000], ['armor', '防具', 0, 7], ['year', '登场年份', 0, 9999], ['death', '寿命年份', 0, 9999], ['portraitId', '人物图像', 0, base.officers.length - 1]]) integer(o[key], label, min, max);
+    for (const [key, label, min, max] of [['hp', '体力', 1, 99], ['war', '武力', 1, 99], ['int', '智力', 1, 99], ['virtue', '人德', 1, 99], ['loyalty', '忠诚', 0, 100], ['level', '等级', 1, 8], ['exp', '经验', 0, 49999], ['soldiers', '兵数', 0, 1000], ['year', '登场年份', 0, 9999], ['death', '寿命年份', 0, 9999], ['portraitId', '人物图像', 0, base.officers.length - 1]]) integer(o[key], label, min, max);
     portrait(o.portraitData);
+    if (o.visual !== undefined) {
+      obj(o.visual, '人物素材'); keys(o.visual, ['portrait', 'faces', 'motion'], '人物素材');
+      for (const kind of ['portrait', 'motion']) if (o.visual[kind] !== undefined && !validVisualRef(o.visual[kind], kind, base.officers.length)) fail('人物素材引用无效');
+      if (o.visual.faces !== undefined) {
+        obj(o.visual.faces, '人物表情'); keys(o.visual.faces, MOODS, '人物表情');
+        for (const [kind, ref] of Object.entries(o.visual.faces)) if (!validVisualRef(ref, kind, base.officers.length)) fail('人物表情引用无效');
+      }
+    }
     if (o.birthYear !== null) integer(o.birthYear, '出生年份', 0, 9999);
     if (o.birthCity !== null) integer(o.birthCity, '出生地', 0, base.cities.length - 1);
     if (o.birthYear !== null && o.birthYear > o.year) fail('出生年份不能晚于登场年份');
     if (o.death < o.year) fail('寿命年份不能早于登场年份');
-    integer(o.weapon, '武器', 0, base.equipment.length + s.weapons.length - 1);
-    if (o.weapon >= 24 && o.weapon < base.equipment.length) fail('武器不能选择防具');
+    const lastEquipment = base.equipment.length + equipment.length - 1;
+    integer(o.weapon, '武器', 0, lastEquipment);
+    if ((base.equipment[o.weapon]?.kind ?? equipmentKinds.get(o.weapon)) !== 'weapon') fail('武器不能选择防具');
+    integer(o.armor, '防具', 0, lastEquipment - 24);
+    if ((base.equipment[24 + o.armor]?.kind ?? equipmentKinds.get(24 + o.armor)) !== 'armor') fail('防具不能选择武器');
     if (!['平', '山', '水'].includes(o.army)) fail('兵种无效');
     if (!['initial', 'search_city', 'automatic_faction'].includes(o.appear)) fail('登场方式无效');
     if (o.appear === 'automatic_faction') {
@@ -165,10 +208,13 @@ export function applyScenario(base, scenario, { draft = false } = {}) {
   d.customSkills = clone(scenario.skills);
   d.relationships = clone(scenario.relations);
   d.rulerCandidates = clone(scenario.rulers ?? []);
-  for (const w of scenario.weapons) {
-    d.equipment.push({ id: w.id, name: w.name, kind: 'weapon', cat: w.cat, atk: w.atk, dfn: 0, weight: w.weight, price: w.price, icon: w.icon });
-    for (const city of w.shops) {
-      d.cities[city].shop.push(w.id); d.cities[city].field_shop.push(w.id); d.cities[city].ai_shop.push(w.id);
+  const equipment = [...scenario.weapons.map((item) => ({ item, kind: 'weapon' })), ...(scenario.armors ?? []).map((item) => ({ item, kind: 'armor' }))];
+  for (const { item, kind } of equipment.sort((a, b) => a.item.id - b.item.id)) {
+    d.equipment.push({ id: item.id, name: item.name, kind, cat: kind === 'weapon' ? item.cat : '防具', atk: kind === 'weapon' ? item.atk : 0,
+      dfn: kind === 'armor' ? item.dfn : 0, weight: item.weight, price: item.price, icon: item.icon,
+      ...(item.grade !== undefined ? { grade: item.grade } : {}), ...(item.requirements !== undefined ? { requirements: clone(item.requirements) } : {}) });
+    for (const city of item.shops) {
+      d.cities[city].shop.push(item.id); d.cities[city].field_shop.push(item.id); d.cities[city].ai_shop.push(item.id);
     }
   }
   for (const o of [...scenario.officers].sort((a, b) => a.id - b.id)) {

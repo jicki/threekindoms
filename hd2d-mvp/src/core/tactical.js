@@ -6,7 +6,7 @@
 // axis-greedy stepping with one alternate axis, four commands (前进/后退/待机/包围), six tactics with
 // their costs and effects, AI command schedule and tactic priorities, capture and AI withdrawal.
 // The engine is stepped by the UI (one event per call) or run to the end for AI-only battles.
-import { data, addExp, isRuler, spared, SPARED_HP, weaponGroup } from './game.js';
+import { data, addExp, isRuler, spared, sparedHp, weaponGroup } from './game.js';
 import { Duel } from './skirmish.js';
 
 export const GW = 16, GH = 10, KINDS = ['inf', 'arc', 'cav', 'gen'];
@@ -179,8 +179,9 @@ export class Tactical {
   }
   pickTarget(u, cmd) {
     const S = this.side[u.side], skipGen = cmd === 'surround';
-    if (u.kind === 'arc') {
-      const range = S.fx.xbow > 0 ? 6 : 4;
+    const bowGeneral = u.kind === 'gen' && S.eq.wgrp === 4;
+    if (u.kind === 'arc' || bowGeneral) {
+      const range = bowGeneral ? 2 : S.fx.xbow > 0 ? 6 : 4;
       // The original skips the right ray whenever the left one finds nothing (`$C463`), so the attacker's archers,
       // who face right, walk on past foes in range; all four rays are scanned here (playtest of 2026-10-30, T08).
       for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
@@ -189,6 +190,7 @@ export class Tactical {
           const x = u.x + dx * d, y = u.y + dy * d;
           if (!this.inside(x, y) || !ARROW.includes(this.map[y][x])) break;
           const e = this.at(x, y);
+          if (bowGeneral && e?.side === u.side) break;
           if (e && e.side !== u.side) { if (d > 1 && !(skipGen && e.kind === 'gen')) hit = e; break; } // a foe alongside is fought hand to hand
         }
         if (hit) return { unit: hit, ranged: true };
@@ -203,10 +205,12 @@ export class Tactical {
   }
   attack(u, t, ranged) {
     const S = this.side[u.side], T = this.side[t.side];
-    let F = S.F; const fire = u.kind === 'arc' && ranged && S.fx.fire > 0; // 火矢 (S12): the view burns these arrows
+    let F = S.F, atk = u.kind === 'gen' ? S.eq.atk : 0; const fire = u.kind === 'arc' && ranged && S.fx.fire > 0; // 火矢 (S12): the view burns these arrows
     if (u.kind === 'arc') { F = Math.floor(((ranged ? 70 : 60) * F) / 100); if (fire) F = Math.min(100, F + this.r(10)); }
+    // 武将每回合行动两次；弓的两格远射折减战力和武器攻击，避免射程优势叠加完整近战伤害。
+    else if (u.kind === 'gen' && ranged && S.eq.wgrp === 4) { F = Math.floor(55 * F / 100); atk = Math.floor(60 * atk / 100); }
     const H = u.kind === 'gen' ? S.hp : u.hp;
-    let D = Math.floor(((F + (u.kind === 'gen' ? S.eq.atk : 0)) * B(H)) / 100);
+    let D = Math.floor(((F + atk) * B(H)) / 100);
     if (t.kind === 'cav') D = Math.floor(D / 2) + Math.floor(D / 4);
     if (t.kind === 'gen') D = Math.max(0, Math.floor(D / 2) - T.eq.def);
     const before = t.kind === 'gen' ? T.hp : t.hp, dealt = Math.min(before, D);
@@ -339,9 +343,9 @@ export class Tactical {
   }
   autoDuel() { const d = this.duel; for (let t; (t = d.next()); ) d.act(t, d.aiCommand(t)); return this.resolveDuel(); }
 
-  // Our general at 0 HP: slain, or under 武将不战死 taken (a ruler is slain all the same), and the 白兵 ends.
+  // 体力归零时结束白兵；不战死时被俘，否则阵亡。
   fell(s) {
-    const S = this.side[s], gu = this.gen(s), how = spared(this.g, S.id) || 'dead';
+    const S = this.side[s], gu = this.gen(s), how = spared(this.g) || 'dead';
     gu.dead = true;
     S.fate = how; S.spared = how !== 'dead';
     this.over = { why: how === 'dead' ? 'dead' : 'capture', side: s };
@@ -374,7 +378,8 @@ export class Tactical {
     const out = (s) => {
       const S = this.side[s];
       const soldiers = this.units.filter((u) => u.side === s && u.kind !== 'gen' && !u.dead).reduce((a, u) => a + u.hp, 0);
-      return { soldiers, hp: S.spared ? Math.max(S.hp, SPARED_HP) : S.hp, fate: S.fate === 'retreat' ? null : S.fate || null };
+      return { soldiers, hp: S.spared ? Math.max(S.hp, sparedHp(this.g, S.id)) : S.hp, fate: S.fate === 'retreat' ? null : S.fate || null,
+        ...(S.spared && isRuler(this.g, S.id) ? { spared: true } : {}) };
     };
     const res = { a: out('a'), d: out('d'), rounds: this.round, why: this.over?.why, duels: this.duels || 0 };
     res.lossA = this.side.a.start - res.a.soldiers; res.lossD = this.side.d.start - res.d.soldiers;

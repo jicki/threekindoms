@@ -1,6 +1,7 @@
 // Small DOM toolkit for the game HUD: element builder, modal dialogs that resolve to a value,
 // click-through message boxes, toasts, banners and officer/city pickers.
 import { data, name, cityName, maxHp } from './core/game.js';
+import { visualUrl } from './core/visuals.js';
 import { PHONE } from './phone.js';
 
 // A mouse's side buttons (3 back, 4 forward) mean history back/forward to Chromium and Electron, and a game is
@@ -47,7 +48,9 @@ const art = (id) => (data().officers[id]?.clone ? 0 : data().officers[id]?.portr
 const FALLBACK = 'assets/ai/portraits/0.webp';
 const customPortrait = (id) => data().officers[id]?.clone ? null : data().officers[id]?.portraitData;
 const builtInPortrait = (id) => portraitFiles[art(id)] || portraitFiles[0] || FALLBACK;
-export const portrait = (id) => customPortrait(id) || builtInPortrait(id);
+const officerVisual = (id) => data().officers[id]?.clone ? null : data().officers[id]?.visual;
+const visualPortrait = (id) => visualUrl(officerVisual(id)?.portrait);
+export const portrait = (id) => visualPortrait(id) || customPortrait(id) || builtInPortrait(id);
 // Expressions. The original's selector $00A4 takes 0–4, but 0 and 1 share pixels for every face, so there
 // are four: 0 calm, 2 angry (going to war, enemy attacks, taunted in a duel), 3 joy (good news, the victor),
 // 4 grief (bad news, the loser). Painted busts load from assets/ai/faces/<id>-<mood>.webp.
@@ -63,21 +66,21 @@ export const setFaces = (f) => (faceFiles = f);
 let halfbodyFiles = {};
 export const setHalfbody = (f) => (halfbodyFiles = f);
 export const avatar = (id, mood = 'calm', cls = '') => face(id, `${cls} avatar`, mood);
-function officerImage(id, cls, fallback) {
-  const custom = customPortrait(id);
-  let recovered = false;
-  return h('img', { src: custom || fallback, class: `${cls} ai`, alt: name(id),
-    onerror: custom ? (event) => { if (!recovered) { recovered = true; event.currentTarget.src = fallback; } } : null });
+function officerImage(id, cls, fallback, visual = null) {
+  const sources = [...new Set([visual, visualPortrait(id), customPortrait(id), fallback].filter(Boolean))];
+  let index = 0;
+  return h('img', { src: sources[0], class: `${cls} ai`, alt: name(id), decoding: 'async', ...(cls.includes('avatar') ? { loading: 'lazy' } : {}),
+    onerror: sources.length > 1 ? (event) => { if (++index < sources.length) event.currentTarget.src = sources[index]; } : null });
 }
 export function figure(id, cls = '') {
-  if (customPortrait(id) || halfbodyFiles[art(id)]) return officerImage(id, `${cls} figure`, halfbodyFiles[art(id)] || builtInPortrait(id));
+  if (visualPortrait(id) || customPortrait(id) || halfbodyFiles[art(id)]) return officerImage(id, `${cls} figure`, halfbodyFiles[art(id)] || builtInPortrait(id));
   return avatar(id, 'calm', `${cls} figure`);
 }
 // face(id) is the officer's portrait; face(id, cls, mood) is the dialog bust with that expression.
 export function face(id, cls = '', mood = null) {
   if (mood == null) return officerImage(id, cls, builtInPortrait(id));
   const f = faceFiles[art(id)];
-  return officerImage(id, cls, f?.[mood] || f?.calm || builtInPortrait(id));
+  return officerImage(id, cls, f?.[mood] || f?.calm || builtInPortrait(id), visualUrl(officerVisual(id)?.faces?.[mood]));
 }
 
 // Modal: build(close) returns content; close(value) resolves. Esc / backdrop click resolves null.

@@ -87,7 +87,7 @@ export const roads = (cid) => D.cities[cid].roads;
 export const name = (id) => D.officers[id].name;
 export const cityName = (cid) => D.cities[cid].name;
 // 原版武器按每八件分组；新武器使用其显式类别，不依赖编号。
-export const weaponGroup = (id) => id < 24 ? Math.floor(id / 8) : ({ 剑: 0, 刀: 1, 枪: 2 }[D.equipment[id]?.cat] ?? -1);
+export const weaponGroup = (id) => id < 24 ? Math.floor(id / 8) : ({ 剑: 0, 刀: 1, 枪: 2, 扇: 3, 弓: 4 }[D.equipment[id]?.cat] ?? -1);
 // A house goes by its ruler of the day; a fallen one by the ruler it fell under (the scenario's name for an older
 // record that has no note of him).
 export const factionName = (g, f) => {
@@ -228,12 +228,10 @@ export function followJoin(g, f) {
 }
 
 const DEATH_P = [5, 10, 20, 37, 80, 160, 201];
-// 武将不战死 (g.noWarDeath, an option off by default and absent from older records; playtest of 2026-10-30, T16/T17):
-// a general brought to 0 HP in war is taken prisoner by the other side instead of slain, coming out with SPARED_HP.
-// A ruler, who cannot be taken, dies as in the original (succession or the fall of his house): kept alive he stood
-// on his last city for good and the war could only end on day 30 (Desktop 0.2.3, 2026-10-31). 斩首 stays.
+// 不战死时体力归零的武将（包括君主）退出战场并被俘；君主的恢复体力不超过其自定义上限。
 export const SPARED_HP = 30;
-export const spared = (g, id) => (!g.noWarDeath || isRuler(g, id) ? null : 'captured');
+export const spared = (g) => (g.noWarDeath ? 'captured' : null);
+export const sparedHp = (g, id) => isRuler(g, id) ? Math.min(SPARED_HP, maxHp(g.officers[id], id)) : SPARED_HP;
 // 武将不老 (g.ageless, an option off by default and absent from older records): nobody dies of age; war deaths stay.
 export function naturalDeaths(g, f) {
   if (g.ageless) return [];
@@ -289,6 +287,8 @@ export function crown(g, f, heir, oldRuler) {
 export function toRonin(g, id) {
   const c = officerCity(g, id), o = g.officers[id];
   o.status = RONIN; o.loc = c?.id ?? o.loc;
+  // 被俘后的君主可能在原势力继位前因俘获方继位等原因离开，仍应活着下野。
+  if (o.warRulerSpared && isRuler(g, id)) o.warRulerRonin = true;
   if (c) { c.officers = c.officers.filter((x) => x !== id); if (!c.officers.length) c.faction = NONE; }
 }
 export function destroyFaction(g, f) {
@@ -366,10 +366,12 @@ export async function checkFactions(g, io) {
   for (const fac of g.factions) {
     if (fac.ruler == null) continue;
     const f = fac.id, ruler = fac.ruler;
-    const taken = rulerTaken(g, f);
+    const taken = rulerTaken(g, f), ronin = g.officers[ruler].status === RONIN && g.officers[ruler].warRulerRonin === true;
     if (taken || g.officers[ruler].status === DEAD || g.officers[ruler].status === RONIN) {
-      if (g.officers[ruler].status === RONIN) g.officers[ruler].status = DEAD; // a ruler with nowhere to go is lost
-      if (!(await succession(g, io, f, ruler, taken))) continue;
+      if (g.officers[ruler].status === RONIN && !ronin) g.officers[ruler].status = DEAD; // 原版无路可退
+      const succeeded = await succession(g, io, f, ruler, taken, ronin);
+      delete g.officers[ruler].warRulerRonin; delete g.officers[ruler].warRulerSpared;
+      if (!succeeded) continue;
     }
     if (!citiesOf(g, f).length) {
       destroyFaction(g, f);
@@ -393,8 +395,14 @@ async function rotate(g, io) {
       if (followed) await io.event({ type: 'join', ...followed });
       continue;
     }
-    // A record saved while its ruler sat in his captor's city (0.3.4 and before) is put right here.
-    if (rulerTaken(g, f) && !(await succession(g, io, f, g.factions[f].ruler, true))) { if (g.over) return; continue; }
+    // 恢复尚未完成继位的记录，包括旧版被俘记录和战后下野记录。
+    const pendingRuler = g.factions[f].ruler, taken = rulerTaken(g, f);
+    const ronin = g.officers[pendingRuler].status === RONIN && g.officers[pendingRuler].warRulerRonin === true;
+    if (taken || ronin) {
+      const succeeded = await succession(g, io, f, pendingRuler, taken, ronin);
+      delete g.officers[pendingRuler].warRulerRonin; delete g.officers[pendingRuler].warRulerSpared;
+      if (!succeeded) { if (g.over) return; continue; }
+    }
     g.current = f;
     if (talentCount(g) < 30) { g.over = { type: 'talent' }; await io.event({ type: 'talent' }); return; }
     g.books = books(g, f);
@@ -417,8 +425,8 @@ async function rotate(g, io) {
   }
 }
 
-// captured: the old ruler is not dead but another house's prisoner (rulerTaken); the notices say so.
-export async function succession(g, io, f, oldRuler, captured = false) {
+// 被俘或下野的君主仍然活着，继位提示要与死亡区分。
+export async function succession(g, io, f, oldRuler, captured = false, ronin = false) {
   if (captured) rulerFirst(g, officerCity(g, oldRuler));
   const cands = heirCandidates(g, f);
   if (!cands.length) {
@@ -427,9 +435,9 @@ export async function succession(g, io, f, oldRuler, captured = false) {
     if (f === g.player) { g.over = { type: 'gameover' }; await io.event({ type: 'gameover' }); }
     return false;
   }
-  const heir = g.factions[f].ai ? autoHeir(g, f) : await io.chooseHeir(f, cands, captured ? 'captured' : 'dead');
+  const heir = g.factions[f].ai ? autoHeir(g, f) : await io.chooseHeir(f, cands, captured ? 'captured' : ronin ? 'ronin' : 'dead');
   const quit = crown(g, f, heir, oldRuler);
-  await io.event({ type: 'heir', faction: f, heir, old: oldRuler, quit, ...(captured ? { captured: true } : {}) });
+  await io.event({ type: 'heir', faction: f, heir, old: oldRuler, quit, ...(captured ? { captured: true } : ronin ? { ronin: true } : {}) });
   return true;
 }
 
@@ -577,10 +585,21 @@ const SPECIAL = { 15: { bit: 0x02, ok: (o) => o.id === 38, need: '关羽专用' 
 // The battlefield shop entry (file 0x1274B) compares 武力/人德 with 90 (BCC on #$5A); the city entry uses 91.
 const FIELD_SPECIAL = { 22: { ok: (o) => o.war >= 90, need: '需武力90' }, 30: { ok: (o) => o.virtue >= 90, need: '需人德90' } };
 export function equipBlock(g, id, eq, { field = false } = {}) {
-  const sp = SPECIAL[eq]; if (!sp) return null;
-  if ((g.specialBought || 0) & sp.bit) return '已售出';
-  const test = (field && FIELD_SPECIAL[eq]) || sp;
-  return test.ok(g.officers[id]) ? null : test.need;
+  const sp = SPECIAL[eq], officer = g.officers[id];
+  if (sp) {
+    if ((g.specialBought || 0) & sp.bit) return '已售出';
+    const test = (field && FIELD_SPECIAL[eq]) || sp;
+    if (!test.ok(officer)) return test.need;
+  }
+  const requirement = D.equipment[eq]?.requirements;
+  if (requirement?.officers && !requirement.officers.includes(id)) {
+    const names = requirement.officers.slice(0, 3).map((who) => D.officers[who].name).join('、');
+    return `仅限${names}${requirement.officers.length > 3 ? '等武将' : ''}购买`;
+  }
+  for (const [key, label] of [['war', '武力'], ['int', '智力'], ['virtue', '人德']]) {
+    if (requirement?.[key] !== undefined && officer[key] < requirement[key]) return `需${label}${requirement[key]}`;
+  }
+  return null;
 }
 // Put a bought item on (no refund for the old one) and mark a special piece as sold for the rest of the game.
 export function wearEquip(g, id, eq) {

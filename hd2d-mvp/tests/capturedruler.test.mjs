@@ -145,6 +145,18 @@ test('a record saved in the stuck state mends itself on the house\'s next turn',
   assert.equal(G.factionOf(g, MAO), F, 'and the queue moves again');
 });
 
+test('a record saved before a protected ronin ruler\'s succession is repaired on the next turn', async () => {
+  const g = G.newGame(LIU, 0, 17), old = g.factions[F].ruler;
+  g.ageless = true; G.toRonin(g, old); g.officers[old].warRulerRonin = true;
+  g.noWarDeath = false;
+  const restored = JSON.parse(JSON.stringify(g)), events = await month(restored);
+  const heir = events.find((e) => e.type === 'heir' && e.faction === F);
+  assert.equal(heir?.ronin, true);
+  assert.notEqual(restored.factions[F].ruler, old);
+  assert.equal(restored.officers[old].status, G.RONIN);
+  assert.equal(restored.officers[old].warRulerRonin, undefined);
+});
+
 test('a stuck record whose house has since lost every city falls, and the queue follows', async () => {
   const { g, target } = await capture({ otherCity: false, settle: false });
   stuck(g, target);
