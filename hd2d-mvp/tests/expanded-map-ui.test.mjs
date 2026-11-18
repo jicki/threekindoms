@@ -141,7 +141,7 @@ test('手机地图可点选关隘、切换简洁视图及势力图层', async ()
     assert.match(await page.locator('.citypanel header').innerText(), /武关[\s\S]*关隘/);
     assert.match(await page.locator('.pass-note').innerText(), /不计城数/);
     assert.match(await page.locator('.pass-note').innerText(), /预备兵被动不生效/);
-    for (const [id, label] of [[37, '望垣峡'], [38, '夷洲'], [30, '襄阳'], [32, '宛城']]) {
+    for (const [id, label] of [[34, '函谷关'], [37, '望垣峡'], [38, '夷洲'], [30, '襄阳'], [32, '宛城']]) {
       await page.evaluate((city) => window.__game.strategy.focusCity(city), id);
       await page.waitForTimeout(1500);
       const point = await page.locator('.ctag').filter({ hasText: label }).boundingBox();
@@ -149,7 +149,7 @@ test('手机地图可点选关隘、切换简洁视图及势力图层', async ()
       await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: point.x + point.width / 2, y: point.y + point.height / 2 }] });
       await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       await page.locator('.citypanel header').filter({ hasText: label }).waitFor();
-      if (id === 37) assert.match(await page.locator('.pass-note').innerText(), /不计城数/);
+      if (id === 34 || id === 37) assert.match(await page.locator('.pass-note').innerText(), /不计城数/);
       else assert.equal(await page.locator('.pass-note').count(), 0);
     }
     await page.locator('.mapfocusbtn').click();
@@ -380,12 +380,13 @@ test('桌面三维地图显示新增据点，并能打开道路和势力图层',
     await page.evaluate(() => window.__game.strategy.returnTo(13, { kind: '3d', yaw: 0.12, bias: 0, dist: 20 }));
     await page.waitForTimeout(1500);
     const positions = await page.evaluate(() => {
-      const s = window.__game.strategy, ids = [12, 13, 21, 30, 32];
+      const s = window.__game.strategy, ids = [8, 12, 13, 21, 30, 32, 34, 35];
       return Object.fromEntries(ids.map((id) => [id, s.screenOfCity(id)]));
     });
     const gap = (a, b) => Math.hypot(positions[a].x - positions[b].x, positions[a].y - positions[b].y);
     assert.ok(gap(30, 13) > 70 && gap(30, 21) > 75, '襄阳与新野、荆州应有可见间距');
-    assert.ok(gap(32, 12) > 75 && gap(32, 13) > 85, '宛城与洛阳、新野应有可见间距');
+    assert.ok(gap(32, 12) > 85 && gap(32, 13) > 120, '宛城与洛阳、新野应有可见间距');
+    assert.ok(gap(34, 35) > 90 && gap(35, 8) > 75 && gap(35, 30) > 65, '函谷关、武关与邻近据点应有可见间距');
     const labels = await page.evaluate(() => [12, 13, 21, 30, 32, 33, 34, 35].map((id) => {
       const rect = window.__game.strategy.tagOf(id).getBoundingClientRect();
       return { id, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };

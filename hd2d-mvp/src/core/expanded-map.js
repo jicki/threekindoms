@@ -5,10 +5,12 @@ export const EXPANDED_NODES = Object.freeze([
     sandOffset: [-1.16, 0.24, 0.20], flatOffset: [-135, 22], geoOffset: [-1.32, -0.20] },
   { id: 31, name: '江州', kind: 'city', road: [26, 27], template: 27, fraction: 0.50 },
   { id: 32, name: '宛城', kind: 'city', road: [12, 13], template: 13, fraction: 0.50,
-    sandOffset: [0.55, -0.01, 0.70], flatOffset: [68, 78], geoOffset: [0.61, -0.70] },
+    sandOffset: [1.00, -0.025, 0.70], flatOffset: [124, 78], geoOffset: [1.11, -0.70] },
   { id: 33, name: '虎牢关', kind: 'pass', road: [11, 12], template: 12, fraction: 0.50 },
-  { id: 34, name: '函谷关', kind: 'pass', road: [8, 12], template: 8, fraction: 0.50 },
-  { id: 35, name: '武关', kind: 'pass', road: [8, 13], template: 9, fraction: 0.50 },
+  { id: 34, name: '函谷关', kind: 'pass', road: [8, 12], template: 8, fraction: 0.50,
+    sandOffset: [0, -0.135, -0.45], flatOffset: [0, -50], geoOffset: [0, 0.45] },
+  { id: 35, name: '武关', kind: 'pass', road: [8, 13], template: 9, fraction: 0.50,
+    sandOffset: [-0.42, -0.357, 0.75], flatOffset: [-52, 83], geoOffset: [-0.47, -0.75] },
   { id: 36, name: '剑阁', kind: 'pass', road: [25, 26], template: 25, fraction: 0.50 },
 ]);
 // 望垣峡是史籍中的峡谷，位置取西平至蜀地道路的示意；夷洲与现今岛屿的对应存在争议。
@@ -167,8 +169,8 @@ export function expandedSandMeta(meta, frontier = false) {
     copy.cities.push({ id: n.id, name: n.name, tier: 'county', x, y, z, mx: x, mz: z, ms: 0.7 });
     copy.roads.push({ a: home.id, b: n.id, p, generated: true });
   }
-  // 清理新城占地内的装饰树，以及遮住襄阳城体的山体，其他地图素材不变。
-  const cleared = copy.cities.filter((c) => c.id === 30 || c.id === 32 || (frontier && c.id === 38));
+  // 清理新据点占地内的装饰树，以及遮住襄阳城体的山体，其他地图素材不变。
+  const cleared = copy.cities.filter((c) => [30, 32, 34, 35].includes(c.id) || (frontier && c.id === 38));
   copy.pieces = { ...meta.pieces };
   for (const kind of ['tree-broad', 'tree-pine', 'grove', 'range-a', 'range-b']) if (meta.pieces?.[kind]) {
     const mountain = kind.startsWith('range-'), occupied = mountain ? cleared.filter((c) => c.id === 30) : cleared;

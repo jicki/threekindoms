@@ -49,6 +49,18 @@ export function rng(g) {
 const cityRecord = (c) => ({ id: c.id, faction: c.faction, gold: c.gold, rice: c.rice, pop: c.pop, land: c.land, industry: c.industry,
   disaster: c.disaster, gov: c.gov, reserve: c.reserve, treasure: c.treasure, officers: [...c.officers], riot: 0 });
 
+// 仅用于君主列传扩展地图的新局；旧记录和已发布版本的静态人物配置不变。
+const FEMALE_OPENING_STATS = {
+  '孙尚香': { hp: 88, war: 89, int: 76, virtue: 80 },
+  '甄宓': { hp: 78, war: 62, int: 91, virtue: 86 },
+  '貂蝉': { hp: 81, war: 70, int: 89, virtue: 82 },
+  '蔡琰': { hp: 78, war: 42, int: 94, virtue: 85 },
+  '王异': { hp: 86, war: 85, int: 86, virtue: 90 },
+  '辛宪英': { hp: 76, war: 40, int: 94, virtue: 90 },
+  '黄夫人': { hp: 78, war: 42, int: 93, virtue: 90 },
+  '祝融夫人': { hp: 88, war: 88, int: 72, virtue: 78 },
+};
+
 // ---------- New game ----------
 export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random() * 1e9)) >>> 0, { ruler = null } = {}) {
   const g = { version: 1, level, player: playerFaction, year: 189, month: 0, seed, turnIdx: -1, monthDone: false, current: null, books: 0, over: null };
@@ -74,6 +86,13 @@ export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random(
     id: o.id, hp: o.hp, war: o.war, int: o.int, loyalty: o.loyalty, virtue: o.virtue, exp: o.exp, soldiers: o.soldiers,
     weapon: o.weapon, armor: o.armor, level: o.level, army: o.army, status: o.appear === 'initial' ? SERVING : UNAPPEARED, loc: o.city,
   }));
+  if (scenarioId === EXPANDED_MAP_ID) for (const source of D.officers) {
+    if (source && !source.clone && Object.hasOwn(FEMALE_OPENING_STATS, source.name) && g.officers[source.id]) {
+      const stats = FEMALE_OPENING_STATS[source.name];
+      // 上限写入本局，避免修改静态数据造成旧记录的治疗上限变化。
+      Object.assign(g.officers[source.id], stats, { maxHp: stats.hp });
+    }
+  }
   g.factions = D.factions.map((f) => ({ id: f.id, ruler: f.ruler, city: D.officers[f.ruler].city, ai: f.id !== playerFaction, alliance: Array(D.factions.length).fill(0) }));
   g.aiCursor = Array(D.factions.length).fill(0);
   if (D.expandedMap && (scenarioId === EXPANDED_MAP_ID || D.expandedOpening)) {

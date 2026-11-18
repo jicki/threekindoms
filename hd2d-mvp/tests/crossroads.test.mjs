@@ -18,6 +18,16 @@ const map = (frontier) => {
 };
 const crossings = [[13, 22, 30], [12, 21, 32]];
 const edge = (a, b) => [a, b].sort((x, y) => x - y).join('-');
+const terrainHeight = (raw) => {
+  const heights = readFileSync(new URL('../assets/ai/sandtable/board/height.bin', import.meta.url));
+  const [x0, , z0] = raw.box, [width, height] = raw.grid, [dx, dz] = raw.step;
+  const at = (x, z) => raw.h[0] + heights.readUInt16LE((Math.max(0, Math.min(height - 1, z)) * width
+    + Math.max(0, Math.min(width - 1, x))) * 2) / 65535 * (raw.h[1] - raw.h[0]);
+  return (x, z) => {
+    const fx = (x - x0) / dx, fz = (z - z0) / dz, i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
+    return (at(i, j) * (1 - u) + at(i + 1, j) * u) * (1 - v) + (at(i, j + 1) * (1 - u) + at(i + 1, j + 1) * u) * v;
+  };
+};
 
 for (const frontier of [false, true]) test(`${frontier ? '边疆' : '扩展'}地图的跨城路线经过新据点，双向道路与布阵完整`, () => {
   const d = map(frontier); G.setData(d, EXPANDED_MAP_ID);
@@ -96,18 +106,31 @@ test('襄阳与新野、荆州拉开距离，短支路依然连接原道路', ()
       assert.ok(distance([pieces[i], pieces[i + 2]], [sand.cities[30].x, sand.cities[30].z]) >= 0.65, '襄阳不能被山体遮住');
     }
   }
-  const heights = readFileSync(new URL('../assets/ai/sandtable/board/height.bin', import.meta.url));
-  const [x0, , z0] = raw.box, [width, height] = raw.grid, [dx, dz] = raw.step;
-  const at = (x, z) => raw.h[0] + heights.readUInt16LE((Math.max(0, Math.min(height - 1, z)) * width
-    + Math.max(0, Math.min(width - 1, x))) * 2) / 65535 * (raw.h[1] - raw.h[0]);
-  const ground = (x, z) => {
-    const fx = (x - x0) / dx, fz = (z - z0) / dz, i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
-    return (at(i, j) * (1 - u) + at(i + 1, j) * u) * (1 - v) + (at(i, j + 1) * (1 - u) + at(i + 1, j + 1) * u) * v;
-  };
+  const ground = terrainHeight(raw);
   const city = sand.cities[30], samples = [];
   for (const x of [-0.24, 0, 0.24]) for (const z of [-0.24, 0, 0.24]) samples.push(ground(city.x + x, city.z + z));
   assert.ok(city.y >= Math.max(...samples) - 0.02, '襄阳城体不能埋入周围地面');
   assert.ok(city.y <= ground(city.x, city.z) + 0.12, '襄阳城体不能明显悬空');
+});
+
+test('函谷关、武关和宛城与邻近据点错开，城体不被地形或树木遮挡', () => {
+  const raw = read('../assets/ai/sandtable/board/board.json'), sand = expandedSandMeta(raw, true);
+  const flat = expandedFlatBoard(read('../assets/ai/sandtable/flat/board.json'), true), ground = terrainHeight(raw);
+  for (const [a, b] of [[32, 13], [32, 12], [34, 35], [34, 8], [34, 12], [35, 8], [35, 13], [35, 30]]) {
+    const x = sand.cities[a], y = sand.cities[b], p = flat.cities[a], q = flat.cities[b];
+    assert.ok(Math.hypot(x.x - y.x, x.z - y.z) > 1.15, `${a} 与 ${b} 的三维距离过近`);
+    assert.ok(Math.hypot(p.cx - q.cx, p.cy - q.cy) > 145, `${a} 与 ${b} 的平面距离过近`);
+  }
+  for (const id of [32, 34, 35]) {
+    const city = sand.cities[id], heights = [];
+    for (const x of [-0.24, 0, 0.24]) for (const z of [-0.24, 0, 0.24]) heights.push(ground(city.x + x, city.z + z));
+    assert.ok(city.y >= Math.max(...heights) - 0.02, `${city.name} 不能埋入地形`);
+    assert.ok(city.y <= ground(city.x, city.z) + 0.12, `${city.name} 不能明显悬空`);
+    for (const kind of ['tree-broad', 'tree-pine', 'grove']) {
+      const pieces = sand.pieces[kind] ?? [];
+      for (let i = 0; i < pieces.length; i += 6) assert.ok(Math.hypot(pieces[i] - city.x, pieces[i + 2] - city.z) >= 0.55, `${city.name} 被树木遮挡`);
+    }
+  }
 });
 
 test('地图上其他道路也不穿过第三座城市或关隘', () => {
