@@ -46,6 +46,8 @@ export const setPortraits = (p) => (portraitFiles = p);
 // 阿会喃's portrait is only a last resort, never the original pixel art.
 const art = (id) => (data().officers[id]?.clone ? 0 : data().officers[id]?.portraitId ?? id);
 const FALLBACK = 'assets/ai/portraits/0.webp';
+// 所有外部图片都不可用时仍显示稳定的轮廓，不依赖网络或其他素材文件。
+const PLACEHOLDER = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 128"><rect width="96" height="128" fill="#17212a"/><circle cx="48" cy="43" r="21" fill="#667685"/><path d="M11 123c2-31 16-49 37-49s35 18 37 49" fill="#667685"/></svg>')}`;
 const customPortrait = (id) => data().officers[id]?.clone ? null : data().officers[id]?.portraitData;
 const builtInPortrait = (id) => portraitFiles[art(id)] || portraitFiles[0] || FALLBACK;
 const officerVisual = (id) => data().officers[id]?.clone ? null : data().officers[id]?.visual;
@@ -66,11 +68,61 @@ export const setFaces = (f) => (faceFiles = f);
 let halfbodyFiles = {};
 export const setHalfbody = (f) => (halfbodyFiles = f);
 export const avatar = (id, mood = 'calm', cls = '') => face(id, `${cls} avatar`, mood);
+const IMAGE_WAIT = 12000, imageWatchers = new WeakMap();
+let imageRetry = 0, imageObserver = null;
+function watchImage(image, onVisibility) {
+  if (typeof IntersectionObserver !== 'function') return;
+  imageObserver ||= new IntersectionObserver((entries) => {
+    for (const entry of entries) imageWatchers.get(entry.target)?.(entry.isIntersecting);
+  }, { rootMargin: '200px' });
+  imageWatchers.set(image, onVisibility); imageObserver.observe(image);
+}
+function unwatchImage(image) { imageObserver?.unobserve(image); imageWatchers.delete(image); }
 function officerImage(id, cls, fallback, visual = null) {
-  const sources = [...new Set([visual, visualPortrait(id), customPortrait(id), fallback].filter(Boolean))];
-  let index = 0;
-  return h('img', { src: sources[0], class: `${cls} ai`, alt: name(id), decoding: 'async', ...(cls.includes('avatar') ? { loading: 'lazy' } : {}),
-    onerror: sources.length > 1 ? (event) => { if (++index < sources.length) event.currentTarget.src = sources[index]; } : null });
+  const sources = [...new Set([visual, visualPortrait(id), customPortrait(id), fallback, builtInPortrait(id), FALLBACK, PLACEHOLDER].filter(Boolean))];
+  let index = 0, retried = false, visible = false, connected = false, wait = null, retryTimer = null;
+  const clearWait = () => { clearTimeout(wait); wait = null; };
+  const cleanup = () => { clearWait(); clearTimeout(retryTimer); retryTimer = null; unwatchImage(img); };
+  const arm = () => {
+    if (!visible || !img.isConnected || img.complete || wait || retryTimer) return;
+    wait = setTimeout(() => { wait = null; if (img.isConnected && !img.complete) fail(); }, IMAGE_WAIT);
+  };
+  const fail = () => {
+    if (retryTimer) return;
+    clearWait();
+    if (connected && !img.isConnected) return cleanup();
+    const source = sources[index], failed = img.getAttribute('src');
+    // 网络失败可能被浏览器缓存；同一来源只延迟重试一次，再依次尝试同人物头像和离线占位图。
+    let retry = null;
+    if (!retried) {
+      try {
+        const url = new URL(source, document.baseURI);
+        if (['http:', 'https:', 'file:'].includes(url.protocol) || (url.protocol === 'app:' && url.host === 'game')) {
+          url.searchParams.set('_image_retry', `${Date.now().toString(36)}-${++imageRetry}`); retry = url.href;
+        }
+      } catch { /* data 和无效地址直接回退 */ }
+    }
+    if (retry) {
+      retried = true;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        if (connected && !img.isConnected) return cleanup();
+        if (img.getAttribute('src') === failed) { img.setAttribute('src', retry); arm(); }
+      }, 180 + Math.random() * 180);
+    } else if (index + 1 < sources.length) {
+      retried = false; img.setAttribute('src', sources[++index]); arm();
+    } else cleanup();
+  };
+  const img = h('img', { class: `${cls} ai`, alt: name(id), decoding: 'async', ...(cls.includes('avatar') ? { loading: 'lazy' } : {}),
+    onerror: fail, onload: cleanup });
+  img.setAttribute('src', sources[0]);
+  // 仅对接近视口的图片计时，离屏的懒加载头像不会被误判为超时。
+  watchImage(img, (on) => {
+    if (!img.isConnected) return cleanup();
+    connected = true; visible = on;
+    if (on) arm(); else clearWait();
+  });
+  return img;
 }
 export function figure(id, cls = '') {
   if (visualPortrait(id) || customPortrait(id) || halfbodyFiles[art(id)]) return officerImage(id, `${cls} figure`, halfbodyFiles[art(id)] || builtInPortrait(id));

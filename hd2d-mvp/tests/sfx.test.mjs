@@ -75,6 +75,144 @@ test('a 白兵 volley sounds as it looses and again as the arrows land', async (
   assert.ok(r.gap > 100, `the landing follows the flight (${Math.round(r.gap)} ms)`);
 });
 
+test('白兵双方步兵、弓兵、骑兵和武将行动有对应脚步音，密集行动不会叠成噪声', async () => {
+  const r = await page.evaluate(async () => {
+    const { tview, G, debug } = window.__game, { Tactical } = await import('./src/core/tactical.js');
+    const g = G.newGame(4, 1, 3);
+    for (const id of [38, 51]) Object.assign(g.officers[id], { soldiers: 1000, level: 8, war: 65 });
+    const battle = new Tactical(g, 38, 51, 2, G.rng(g), { human: 'a' }); battle.deploy();
+    tview.setPlace({ month: 2, city: 12 }); await tview.ready(); debug.show('tview');
+    tview.build(battle, { a: 'attacker', d: 'defender' }); tview.setSpeed(4);
+    const units = {}, out = {};
+    for (const side of ['a', 'd']) for (const kind of ['inf', 'arc', 'cav', 'gen']) {
+      const u = battle.units.find((unit) => unit.side === side && unit.kind === kind);
+      if (!u) throw new Error(`缺少 ${side} 方 ${kind} 单位`);
+      units[`${side}:${kind}`] = u;
+      await new Promise((resolve) => setTimeout(resolve, 160));
+      const sounds = [];
+      await tview.play({ type: 'move', u, from: [u.x, u.y], to: [Math.max(0, u.x - 1), u.y] }, { sfx: (key) => sounds.push(key) });
+      await tview.settle(); out[`${side}:${kind}`] = sounds;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 160));
+    const simultaneous = [];
+    await Promise.all(Object.values(units).map((u) => tview.play({ type: 'move', u, from: [u.x, u.y], to: [Math.max(0, u.x - 1), u.y] }, { sfx: (key) => simultaneous.push(key) })));
+    await tview.settle(); tview.setSpeed(1);
+    return { out, simultaneous };
+  });
+  for (const side of ['a', 'd']) for (const kind of ['inf', 'arc', 'cav', 'gen']) {
+    assert.deepEqual(r.out[`${side}:${kind}`], [kind === 'inf' || kind === 'arc' ? 'sfx-footstep' : 'sfx-step']);
+  }
+  assert.equal(r.simultaneous.length, 1, `同一时刻只播放一个移动声：${r.simultaneous}`);
+});
+
+test('没有脚步素材时仍有可听见的步行和骑行声，并受音效音量控制', async () => {
+  const result = await page.evaluate(async () => {
+    const { Audio } = await import('./src/audio.js');
+    const render = async (key, gain = 1) => {
+      const audio = new Audio({}, {}), ctx = new OfflineAudioContext(1, 12000, 48000);
+      audio.ctx = ctx; audio.sfxGain = ctx.createGain(); audio.sfxGain.gain.value = gain; audio.sfxGain.connect(ctx.destination);
+      audio.sfx(key);
+      const samples = (await ctx.startRendering()).getChannelData(0).slice(0, 4800);
+      let energy = 0, peak = 0;
+      for (const sample of samples) { energy += sample * sample; peak = Math.max(peak, Math.abs(sample)); }
+      return { rms: Math.sqrt(energy / samples.length), peak };
+    };
+    return { foot: await render('sfx-footstep'), hoof: await render('sfx-step'), muted: await render('sfx-step', 0) };
+  });
+  for (const key of ['foot', 'hoof']) {
+    assert.ok(result[key].rms > 0.01, `${key} 的兜底声音过弱：${result[key].rms}`);
+    assert.ok(result[key].peak < 0.75, `${key} 的兜底声音过大：${result[key].peak}`);
+  }
+  assert.equal(result.muted.peak, 0);
+});
+
+test('白兵撤退按兵种播放行动音，追击致死时不播放逃跑脚步', async () => {
+  const result = await page.evaluate(async () => {
+    const { tview, G, debug } = window.__game, { Tactical } = await import('./src/core/tactical.js');
+    const g = G.newGame(4, 1, 3);
+    for (const id of [38, 51]) Object.assign(g.officers[id], { soldiers: 1000, level: 8, war: 65 });
+    const battle = new Tactical(g, 38, 51, 2, G.rng(g), { human: 'a' }); battle.deploy();
+    tview.setPlace({ month: 2, city: 12 }); await tview.ready(); debug.show('tview');
+    tview.build(battle, { a: 'attacker', d: 'defender' }); tview.setSpeed(4);
+    const sounds = {};
+    for (const side of ['a', 'd']) for (const kind of ['inf', 'cav']) {
+      await new Promise((resolve) => setTimeout(resolve, 160));
+      const u = battle.units.find((unit) => unit.side === side && unit.kind === kind), heard = [];
+      await tview.play({ type: 'exit', u }, { sfx: (key) => heard.push(key) });
+      sounds[`${side}:${kind}`] = heard;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 160));
+    const fatal = [];
+    await tview.play({ type: 'exit', u: battle.gen('d'), pursuit: { hit: true, dmg: 5, fell: 'dead' } },
+      { sfx: (key) => fatal.push(key), pursuit: async () => {} });
+    tview.setSpeed(1); return { sounds, fatal };
+  });
+  for (const side of ['a', 'd']) {
+    assert.deepEqual(result.sounds[`${side}:inf`], ['sfx-footstep']);
+    assert.deepEqual(result.sounds[`${side}:cav`], ['sfx-step']);
+  }
+  assert.deepEqual(result.fatal, ['sfx-clash']);
+});
+
+test('电脑连续行军时，后续移动的武将也有脚步声', async () => {
+  const sounds = await page.evaluate(async () => {
+    const THREE = await import('three'), { makePlay } = await import('./src/war/play.js');
+    const first = { x: 1, y: 0 }, second = { x: 4, y: 1 };
+    const visual = () => ({ g: new THREE.Group(), heading: new THREE.Vector3(1, 0, 0),
+      body: new THREE.Group(), bill: new THREE.Group(), flip: 1, frames: null, stride: 0 });
+    const views = new Map([[first, visual()], [second, visual()]]);
+    views.get(second).g.position.z = 1;
+    const started = performance.now(), heard = [];
+    const field = { day: 1, lastAmbush: null, over: null, *aiActions() {
+      yield { type: 'move', u: first, path: [[1, 0]] };
+      yield { type: 'move', u: second, path: [[1, 1], [2, 1], [3, 1], [4, 1]] };
+    } };
+    const scene = new THREE.Scene(), wv = { field, scene, views, audio: { sfx: (key) => heard.push({ key, at: performance.now() - started }) },
+      ui: { log() {} }, sideLabel: () => '敌军', wx: (x) => x, wz: (y) => y, topY: () => 0,
+      view: { yaw: 0 }, followPoint() {}, hud() {}, st: {} };
+    await makePlay(wv).aiSide('def');
+    return heard;
+  });
+  assert.ok(sounds.length >= 2 && sounds.every((sound) => sound.key === 'sfx-step'), JSON.stringify(sounds));
+  assert.ok(sounds.at(-1).at - sounds[0].at > 300, `后续行军应继续发声：${JSON.stringify(sounds)}`);
+});
+
+for (const query of ['', '&flat']) test(`${query ? '平面' : '3D'}战场玩家移动时播放脚步声`, { timeout: 120000 }, async () => {
+  const p = await game.open(query);
+  await p.evaluate(async () => { (await import('./src/pace.js')).setPace(4); (await import('./src/vignette.js')).setVignettes(false); });
+  await newCampaign(p);
+  await p.evaluate(() => {
+    const { g, G, debug } = window.__game, home = g.factions[g.player].city;
+    const to = G.roads(home).map((id) => g.cities[id]).find((city) => city.faction !== g.player && city.faction !== G.NONE && city.officers.length);
+    for (const id of [...g.cities[home].officers, ...to.officers]) g.officers[id].soldiers ||= 500;
+    const ids = g.cities[home].officers.slice(0, 2);
+    debug.fieldWar(debug.setupWar(g, { from: home, to: to.id, ids, commander: ids[0], gold: 100, rice: 400 }), 'att');
+  });
+  const stop = closeMessages(p);
+  try {
+    await p.waitForFunction(() => window.__game.war?.finishDeploy && document.body.dataset.screen === 'war', null, { timeout: 60000 });
+    await p.evaluate(() => window.__game.war.finishDeploy());
+    await p.waitForFunction(() => { const f = window.__game.war.field; return f.turn === f.human && f.day === 1; }, null, { timeout: 30000 });
+    await spy(p);
+    const target = await p.evaluate(async () => {
+      const w = window.__game.war, f = w.field, u = f.side(f.human)[0];
+      await w.clickCell(u.x, u.y);
+      for (const key of w.st.reach.dist.keys()) {
+        const [x, y] = key.split(',').map(Number);
+        if (!f.unitAt(x, y)) return { x, y, id: u.id };
+      }
+      return null;
+    });
+    assert.ok(target, '玩家武将应有可移动的地格');
+    await p.evaluate(async ({ x, y }) => window.__game.war.clickCell(x, y), target);
+    assert.deepEqual(await p.evaluate(({ id }) => {
+      const u = window.__game.war.field.alive.find((unit) => unit.id === id); return [u.x, u.y];
+    }, target), [target.x, target.y]);
+    assert.ok((await heard(p)).includes('sfx-step'), '移动应播放马蹄声');
+    assert.deepEqual(p.errors, []);
+  } finally { stop(); await p.context().close(); }
+});
+
 test('白兵双方战术在效果出现时播放各自音效，失败静音，爆炎只在爆点发声', { timeout: 60000 }, async () => {
   const r = await page.evaluate(async () => {
     const { tview, G, debug } = window.__game, { Tactical } = await import('./src/core/tactical.js');

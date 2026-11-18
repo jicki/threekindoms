@@ -101,6 +101,7 @@ export function createTacticalView(T, sprites) {
   let where = { month: 2, city: 12 }, place = env.set(where), loading = loadTacticalGround(2, 12).catch(() => null);
 
   let set = null, units = new Map(), battle = null, time = 0, shake = 0, speed = 1, shift = 0, fit = 1, billboards = [], corpses = [], water = null, cellH = () => H0;
+  let stepAt = -Infinity;
   const edge = new THREE.Vector3(), camGoal = new THREE.Vector3(), shakeV = new THREE.Vector3(); // scratch for update(), which runs every frame
   const inset = { top: 0, bottom: 0 }; // screen pixels the HUD covers at the top and bottom
   const cam = { pos: new THREE.Vector3(0, 16, 16), look: new THREE.Vector3(0, 0, 1.1), yaw: 0, dist: 21, baseDist: 21 };
@@ -217,6 +218,7 @@ export function createTacticalView(T, sprites) {
   const sameField = (b, looks) => !!laid && laid.b === b && laid.G === tacticalGround(where.month, where.city) && laid.month === where.month && laid.city === where.city && laid.a === looks.a && laid.d === looks.d;
   function build(b, looks) {
     const T0 = performance.now(); // tools/scene_switch_trace.mjs (PERF-05): measures only
+    stepAt = -Infinity;
     blast.clear();
     if (set && sameField(b, looks)) {
       const gone = set.children.filter((o) => !laid.kids.has(o));
@@ -429,6 +431,14 @@ export function createTacticalView(T, sprites) {
   // and anything else (a blow, an exit, the round marker) first lets every running step land.
   const marching = new Map();
   const settle = () => Promise.all(marching.values());
+  function stepSound(u, hooks) {
+    // 多队几乎同时行动时共用一个落脚节拍，避免叠加过响。
+    const now = performance.now();
+    if (hooks.sfx && now - stepAt >= 120) {
+      stepAt = now;
+      hooks.sfx(u.kind === 'cav' || u.kind === 'gen' ? 'sfx-step' : 'sfx-footstep');
+    }
+  }
   async function play(ev, hooks) {
     if (!ev) return;
     const v = ev.u && units.get(ev.u);
@@ -438,7 +448,7 @@ export function createTacticalView(T, sprites) {
         await marching.get(ev.u);
         const from = v.g.position.clone(), to = new THREE.Vector3(wx(ev.to[0]), cellH(ev.to[0], ev.to[1]), wz(ev.to[1]));
         turn(v, Math.sign(ev.to[0] - ev.from[0]), Math.sign(ev.to[1] - ev.from[1]));
-        if (ev.u.kind === 'cav' || ev.u.kind === 'gen') hooks.sfx?.('sfx-step');
+        stepSound(ev.u, hooks);
         v.moving = true;
         const step = animate(d(150), (k) => { v.g.position.lerpVectors(from, to, ease(k)); }).then(() => {
           if (ev.u.kind === 'cav' && Math.random() < 0.3) dustPuff(scene, v.g.position.clone().setY(to.y + 0.15), 0.5);
@@ -517,6 +527,7 @@ export function createTacticalView(T, sprites) {
           }
           turn(v, dir); v.moving = true;
         }
+        stepSound(ev.u, hooks);
         for (const M of v.alive) for (const m of mats(M)) m.transparent = true;
         await animate(d(480), (k) => { v.g.position.x += dir * 0.045; for (const M of v.alive) { for (const m of mats(M)) m.opacity = 1 - k; M.blob.visible = k < 0.5; } });
         hide(v); hooks.update?.(); break;

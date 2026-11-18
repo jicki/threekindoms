@@ -116,7 +116,7 @@ test('at 4× the whole 计略 takes a quarter as long', async () => {
 // Each of the 16 计略 plays its own picture and its own effect on the board (playtest feedback of 2026-10-29:
 // several shared one picture). The picture's scene is on the frame as data-scene; the board effect is read from
 // the war view's STRAT_FX recipe names.
-test('every 计略 has a picture and a board effect of its own, and all of them play', async () => {
+test('all 16 original 计略 have their own pictures and board effects, and all of them play', async () => {
   const r = await page.evaluate(async () => {
     const P = await import('./src/pace.js'), W = await import('./src/warview.js'), F = await import('./src/core/field.js'); P.setPace(4);
     const w = window.__game.war, f = w.field;
@@ -124,7 +124,7 @@ test('every 计略 has a picture and a board effect of its own, and all of them 
     const index = await fetch('assets/ai/vignettes/index.json').then((x) => x.json());
     const seen = [], audio = window.__game.audio, originalSfx = audio.sfx, sounds = [];
     audio.sfx = (key) => sounds.push(key);
-    for (const s of F.STRATS) {
+    for (const s of F.STRATS.slice(0, 16)) {
       sounds.length = 0;
       let scene = null; const watch = setInterval(() => { scene ||= document.querySelector('.vig')?.dataset.scene ?? null; }, 10);
       await w.playStrategy(foe, me, s.id, { ok: true, hit: true, name: s.name, lines: ['测试'], hits: [] });
@@ -139,6 +139,7 @@ test('every 计略 has a picture and a board effect of its own, and all of them 
     P.setPace(1);
     return { seen, failureSounds };
   });
+  assert.equal(r.seen.length, 16);
   for (const s of r.seen) { assert.ok(s.scene, `${s.name} played a picture`); assert.ok(s.art, `${s.name}'s art is published`); }
   const expected = ['sfx-tactic-fire', 'sfx-clash', 'sfx-tactic-bind', 'sfx-clash', 'sfx-strategy-water', 'sfx-tactic-fire', 'sfx-clash', 'sfx-clash',
     'sfx-strategy-lure', 'sfx-clash', 'sfx-tactic-bind', 'sfx-clash', 'sfx-strategy-water', 'sfx-tactic-xbow', 'sfx-tactic-fire', 'sfx-tactic-bind'];

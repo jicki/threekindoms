@@ -10,7 +10,7 @@ import { suspend, peekSuspend, takeSuspend } from '../src/core/suspend.js';
 import { applyScenario } from '../src/core/scenario.js';
 import { loadScenario } from '../src/core/scenario-store.js';
 import { SOVEREIGN_SCENARIO_ID } from '../src/core/visuals.js';
-import { EXPANDED_MAP_ID, EXPANDED_NODES, expandMap, expandedFlatBoard, expandedSandMeta } from '../src/core/expanded-map.js';
+import { EXPANDED_MAP_ID, EXPANDED_NODES, CROSSING_ROADS, expandMap, expandedFlatBoard, expandedSandMeta } from '../src/core/expanded-map.js';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url)));
 const base = read('../data/game-data.json'), scenario = await loadScenario(SOVEREIGN_SCENARIO_ID, base);
@@ -28,7 +28,8 @@ test('扩展地图增加四个城市和五处关隘，双向道路与原始数�
   for (const n of EXPANDED_NODES) {
     const [a, b] = n.road;
     assert.ok(!d.cities[a].roads.includes(b)); assert.ok(d.cities[a].roads.includes(n.id));
-    assert.ok(d.cities[b].roads.includes(n.id)); assert.deepEqual(d.cities[n.id].roads, [a, b]);
+    const additional = CROSSING_ROADS.filter((r) => r.via === n.id).map((r) => r.road[1]);
+    assert.ok(d.cities[b].roads.includes(n.id)); assert.deepEqual(d.cities[n.id].roads, [a, b, ...additional]);
     assert.equal(g.cities[n.id].faction, G.NONE);
   }
   assert.equal(G.books(g, 4), standard.rules.books[G.citiesOf(g, 4).length]);
@@ -43,9 +44,9 @@ test('平面和三维地图的关隘与城市都落在被拆分的道路上', ()
     assert.equal(result.cities.length, 37); assert.equal(result.roads.length, data.roads.length + 7);
     for (const n of EXPANDED_NODES) {
       const segments = result.roads.filter((r) => r.a === n.id || r.b === n.id);
-      assert.equal(segments.length, 2);
+      assert.equal(segments.length, 2 + CROSSING_ROADS.filter((r) => r.via === n.id).length);
       const endpoints = segments.map((r) => r.a === n.id ? r.p.slice(0, dims) : r.p.slice(-dims));
-      assert.deepEqual(endpoints[0], endpoints[1], `${n.name} 的道路必须连续`);
+      for (const point of endpoints.slice(1)) assert.deepEqual(endpoints[0], point, `${n.name} 的道路必须连续`);
       if (dims === 2) assert.deepEqual(endpoints[0], [result.cities[n.id].cx, result.cities[n.id].cy]);
       else assert.deepEqual(endpoints[0], [result.cities[n.id].x, result.cities[n.id].y, result.cities[n.id].z]);
     }
@@ -68,7 +69,8 @@ test('宛城和襄阳错开相邻城市，通过短支路连回原道路', () =>
         (r.a === node.road[0] && r.b === node.road[1]) || (r.b === node.road[0] && r.a === node.road[1]));
       const length = original.p.length / dims, cut = Math.round((length - 1) * node.fraction);
       const junction = original.p.slice(cut * dims, (cut + 1) * dims);
-      const segments = result.roads.filter((r) => r.a === id || r.b === id), spur = segments.find((r) => r.spur)?.spur;
+      const segments = result.roads.filter((r) => r.a === id || r.b === id);
+      const spur = segments.map((r) => r.spur).find((p) => p && junction.every((value, i) => p[i] === value));
       assert.ok(spur?.length > dims * 2, `${node.name}需要可绘制的连接道路`);
       assert.deepEqual(spur.slice(0, dims), junction);
       assert.deepEqual(xy(spur.slice(-dims)), seat(result.cities[id]));
@@ -372,9 +374,9 @@ test('多种子真实回合中电脑可争夺关隘和新城，资源与武将�
       }
     };
     const io = {
-      event: async (e) => { if (e.type === 'autobattle') { totals.wars++; if (G.isPass(e.war.city)) totals.gateWars++; } },
+      event: async (e) => { if (e.type === 'autobattle') { assert.ok(G.roads(e.war.from).includes(e.war.city), '电脑自动战必须沿相邻道路出阵'); totals.wars++; if (G.isPass(e.war.city)) totals.gateWars++; } },
       chooseHeir: async (f) => G.autoHeir(g, f), allianceOffer: async () => false,
-      war: async (war) => { totals.wars++; if (G.isPass(war.city)) totals.gateWars++; autoBattle(g, war); await G.checkFactions(g, io); },
+      war: async (war) => { assert.ok(G.roads(war.from).includes(war.city), '电脑攻城必须沿相邻道路出阵'); totals.wars++; if (G.isPass(war.city)) totals.gateWars++; autoBattle(g, war); await G.checkFactions(g, io); },
       afterWar: async () => G.checkFactions(g, io),
       aiTurn: async (f) => { inspect(); await aiTurn(g, f, io); },
       playerTurn: async (f) => { inspect(); await aiTurn(g, f, io); g.endTurn = true; },

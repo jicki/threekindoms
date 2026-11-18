@@ -826,8 +826,21 @@ export function createDuelView(T, sprites = {}, audio) {
     g.add(body); scene.add(g);
     return { g, body, half: b ? ((b.y1 - b.y0) / 2) * u : 0.05, len: b ? (b.x1 - b.x0) * u : 1.5 };
   }
-  // Struck from the saddle: thrown back off the rearing horse, he hits the ground, tries to rise and lies still
-  // (death) or kneels (taken). His weapon spins away, lands flat and bounces once: where the DOWNED frame draws it
+  // 阵亡时让坐骑在原地淡出，避免离场动作被误认为败将逃跑。
+  async function fadeFallenMount(R) {
+    const materials = [];
+    R.g.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      for (const material of [o.material].flat()) {
+        materials.push([material, material.opacity]);
+        material.transparent = true; material.alphaTest = 0; material.depthWrite = false; material.needsUpdate = true;
+      }
+    });
+    await tween(260, (k) => { for (const [material, opacity] of materials) material.opacity = opacity * (1 - k); });
+    R.g.visible = false; R.gone = true;
+  }
+  // Struck from the saddle: thrown back off the rearing horse, he hits the ground and lies still (death) or rises to
+  // kneel (taken). His weapon spins away, lands flat and bounces once: where the DOWNED frame draws it
   // under him, so nothing jumps when that frame takes over and the loose one goes; or before him when he kneels.
   async function fallFrom(R, { captured = false } = {}) {
     const foe = foeOf(R), A = sprites[`duel-${R.id}`] || sprites[`duel-${R.look}`];
@@ -836,7 +849,7 @@ export function createDuelView(T, sprites = {}, audio) {
     // The close shot holds the winner and the ground the loser is thrown onto.
     const c = close(((plain ? R.g.position.x : landX) + (foe?.g.position.x ?? R.g.position.x)) / 2); cutIn++; moveCam(c.pos, c.look, 260);
     R.loop = null; show(R, 'hurt');
-    if (plain) return fallPlain(R, foe);
+    if (plain) return fallPlain(R, { captured });
     await wait(150);
     if (!captured) slow(0.3, 420); // the deathblow plays out slowly: the start of the throw
     const f = R.face, man = onFoot(R, true), u = man.unit, sx = R.g.position.x;
@@ -858,35 +871,35 @@ export function createDuelView(T, sprites = {}, audio) {
     });
     man.g.position.y = 0.25; man.shadow.position.y = 0.01;
     show(man, 'man_hit'); if (fx) { dustPuff(scene, man.g.position.clone().setY(0.4), 1.2, tween); shake = Math.max(shake, 0.08); }
-    // The horse shies round from the fall and bolts riderless (if he was not already running from the foe).
-    // He lies drawn over the ground (no depth test), so the horse wheeling round in front of him is drawn after him.
+    // 被俘时空马离场；阵亡时在原地淡出，不与败走混淆。
     for (const b of [R.body, ...R.cards.map((c) => c.body)]) onTop(b, 12);
-    const bolt = (async () => {
+    const horse = (async () => {
       await wait(120);
+      if (!captured) return fadeFallenMount(R);
       if (R.face === R.dir) await wheel(R, 'front', { x: R.g.position.x - R.dir * 0.4, gait: 'loose' });
       await ride(R, R.g.position.x - R.dir * 10, GALLOP * 1.3, 'loose');
       R.gone = true;
     })();
     await wait(300);
-    // STRUGGLE is drawn rolled over (head to the other side from the other cells): turned round it keeps his head
-    // where it was as he props himself up.
-    man.face = -f; show(man, 'man_struggle'); man.face = f;
-    await Promise.all([spin, wait(captured ? 420 : 480)]);
+    // 只有被俘才起身跪伏；阵亡直接由落地过渡到倒地。
+    if (captured) { man.face = -f; show(man, 'man_struggle'); man.face = f; }
+    await Promise.all([spin, wait(captured ? 420 : 240)]);
     if (captured) { show(man, 'man_kneel'); man.g.position.x += f * 0.15; }
     else { show(man, 'downed'); scene.remove(wpn.g); }
     if (fx) dustPuff(scene, man.g.position.clone().setY(0.35), 0.7, tween);
     cast.push(man.g); if (captured) cast.push(wpn.g);
-    await bolt;
+    await horse;
     await wait(250);
     return captured ? man : null;
   }
-  // A rider without the third sheet: he falls from the saddle and the horse bolts (the earlier staging).
-  async function fallPlain(R, foe) {
+  // 缺少落马特写时沿用简化倒地；没有独立空马帧的自定义素材不能用骑乘帧冒充空马。
+  async function fallPlain(R, { captured = false } = {}) {
     await wait(160);
     show(R, 'fall'); if (fx) dustPuff(scene, R.g.position.clone().setY(0.5), 1.0, tween); await wait(420);
+    let man = null;
     if (R.meta) {
       const A = sprites[`duel-${R.id}`] || sprites[`duel-${R.look}`];
-      const { body } = framePlane(A), man = { ...R, g: new THREE.Group(), body, cards: [], loop: null };
+      const { body } = framePlane(A); man = { ...R, g: new THREE.Group(), body, cards: [], loop: null };
       const shadow = new THREE.Mesh(new THREE.CircleGeometry(1, 24), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.3, depthWrite: false }));
       shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.01; shadow.scale.set(A.meta.cell[0] * unitOf(A.meta) * 0.42, 0.32, 1);
       body.position.y -= (A.meta.rest || 0) * unitOf(A.meta);
@@ -894,15 +907,16 @@ export function createDuelView(T, sprites = {}, audio) {
       man.g.add(body, shadow); man.g.position.copy(R.g.position); man.g.position.x -= R.face * 0.5; scene.add(man.g);
       setFace(man, R.face); show(man, 'downed'); if (fx) dustPuff(scene, man.g.position.clone().setY(0.4), 1.2, tween);
       R.ring.visible = false;
-      if (R.face === R.dir) await wheel(R, 'front', { x: R.g.position.x - R.dir * 0.4, gait: 'loose' });
-      await ride(R, R.g.position.x - R.dir * 10, GALLOP * 1.3, 'loose');
-      R.gone = true;
+      if (captured && R.meta.clips?.loose?.length) {
+        if (R.face === R.dir) await wheel(R, 'front', { x: R.g.position.x - R.dir * 0.4, gait: 'loose' });
+        await ride(R, R.g.position.x - R.dir * 10, GALLOP * 1.3, 'loose'); R.gone = true;
+      } else if (!R.meta.clips?.loose?.length) {
+        R.g.visible = false; R.gone = true;
+      } else await fadeFallenMount(R);
       cast.push(man.g);
-    } else {
-      const m = R.body.material; m.transparent = true;
-      await tween(600, (k) => { R.g.position.y = 0.25 - k * 0.3; m.opacity = 1 - k; });
-    }
+    } else await fadeFallenMount(R);
     await wait(250);
+    return captured ? man : null;
   }
   // Beaten off the field (退却, 说得 退出单挑, the 100th round): he sags in the saddle, then wheels and runs, low
   // over the horse's neck (the third card's charge frames, or the gallop without it).
@@ -1025,7 +1039,6 @@ export function createDuelView(T, sprites = {}, audio) {
       if (a.cmd === 'desperate' && me.meta) return allIn(me, foe, a, ctx);
       return swing(me, foe, a, ctx);
     },
-    // Death: struck from the saddle, the rider falls to the ground and his horse bolts riderless.
     // Death (or, under 武将不战死, a capture): see fallFrom().
     fall(id, opts) { const R = byId(id); return R ? fallFrom(R, opts) : undefined; },
     // How the duel ends, once its result is settled (tacticalhud.js after resolveDuel): { dead, captured, surrendered,

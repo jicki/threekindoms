@@ -397,7 +397,9 @@ export function buildSandtable(scene, S) {
     const r = roads.get(a < b ? `${a}-${b}` : `${b}-${a}`); if (!r) return null;
     const pts = []; for (let k = 0; k < r.p.length; k += 3) {
       const x = r.p[k], z = r.p[k + 2];
-      pts.push(new THREE.Vector3(x, r.generated ? Math.max(SEA_Y, surfaceAt(x, z)) + 0.01 : r.p[k + 1], z));
+      const y = r.generated ? Math.max(SEA_Y, surfaceAt(x, z)) + 0.01
+        : r.terrainAdjusted ? Math.max(r.p[k + 1], surfaceAt(x, z) + 0.01) : r.p[k + 1];
+      pts.push(new THREE.Vector3(x, y, z));
     }
     return r.a === a ? pts : pts.reverse();
   };

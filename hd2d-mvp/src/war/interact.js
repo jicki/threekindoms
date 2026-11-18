@@ -125,7 +125,7 @@ export function makeInteract(wv) {
   function deployClick(x, y) {
     const u = field.unitAt(x, y);
     if (u && u.side === human) { st.sel = u; return showDeploy(); }
-    if (!u && st.sel && inRect(x, y)) { const s = st.sel; s.x = x; s.y = y; audio.sfx('sfx-step'); showDeploy(); wv.moveAlong(s, [[x, y]], { perCell: 240, follow: false }); }
+    if (!u && st.sel && inRect(x, y)) { const s = st.sel; s.x = x; s.y = y; showDeploy(); wv.moveAlong(s, [[x, y]], { perCell: 240, follow: false }); }
   }
   wv.endDeploy = undefined;
   function finishDeploy() { if (!st.deploying) return; st.deploying = false; clearMarks(); st.sel = null; wv.endDeploy?.(); }

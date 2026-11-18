@@ -12,6 +12,23 @@ import { stage } from '../commitguard.js';
 import { tween, STRAT_SCENE, STRAT_CUE, STRAT_FX, STRAT_FX_SOUND } from './shared.js';
 import { SKILL_VISUALS } from '../core/skill-visuals.js';
 
+// 旧版新增计策没有专属演出配置，按名称选用与计策含义相符的原版演出。
+// 管理员自行添加的计策则按效果类型回退，避免一律出现火焰和火计音效。
+const CUSTOM_STRATEGY_SCENES = {
+  '八阵奇谋': 15, '赤壁谋火': 14, '公台奇谋': 3, '胡笳扰阵': 2,
+  '坚城奇策': 13, '奉孝奇策': 3, '鹰视守谋': 15, '宪英明鉴': 2,
+  '幽骑冲阵': 3, '淮南筹策': 3, '荆襄固阵': 10, '长史守谋': 15,
+  '阎象明策': 2, '异度奇谋': 2,
+};
+function strategySceneId(strategy) {
+  if (!strategy.custom) return strategy.id;
+  if (Object.hasOwn(CUSTOM_STRATEGY_SCENES, strategy.name)) return CUSTOM_STRATEGY_SCENES[strategy.name];
+  if (strategy.name.includes('火')) return 0;
+  if (strategy.stop) return 2;
+  if (strategy.hp) return 1;
+  return 3;
+}
+
 export function makePlay(wv) {
   const { ctx, field, audio, ui, human, scene, wx, wz, topY, terr, views, place, removeGone, drop, addUnit, FIGURE, clearMarks, view, focusOn, followPoint,
     st, hud, sideLabel, showOptions, select, lastCast, showDeploy, refuse } = wv;
@@ -28,6 +45,7 @@ export function makePlay(wv) {
   // not tilted or squashed while it rides. The camera follows the rider.
   const STRIDE = 1.6, PACE = 190, CORNER = 0.22, RAMP = 90;
   const right = new THREE.Vector3(), tan = new THREE.Vector3();
+  let footfallAt = -Infinity;
   function faceToward(v, dir) { v.heading.copy(dir).setY(0).normalize(); pose(v); }
   // Pick the facing (and walk frame) from the heading in camera space: within ~35° of the camera is the
   // three-quarter front, within ~35° of straight away the three-quarter back, otherwise the side profile;
@@ -59,7 +77,7 @@ export function makePlay(wv) {
     const len = at[at.length - 1], ms = Math.max(minMs, perCell != null ? perCell * n : PACE * (n <= 4 ? n : 4 + (n - 4) * 0.7)), ramp = Math.min(RAMP, ms / 4);
     const turns = (i) => i > 0 && i < legs.length && legs[i - 1].flat.dot(legs[i].flat) < 0.99; // a corner at pts[i]
     const p = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3();
-    let beat = 1, i = 0;
+    let beat = 0, i = 0;
     v.moving = v.walk = true; v.stride = 0;
     await tween(ms, (k) => {
       // Trapezoid pace: `ramp` ms up to speed, level, `ramp` ms down.
@@ -80,7 +98,8 @@ export function makePlay(wv) {
       v.bill.position.y = Math.abs(Math.sin(dist / STRIDE * Math.PI * 2)) * 0.045 * speed;
       if (dist >= beat * STRIDE / 2) {
         beat++;
-        if (sound) audio.sfx('sfx-step');
+        const now = performance.now();
+        if (sound && now - footfallAt >= 120) { footfallAt = now; audio.sfx('sfx-step'); }
         burst('dust', p.clone().setY(p.y + 0.08).addScaledVector(leg.flat, -0.3), { size: 0.35 });
       }
       if (follow) followPoint(p);
@@ -208,7 +227,7 @@ export function makePlay(wv) {
   }
   async function playStrategy(u, t, id, res) {
     const name0 = STRATS[id].name;
-    const visualId = id < STRAT_SCENE.length ? id : 0;
+    const visualId = strategySceneId(STRATS[id]);
     const visual = Object.hasOwn(SKILL_VISUALS, STRATS[id].visualEffect) ? SKILL_VISUALS[STRATS[id].visualEffect] : null;
     ui.log(`${name(u.id)} 施展<strong>${name0}</strong>${t ? `→${name(t.id)}` : ''}`);
     const cue = () => { if (!audio.cue(visual?.cue ?? STRAT_CUE[visualId])) audio.sfx('sfx-horn'); }; // its phrase, then the war theme from the top (T13)
@@ -264,8 +283,8 @@ export function makePlay(wv) {
       const c = legs.reduce((a, [u]) => a.add(new THREE.Vector3(wx(u.x), 0, wz(u.y))), new THREE.Vector3()).divideScalar(legs.length);
       followPoint(c);
       const T = paced(ORIGINAL.move);
-      await Promise.all(legs.map(([u, path, first, last], i) => new Promise((r) => setTimeout(r, first * T))
-        .then(() => moveAlong(u, path, { perCell: ((last - first + 1) * T) / path.length, minMs: T, settleMs: Math.min(180, T), follow: false, sound: i === 0 }))));
+      await Promise.all(legs.map(([u, path, first, last]) => new Promise((r) => setTimeout(r, first * T))
+        .then(() => moveAlong(u, path, { perCell: ((last - first + 1) * T) / path.length, minMs: T, settleMs: Math.min(180, T), follow: false }))));
       hud();
     };
     for (const act of field.aiActions(s)) {

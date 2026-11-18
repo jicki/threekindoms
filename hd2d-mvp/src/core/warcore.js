@@ -5,6 +5,10 @@ import { DUEL_SKILLS } from './duel-skills.js';
 import { makeSquads, officerSpecialty, officerSquadLimit } from './troop-specialties.js';
 import { passiveRiceUse } from './ruler-passives.js';
 import { relationshipAffinity } from './relationships.js';
+import { CROSSING_ROADS } from './expanded-map.js';
+
+// 旧版已中断的战斗仍可沿当时的出阵路线撤回，不恢复这条路线的出阵资格。
+const legacyCrossing = (a, b) => data().expandedMap && CROSSING_ROADS.some(({ road: [x, y] }) => (a === x && b === y) || (a === y && b === x));
 
 // Remove the expedition from its source city and empty the target into the defender's war chest.
 export function setupWar(g, { from, to, ids, commander, gold, rice }) {
@@ -39,7 +43,8 @@ export function occupyEmpty(g, { from, to, ids, gold, rice }) {
 
 // Retreat destination (ABA3): own neighbour with <10 officers (fewest, first on tie), else last neutral neighbour.
 export function retreatCity(g, battleCity, f, prefer = null) {
-  if (prefer != null && g.cities[prefer].faction === f && g.cities[prefer].officers.length < 10) return prefer;
+  if (prefer != null && (g.cities[prefer].faction === f || (g.cities[prefer].faction === NONE && legacyCrossing(battleCity, prefer)))
+    && g.cities[prefer].officers.length < 10) return prefer;
   let best = null;
   for (const n of roads(battleCity)) {
     const c = g.cities[n];
@@ -70,7 +75,12 @@ export function winnerQueue(res) {
 }
 // Where a human loser may send them (`$BB84`): roads from the battle city to own or ownerless cities.
 // Full cities are listed too; the menu refuses them (10 per city).
-export const retreatOptions = (g, war, f) => roads(war.city).filter((n) => n !== war.city && (g.cities[n].faction === f || g.cities[n].faction === NONE));
+export function retreatOptions(g, war, f) {
+  const options = roads(war.city).filter((n) => n !== war.city && (g.cities[n].faction === f || g.cities[n].faction === NONE));
+  if (f === war.attacker && legacyCrossing(war.city, war.from) && !options.includes(war.from)
+    && (g.cities[war.from]?.faction === f || g.cities[war.from]?.faction === NONE)) options.push(war.from);
+  return options;
+}
 
 // Field battle result. survivors: { att:[ids], def:[ids] }, dead:[ids], captured:{byAtt:[ids], byDef:[ids]},
 // retreated: [{id, city}], loser:'att'|'def', chests: {att:{gold,rice}, def:{gold,rice}}.

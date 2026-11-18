@@ -2,7 +2,7 @@
 export const EXPANDED_MAP_ID = 'builtin-sovereigns-expanded-map';
 export const EXPANDED_NODES = Object.freeze([
   { id: 30, name: '襄阳', kind: 'city', road: [13, 21], template: 13, fraction: 0.50,
-    sandOffset: [-0.50, 0.02, 0], flatOffset: [-60, 0], geoOffset: [-0.56, 0] },
+    sandOffset: [-1.16, 0.24, 0.20], flatOffset: [-135, 22], geoOffset: [-1.32, -0.20] },
   { id: 31, name: '江州', kind: 'city', road: [26, 27], template: 27, fraction: 0.50 },
   { id: 32, name: '宛城', kind: 'city', road: [12, 13], template: 13, fraction: 0.50,
     sandOffset: [0.55, -0.01, 0.70], flatOffset: [68, 78], geoOffset: [0.61, -0.70] },
@@ -16,6 +16,11 @@ export const FRONTIER_PASS = Object.freeze({ id: 37, name: '望垣峡', kind: 'p
 export const FRONTIER_ISLAND = Object.freeze({ id: 38, name: '夷洲', kind: 'city', road: [17], template: 17,
   lon: 120.89, lat: 23.8, sand: [8.45, 0.30, 7.7], flat: [2942, 2226] });
 export const expandedNodes = (frontier = false) => frontier ? [...EXPANDED_NODES, FRONTIER_PASS, FRONTIER_ISLAND] : EXPANDED_NODES;
+// 这两条原路在新地图经过新增城市；从两端出发都必须先到该城市。
+export const CROSSING_ROADS = Object.freeze([
+  { road: [13, 22], via: 30 }, // 新野—衡阳经过襄阳
+  { road: [12, 21], via: 32 }, // 洛阳—荆州经过宛城
+]);
 
 // 新开局一次性补给：不修改静态剧本和已保存的城市状态。
 const OPENING_SUPPLIES = [
@@ -62,6 +67,17 @@ export function expandMap(data) {
     d.villages[node.id] = node.kind === 'pass' ? [] : structuredClone(d.villages[node.template] ?? []);
     d.search_table[String(node.id)] = [];
   }
+  for (const { road: [a, b], via } of CROSSING_ROADS) {
+    const node = EXPANDED_NODES.find((n) => n.id === via), city = d.cities[via];
+    if (!d.cities[a].roads.includes(b) || !d.cities[b].roads.includes(a)
+      || !d.cities[a].roads.includes(via) || !city.roads.includes(a)) throw new Error(`扩展地图交叉道路无效：${city.name}`);
+    d.cities[a].roads = d.cities[a].roads.filter((id) => id !== b);
+    d.cities[b].roads = d.cities[b].roads.map((id) => id === a ? via : id);
+    if (!city.roads.includes(b)) city.roads.push(b);
+    d.deploy[b][via] = structuredClone(d.deploy[b][a]);
+    d.deploy[via][b] = structuredClone(d.deploy[via][node.road[1]]);
+    // 不删除旧布阵：旧记录可能正中断在这条调整前的道路上。
+  }
   if (d.frontierMap) {
     const n = FRONTIER_ISLAND, home = d.cities[n.road[0]], template = d.cities[n.template];
     home.roads.push(n.id);
@@ -83,6 +99,7 @@ export function expandMap(data) {
 
 // 将预烘焙道路在同一个采样点拆分；偏离道路的据点通过短支路连接原线路。
 export function splitMapRoads(roads, dimensions, addNode, frontier = false) {
+  const sites = new Map();
   for (const node of frontier ? [...EXPANDED_NODES, FRONTIER_PASS] : EXPANDED_NODES) {
     const [a, b] = node.road;
     const index = roads.findIndex((r) => (r.a === a && r.b === b) || (r.a === b && r.b === a));
@@ -91,6 +108,7 @@ export function splitMapRoads(roads, dimensions, addNode, frontier = false) {
     const cut = Math.max(1, Math.min(count - 2, Math.round((count - 1) * node.fraction)));
     const point = road.p.slice(cut * dimensions, (cut + 1) * dimensions);
     const site = addNode(node, point) ?? point;
+    sites.set(node.id, site);
     const first = { ...road, b: node.id, p: road.p.slice(0, (cut + 1) * dimensions) };
     const second = { ...road, a: node.id, p: road.p.slice(cut * dimensions) };
     if (road.sea) { first.sea = road.sea.slice(0, cut + 1); second.sea = road.sea.slice(cut); }
@@ -104,8 +122,34 @@ export function splitMapRoads(roads, dimensions, addNode, frontier = false) {
       first.p.push(...spur.slice(dimensions)); second.p = [...reverse, ...second.p.slice(dimensions)];
       if (road.sea) { first.sea.push(...Array(steps).fill(false)); second.sea = [...Array(steps).fill(false), ...second.sea]; }
       first.spur = spur;
+      if (dimensions === 3) first.terrainAdjusted = second.terrainAdjusted = true;
     }
     roads.splice(index, 1, first, second);
+  }
+  for (const { road: [a, b], via } of CROSSING_ROADS) {
+    const index = roads.findIndex((r) => (r.a === a && r.b === b) || (r.a === b && r.b === a));
+    if (index < 0) throw new Error(`扩展地图缺少交叉道路：${a}—${b}`);
+    const old = roads[index], reversed = old.a !== a, p = [], sea = old.sea ? [] : null;
+    for (let i = 0, count = old.p.length / dimensions; i < count; i++) {
+      const n = reversed ? count - 1 - i : i;
+      p.push(...old.p.slice(n * dimensions, (n + 1) * dimensions));
+      if (sea) sea.push(old.sea[n]);
+    }
+    const site = sites.get(via), count = p.length / dimensions, horizontal = dimensions === 3 ? 2 : 1;
+    let cut = 1, best = Infinity;
+    for (let i = 1; i < count - 1; i++) {
+      const distance = (p[i * dimensions] - site[0]) ** 2 + (p[i * dimensions + horizontal] - site[horizontal]) ** 2;
+      if (distance < best) { best = distance; cut = i; }
+    }
+    const point = p.slice(cut * dimensions, (cut + 1) * dimensions), steps = 12, spur = [], reverse = [];
+    for (let i = 0; i <= steps; i++) for (let axis = 0; axis < dimensions; axis++) {
+      spur.push(i === 0 ? point[axis] : i === steps ? site[axis] : point[axis] + (site[axis] - point[axis]) * i / steps);
+    }
+    for (let i = steps; i >= 0; i--) reverse.push(...spur.slice(i * dimensions, (i + 1) * dimensions));
+    const next = { ...old, a: via, b, p: [...reverse, ...p.slice((cut + 1) * dimensions)], spur };
+    if (sea) next.sea = [...Array(steps + 1).fill(false), ...sea.slice(cut + 1)];
+    if (dimensions === 3) next.terrainAdjusted = true;
+    roads.splice(index, 1, next);
   }
 }
 
@@ -123,12 +167,14 @@ export function expandedSandMeta(meta, frontier = false) {
     copy.cities.push({ id: n.id, name: n.name, tier: 'county', x, y, z, mx: x, mz: z, ms: 0.7 });
     copy.roads.push({ a: home.id, b: n.id, p, generated: true });
   }
-  // 清理移动后的新城及岛城占地内的装饰树，其他地图素材不变。
+  // 清理新城占地内的装饰树，以及遮住襄阳城体的山体，其他地图素材不变。
   const cleared = copy.cities.filter((c) => c.id === 30 || c.id === 32 || (frontier && c.id === 38));
   copy.pieces = { ...meta.pieces };
-  for (const kind of ['tree-broad', 'tree-pine', 'grove']) if (meta.pieces?.[kind]) {
+  for (const kind of ['tree-broad', 'tree-pine', 'grove', 'range-a', 'range-b']) if (meta.pieces?.[kind]) {
+    const mountain = kind.startsWith('range-'), occupied = mountain ? cleared.filter((c) => c.id === 30) : cleared;
+    const radius = mountain ? 0.65 : 0.55;
     const filtered = [], arr = meta.pieces[kind];
-    for (let i = 0; i < arr.length; i += 6) if (cleared.every((c) => (arr[i] - c.x) ** 2 + (arr[i + 2] - c.z) ** 2 > 0.45 ** 2)) filtered.push(...arr.slice(i, i + 6));
+    for (let i = 0; i < arr.length; i += 6) if (occupied.every((c) => (arr[i] - c.x) ** 2 + (arr[i + 2] - c.z) ** 2 >= radius ** 2)) filtered.push(...arr.slice(i, i + 6));
     copy.pieces[kind] = filtered;
   }
   return copy;

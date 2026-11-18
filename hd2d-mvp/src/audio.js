@@ -220,7 +220,9 @@ export class Audio {
     // title arrow): menu and map clicks are silent, as in the original (feedback F05, 2026-11-02: the 呲呲 on every click).
     const S = {
       'sfx-select': () => this.tone(84, 0.06, 'square', 0.08),
-      'sfx-step': () => this.noise(0.05, 900, 0.12),
+      // 行军素材缺失时仍要能在背景音乐中听见落脚；骑行与步行分别保留低频马蹄和轻脚步。
+      'sfx-step': () => { this.noise(0.09, 1100, 0.18); this.sweep(175, 55, 0.13, 'sine', 0.18); },
+      'sfx-footstep': () => { this.noise(0.07, 1800, 0.1); this.sweep(110, 60, 0.09, 'triangle', 0.11); },
       'sfx-clash': () => { this.noise(0.25, 2500, 0.3); this.tone(40, 0.2, 'sawtooth', 0.1); },
       // 爆炎素材不可用时，爆点仍有低频冲击和短促的爆裂声。
       'sfx-blast': () => { this.noise(0.5, 850, 0.3); this.sweep(180, 45, 0.4, 'sine', 0.3); },

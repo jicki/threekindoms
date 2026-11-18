@@ -258,6 +258,37 @@ test('最后一城只有一名武将时，移动与出阵均提示不能撤空�
   } finally { await page.context().close(); }
 });
 
+test('出阵列表不跨越襄阳和宛城，占领襄阳后可继续进攻衡阳', async () => {
+  for (const { player, source, allowed, forbidden } of [
+    { player: 8, source: 13, allowed: '襄阳', forbidden: '衡阳' },
+    { player: 8, source: 30, allowed: '衡阳', forbidden: null },
+    { player: 0, source: 12, allowed: '宛城', forbidden: '荆州' },
+  ]) {
+    const page = await game.open('&flat&phone', { setup });
+    try {
+      await page.evaluate(({ player, source }) => {
+        const { G } = window.__game, g = G.newGame(player, 1, 12);
+        if (source === 30) {
+          const origin = g.cities[13], target = g.cities[30];
+          target.officers = [...origin.officers]; target.faction = player;
+          origin.officers = []; origin.faction = G.NONE;
+        }
+        g.factions[player].city = source;
+        g.turnIdx = G.data().rules.turn_orders[g.order].indexOf(player); g.current = player; g.books = G.books(g, player);
+        G.save(g, 1); sessionStorage.setItem('hd2d-title-seen', '1');
+      }, { player, source });
+      await page.reload(); await waitScenario(page, 'builtin-sovereigns-expanded-map'); await skipIntro(page);
+      await page.getByText('继续记录').click();
+      await page.waitForFunction(() => document.body.dataset.screen === 'strategy' && window.__game.g?.current === window.__game.g.player);
+      await cmd(page, '军', '出阵');
+      const names = await page.locator('.mappick .chips .btn').allInnerTexts();
+      assert.ok(names.some((name) => name.includes(allowed)), `${source} 应能进攻${allowed}：${names}`);
+      if (forbidden) assert.ok(names.every((name) => !name.includes(forbidden)), `${source} 不应越城进攻${forbidden}：${names}`);
+      assert.deepEqual(page.errors, []);
+    } finally { await page.context().close(); }
+  }
+});
+
 test('玩家诱纳敌方最后一城的守将后，立即结算关隘势力灭亡', async () => {
   const page = await game.open('&flat&phone', { setup: (ctx) => ctx.addInitScript(() => {
     if (!sessionStorage.getItem('haou-hd2d-scenario')) sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns-expanded-map');

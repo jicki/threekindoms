@@ -173,6 +173,50 @@ for (const [mode, label] of [['&flat', '平面'], ['', '3D']]) test(`专属计�
         assert.ok(item.fx.length, `${item.key} 未播放战场效果`);
       }
       assert.equal(new Set(played.map((item) => item.fx[0].color)).size, 5, '计略特效应有可区分的主色');
+      // 较早加入的专属计策没有独立素材，仍应按含义播放相符的画面和音效；
+      // 管理员新增计策也要根据效果类型安全回退，而不是全部播放火计。
+      const fallback = await page.evaluate(async () => {
+        const { STRATS } = await import('./src/core/field.js'), w = window.__game.war, f = w.field;
+        const me = f.alive.find((u) => u.side === f.human), foe = f.alive.find((u) => u.side !== f.human);
+        const audio = window.__game.audio, oldSfx = audio.sfx, sounds = [], out = [];
+        const length = STRATS.length;
+        for (const skill of [
+          { name: '新制扰阵', stop: 1 }, { name: '新制火攻', soldiers: 40 },
+          { name: '新制伤将', hp: 2 }, { name: '__proto__', soldiers: 40 },
+        ]) STRATS.push({ ...skill, id: STRATS.length, custom: true });
+        audio.sfx = (key) => sounds.push(key);
+        try {
+          for (const skill of STRATS.filter((item) => item.custom && !item.visualEffect)) {
+            sounds.length = 0;
+            let scene = null;
+            const watch = setInterval(() => { scene ||= document.querySelector('.vig')?.dataset.scene ?? null; }, 10);
+            try { await w.playStrategy(me, foe, skill.id, { ok: true, hit: true, name: skill.name, lines: ['奏效'], hits: [] }); }
+            finally { clearInterval(watch); }
+            out.push({ name: skill.name, scene, sound: sounds.filter((key) => key !== 'sfx-horn') });
+          }
+          sounds.length = 0;
+          const skill = STRATS.find((item) => item.name === '八阵奇谋');
+          await w.playStrategy(me, foe, skill.id, { ok: true, hit: false, name: skill.name, lines: ['失败'], hits: [] });
+          return { out, failed: sounds.filter((key) => key !== 'sfx-horn') };
+        } finally { STRATS.length = length; audio.sfx = oldSfx; }
+      });
+      const expected = {
+        '八阵奇谋': ['st-magic', 'sfx-tactic-bind'], '赤壁谋火': ['st-firestorm', 'sfx-tactic-fire'],
+        '公台奇谋': ['st-ambush', 'sfx-clash'], '胡笳扰阵': ['st-ruse', 'sfx-tactic-bind'],
+        '坚城奇策': ['st-bow', 'sfx-tactic-xbow'], '奉孝奇策': ['st-ambush', 'sfx-clash'],
+        '鹰视守谋': ['st-magic', 'sfx-tactic-bind'], '宪英明鉴': ['st-ruse', 'sfx-tactic-bind'],
+        '幽骑冲阵': ['st-ambush', 'sfx-clash'], '淮南筹策': ['st-ambush', 'sfx-clash'],
+        '荆襄固阵': ['st-chain', 'sfx-tactic-bind'], '长史守谋': ['st-magic', 'sfx-tactic-bind'],
+        '阎象明策': ['st-ruse', 'sfx-tactic-bind'], '异度奇谋': ['st-ruse', 'sfx-tactic-bind'],
+        '新制扰阵': ['st-ruse', 'sfx-tactic-bind'], '新制火攻': ['st-fire', 'sfx-tactic-fire'],
+        '新制伤将': ['st-trap', 'sfx-clash'], ['__proto__']: ['st-ambush', 'sfx-clash'],
+      };
+      assert.equal(fallback.out.length, Object.keys(expected).length);
+      for (const item of fallback.out) {
+        const [scene, sound] = expected[item.name];
+        assert.equal(item.scene, scene, item.name); assert.deepEqual(item.sound, [sound], item.name);
+      }
+      assert.deepEqual(fallback.failed, [], '失败的计策不播放命中特效音');
     } finally { stop(); }
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }

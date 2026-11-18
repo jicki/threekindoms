@@ -237,7 +237,7 @@ test('已配置表情或立绘无法读取时逐级回退', async () => {
   const page = await game.open();
   try {
     for (const path of ['sun/angry.webp', 'zhen/angry.webp', 'zhen/portrait.webp']) {
-      await page.route(`**/assets/characters/${path}`, (route) => route.abort());
+      await page.route(`**/assets/characters/${path}*`, (route) => route.abort());
     }
     await page.evaluate(async () => {
       const { G } = window.__game, data = structuredClone(G.data());

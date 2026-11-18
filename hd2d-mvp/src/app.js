@@ -55,6 +55,21 @@ const serverVersions = location.protocol === 'http:' || location.protocol === 'h
 // fetched one after another, and is applied in the same order (the portrait list over the manifest's).
 const json = (url) => fetch(url, { cache: 'no-store' }).then((r) => r.json());
 const optional = (p) => p.catch(() => null);
+// 头像索引失败会令整批人物退回同一张图，短暂网络故障时先重试一次。
+const artIndex = async (url) => {
+  const read = async () => {
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 2500);
+    try {
+      const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const list = await response.json();
+      if (!Array.isArray(list)) throw new Error('头像索引格式无效');
+      return list;
+    } finally { clearTimeout(timer); }
+  };
+  try { return await read(); }
+  catch { await new Promise((resolve) => setTimeout(resolve, 200)); return read(); }
+};
 const gameData = G.loadData().catch((error) => {
   const reset = h('button', { class: 'btn primary', onclick: () => { selectScenario(ORIGINAL_SCENARIO); location.reload(); } }, '切换到原版');
   document.body.replaceChildren(h('main', { style: { padding: '3rem', color: 'white' } },
@@ -63,7 +78,7 @@ const gameData = G.loadData().catch((error) => {
 });
 const [D, files, portraitList, faceList, halfbodyList, titleArt, officerList, duelList, marchList, troopList] = await Promise.all([
   gameData, loadManifest(),
-  optional(json('assets/ai/portraits/index.json')), optional(json('assets/ai/faces/index.json')), optional(json('assets/ai/halfbody/index.json')),
+  optional(artIndex('assets/ai/portraits/index.json')), optional(artIndex('assets/ai/faces/index.json')), optional(artIndex('assets/ai/halfbody/index.json')),
   fetch('assets/ai/title.webp', { method: 'HEAD' }).then((r) => r.ok, () => false),
   optional(json('assets/ai/sprites/officers/index.json')), optional(json('assets/ai/sprites/duel/index.json')),
   optional(json('assets/ai/sprites/march/index.json')), optional(json('assets/ai/sprites/troops/index.json')),
