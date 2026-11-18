@@ -246,12 +246,15 @@ export function makePlay(wv) {
     const mine = u.side === human, who = mine ? u.id : t?.id ?? res.hits?.[0]?.u.id ?? null;
     const told = ui.stratResult?.(name0, res.hit ? res.lines.join('<br>') : mine ? '计略失败了，非常抱歉。' : `${name0}失败了。`, who, res.hit === mine ? 'joy' : 'grief');
     const v = t && views.get(t);
+    let effectSound = null;
     if (v && res.hit) {
       const at = v.g.position.clone(); at.y += 0.8;
       const fx = visual?.fx ?? STRAT_FX[visualId];
       STRATEGY_FX[fx](scene, at);
-      audio.sfx(STRAT_FX_SOUND[fx] ?? 'sfx-clash');
+      effectSound = STRAT_FX_SOUND[fx] ?? 'sfx-clash'; audio.sfx(effectSound);
     }
+    // 有实际损兵时同步给出受击声；本身已使用碰撞声的计略不重复叠加。
+    if (res.hit && res.hits.some((h) => h.soldiers < 0) && effectSound !== 'sfx-clash') audio.sfx('sfx-clash');
     if (res.hit) for (const h of res.hits) recoil(h.u, u);
     // What each one lost rises over him, one line a unit (落石 takes 体力 and soldiers at once): 兵 bare, 体 and 米 named.
     const lost = new Map();

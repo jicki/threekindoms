@@ -17,6 +17,9 @@ const level = (v) => v * v;
 // Hits and steps come again and again: each plays a shade higher or lower and louder or softer (±3%, ±1.5 dB)
 // so a run of them does not sound like one sample on repeat.
 const VARIED = new Set(['sfx-clash', 'sfx-step', 'sfx-duel-ride', 'sfx-duel-swing', 'sfx-volley-land']);
+// 行动的短音必须与动作同步：文件解码太慢时先播放合成回退，不能在动作结束后补响。
+const TIMELY_SFX = new Set(['sfx-clash', 'sfx-step', 'sfx-volley-land']);
+const SFX_WAIT_MS = 80;
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch {} return null; };
 
 export class Audio {
@@ -199,7 +202,13 @@ export class Audio {
     if (!this.ctx) return;
     const url = this.files[key];
     if (url) {
+      let timedOut = false;
+      const timer = TIMELY_SFX.has(key) ? setTimeout(() => {
+        timedOut = true; this.sfxFallback(key);
+      }, SFX_WAIT_MS) : null;
       this.preload(key).then((b) => {
+        if (timedOut) return;
+        clearTimeout(timer);
         const s = this.ctx.createBufferSource(); s.buffer = b;
         if (!VARIED.has(key)) {
           s.connect(this.sfxGain); s.start();
@@ -209,7 +218,7 @@ export class Audio {
         }
         const gv = this.ctx.createGain(); gv.gain.value = 10 ** ((Math.random() * 3 - 1.5) / 20); s.playbackRate.value = 0.97 + Math.random() * 0.06;
         s.connect(gv).connect(this.sfxGain); s.start();
-      }).catch(() => this.sfxFallback(key));
+      }).catch(() => { if (!timedOut) { clearTimeout(timer); this.sfxFallback(key); } });
       return;
     }
     this.sfxFallback(key);
@@ -221,8 +230,8 @@ export class Audio {
     const S = {
       'sfx-select': () => this.tone(84, 0.06, 'square', 0.08),
       // 行军素材缺失时仍要能在背景音乐中听见落脚；骑行与步行分别保留低频马蹄和轻脚步。
-      'sfx-step': () => { this.noise(0.09, 1100, 0.18); this.sweep(175, 55, 0.13, 'sine', 0.18); },
-      'sfx-footstep': () => { this.noise(0.07, 1800, 0.1); this.sweep(110, 60, 0.09, 'triangle', 0.11); },
+      'sfx-step': () => { this.noise(0.10, 1500, 0.27); this.sweep(280, 75, 0.13, 'sine', 0.24); },
+      'sfx-footstep': () => { this.noise(0.08, 1800, 0.17); this.sweep(190, 70, 0.09, 'triangle', 0.14); },
       'sfx-clash': () => { this.noise(0.25, 2500, 0.3); this.tone(40, 0.2, 'sawtooth', 0.1); },
       // 爆炎素材不可用时，爆点仍有低频冲击和短促的爆裂声。
       'sfx-blast': () => { this.noise(0.5, 850, 0.3); this.sweep(180, 45, 0.4, 'sine', 0.3); },
@@ -245,7 +254,7 @@ export class Audio {
       'sfx-arrow-hit': () => { this.sweep(140, 42, 0.3, 'sine', 0.45); this.noise(0.09, 1800, 0.35); },
       // 白兵 and 单挑 sounds with no original file (a build without it, --generated-music): rough stand-ins for the original's
       // 93 (arrows land), 96 (a gallop's hoofbeat), 97 (a swing), 98×3 (牵制's clash, the 秘技 chime), 104 (舍身's strike), 105 (攻击's slash).
-      'sfx-volley-land': () => this.noise(0.06, 1300, 0.18),
+      'sfx-volley-land': () => { this.noise(0.08, 1500, 0.2); this.sweep(240, 80, 0.10, 'sine', 0.12); },
       'sfx-duel-ride': () => { this.noise(0.04, 500, 0.16); setTimeout(() => this.noise(0.04, 420, 0.12), 90); },
       'sfx-duel-swing': () => { this.sweep(1800, 520, 0.18, 'square', 0.03); this.noise(0.14, 2600, 0.08); },
       'sfx-chime': () => { this.tone(88, 0.12, 'square', 0.05); this.tone(95, 0.1, 'square', 0.03); this.noise(0.08, 4000, 0.12); },
