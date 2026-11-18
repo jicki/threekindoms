@@ -396,8 +396,9 @@ export class Field {
   hitChance(u, t) {
     const d = this.dist(u, t); if (d >= 6) return 0;
     const a = this.O(u.id), b = this.O(t.id), D = u.side === this.human || !this.human ? 10 : [5, 10, 20][this.g.level];
-    let s = ([15, 10, 5, 0, -5, -10][d] + Math.max(a.int - b.int, 0) + 2 * Math.max(a.level - b.level, 0) + D) & 255;
-    if (s & 128) s = 0;
+    let s = [15, 10, 5, 0, -5, -10][d] + Math.max(a.int - b.int, 0) + 2 * Math.max(a.level - b.level, 0) + D;
+    // 新局按完整数值封顶；没有标记的原版与旧记录保留原作的 8 位判定。
+    if (this.g.safeStrategyChance !== true) { s &= 255; if (s & 128) s = 0; }
     return this.passiveChance(Math.min(95, Math.max(5, s)), u.side, 95);
   }
   // 原版随机表并非均匀分布，按实际概率限制增益而非简单增加判定阈值。

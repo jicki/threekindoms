@@ -65,7 +65,7 @@ export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random(
   if (D.eliteTroops) g.eliteTroops = true;
   if (D.safeAiLure) g.safeAiLure = true;
   if (D.balancedTroops) g.balancedTroops = true;
-  if (D.campaignRules) g.campaignRules = true;
+  if (D.campaignRules) { g.campaignRules = true; g.safeStrategyChance = true; }
   if (D.expandedMap && D.frontierMap) g.frontierMap = true;
   const r = rng(g);
   g.order = r(5); // 新游戏随机0–4 (5.2)
@@ -874,6 +874,7 @@ export function upgrade(g) {
     && (g.autoBattleSkills === undefined || typeof g.autoBattleSkills === 'boolean')
     && (g.eliteTroops === undefined || typeof g.eliteTroops === 'boolean')
     && (g.safeAiLure === undefined || typeof g.safeAiLure === 'boolean')
+    && (g.safeStrategyChance === undefined || typeof g.safeStrategyChance === 'boolean')
     && (g.balancedTroops === undefined || typeof g.balancedTroops === 'boolean')
     && (g.expandedOpeningGuard === undefined || typeof g.expandedOpeningGuard === 'boolean')
     && (g.campaignRules === undefined || typeof g.campaignRules === 'boolean')

@@ -52,7 +52,9 @@ export function makePlay(wv) {
   // leftward headings mirror the sprite. v.face is ±1 only in profile (it drives the sideways lean).
   const toCam = new THREE.Vector3();
   function pose(v) {
-    right.set(Math.cos(view.yaw), 0, -Math.sin(view.yaw)); toCam.set(Math.sin(view.yaw), 0, Math.cos(view.yaw));
+    // 平面地图固定朝北绘制，不随三维相机旋转；按它自己的视角选择正、背和侧面帧。
+    const yaw = wv.flat ? 0 : view.yaw;
+    right.set(Math.cos(yaw), 0, -Math.sin(yaw)); toCam.set(Math.sin(yaw), 0, Math.cos(yaw));
     const hx = v.heading.dot(right), hz = v.heading.dot(toCam), ang = Math.atan2(Math.abs(hx), hz);
     if (Math.abs(hx) > 0.08) v.flip = Math.sign(hx);
     if (!v.frames) { v.face = v.flip; v.body.scale.x = v.flip; return; }

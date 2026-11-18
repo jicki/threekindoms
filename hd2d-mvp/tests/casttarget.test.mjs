@@ -56,6 +56,26 @@ const pose = (page) => page.evaluate(() => { const p = window.__game.war.probe()
 before(async () => { game = await startGame(); });
 after(() => game?.close());
 
+for (const [view, query] of [['3D', ''], ['flat', '&flat']]) test(`${view}: 新版高智力和等级优势显示正确计略成功率`, async () => {
+  const page = await knot(query);
+  try {
+    const target = await page.evaluate(async () => {
+      const { FOREST } = await import('./src/core/field.js'), w = window.__game.war, f = w.field, me = w.st.sel;
+      const foe = f.side(me.side === 'att' ? 'def' : 'att')[0];
+      const cell = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([x, y]) => [me.x + x, me.y + y]).find(([x, y]) => f.inside(x, y) && !f.unitAt(x, y));
+      if (!cell) return null;
+      [foe.x, foe.y] = cell; f.terr = () => FOREST;
+      Object.assign(f.O(me.id), { int: 99, level: 8 }); Object.assign(f.O(foe.id), { int: 1, level: 1 });
+      return { id: foe.id, enabled: f.g.safeStrategyChance, threshold: f.hitChance(me, foe) };
+    });
+    assert.ok(target); assert.equal(target.enabled, true); assert.equal(target.threshold, 95);
+    await page.evaluate(() => window.__game.war.chooseStrategy(0));
+    const row = page.locator(`.actpanel [data-target="${target.id}"]`);
+    await row.waitFor(); assert.match(await row.textContent(), /95%/);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
 test('3D: choosing a 计略 at 全景 brings its targets up to a size that can be clicked, and leaving the choice gives the view back', async () => {
   const page = await knot();
   const before = await pose(page);
