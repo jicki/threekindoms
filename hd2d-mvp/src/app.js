@@ -132,7 +132,10 @@ async function loadConfiguredMotion(id) {
     return;
   }
   const url = visualUrl(ref); if (!url) return;
-  if (!configuredMotion.has(ref)) configuredMotion.set(ref, loadGridMotion(url, { builtinSize: /^b-(?:gongsun|yuanshu|liubiao)-motion$/.test(ref) }));
+  if (!configuredMotion.has(ref)) configuredMotion.set(ref, loadGridMotion(url, {
+    builtinSize: /^b-(?:gongsun|yuanshu|liubiao)-motion$/.test(ref),
+    mirrorSide: /^b-(?:tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong)-motion$/.test(ref),
+  }));
   try {
     const { march, duel } = await configuredMotion.get(ref);
     sprites[`march-${id}`] = march; sprites[`duel-${id}`] = duel;

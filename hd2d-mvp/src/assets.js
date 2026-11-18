@@ -72,7 +72,7 @@ export function spriteFrame(tex, meta, index) {
 }
 
 // 上传动作使用固定 4×4 帧表，转成游戏已有的命名帧；无第三张特写图时沿用现有简化落马演出。
-export async function loadGridMotion(url, { builtinSize = false } = {}) {
+export async function loadGridMotion(url, { builtinSize = false, mirrorSide = false } = {}) {
   const source = await loadPixelTexture(url), image = source.image;
   const standard = image.width === 512 && image.height === 512;
   const built = builtinSize && image.width >= 512 && image.height >= 512 && image.width <= 2048 && image.height <= 2048
@@ -102,6 +102,8 @@ export async function loadGridMotion(url, { builtinSize = false } = {}) {
       indices.forEach((index, i) => {
         const shift = groundShift(index);
         ctx.save(); ctx.beginPath(); ctx.rect(i * cell, 0, cell, cell); ctx.clip();
+        // 内置的部分动作图侧面朝左；转换为其他动作图约定的朝右方向，正背面保持原样。
+        if (mirrorSide && (index < 4 || index >= 8)) { ctx.translate((2 * i + 1) * cell, 0); ctx.scale(-1, 1); }
         ctx.drawImage(input, (index % 4) * cell, Math.floor(index / 4) * cell, cell, cell, i * cell, shift, cell, cell);
         ctx.restore();
       });
