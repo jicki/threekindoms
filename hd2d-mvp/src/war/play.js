@@ -101,7 +101,8 @@ export function makePlay(wv) {
       if (dist >= beat * STRIDE / 2) {
         beat++;
         const now = performance.now();
-        if (sound && now - footfallAt >= 120) { footfallAt = now; audio.sfx('sfx-step'); }
+        // 采样已含连续蹄声，避免多队或高速行军时密集叠加。
+        if (sound && now - footfallAt >= 300) { footfallAt = now; audio.sfx('sfx-war-march'); }
         burst('dust', p.clone().setY(p.y + 0.08).addScaledVector(leg.flat, -0.3), { size: 0.35 });
       }
       if (follow) followPoint(p);

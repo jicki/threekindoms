@@ -16,9 +16,9 @@ const LOOPS_WAIT = 2000;  // ms a decoded track waits for loops.json before play
 const level = (v) => v * v;
 // Hits and steps come again and again: each plays a shade higher or lower and louder or softer (±3%, ±1.5 dB)
 // so a run of them does not sound like one sample on repeat.
-const VARIED = new Set(['sfx-clash', 'sfx-step', 'sfx-duel-ride', 'sfx-duel-swing', 'sfx-volley-land']);
+const VARIED = new Set(['sfx-clash', 'sfx-step', 'sfx-war-march', 'sfx-duel-ride', 'sfx-duel-swing', 'sfx-volley-land']);
 // 行动的短音必须与动作同步：文件解码太慢时先播放合成回退，不能在动作结束后补响。
-const TIMELY_SFX = new Set(['sfx-clash', 'sfx-step', 'sfx-volley-land']);
+const TIMELY_SFX = new Set(['sfx-clash', 'sfx-step', 'sfx-war-march', 'sfx-volley-land']);
 const SFX_WAIT_MS = 80;
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch {} return null; };
 
@@ -227,10 +227,12 @@ export class Audio {
   sfxFallback(key) {
     // sfx-select is the original's sound 90, which the ROM plays only for the 白兵 archers' volley (and, as sfx-arrow, the
     // title arrow): menu and map clicks are silent, as in the original (feedback F05, 2026-11-02: the 呲呲 on every click).
+    const hoofstep = () => { this.noise(0.10, 1500, 0.27); this.sweep(280, 75, 0.13, 'sine', 0.24); };
     const S = {
       'sfx-select': () => this.tone(84, 0.06, 'square', 0.08),
       // 行军素材缺失时仍要能在背景音乐中听见落脚；骑行与步行分别保留低频马蹄和轻脚步。
-      'sfx-step': () => { this.noise(0.10, 1500, 0.27); this.sweep(280, 75, 0.13, 'sine', 0.24); },
+      'sfx-step': hoofstep,
+      'sfx-war-march': hoofstep,
       'sfx-footstep': () => { this.noise(0.08, 1800, 0.17); this.sweep(190, 70, 0.09, 'triangle', 0.14); },
       'sfx-clash': () => { this.noise(0.25, 2500, 0.3); this.tone(40, 0.2, 'sawtooth', 0.1); },
       // 爆炎素材不可用时，爆点仍有低频冲击和短促的爆裂声。

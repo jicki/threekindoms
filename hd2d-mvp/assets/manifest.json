@@ -83,6 +83,10 @@
    "assets/audio/sfx-step.mp3",
    "assets/audio/original/sfx-step.mp3"
   ],
+  "sfx-war-march": [
+   "assets/audio/original/sfx-duel-ride.m4a",
+   "assets/audio/original/sfx-duel-ride.mp3"
+  ],
   "sfx-volley-land": [
    "assets/audio/original/sfx-volley-land.m4a",
    "assets/audio/original/sfx-volley-land.mp3"

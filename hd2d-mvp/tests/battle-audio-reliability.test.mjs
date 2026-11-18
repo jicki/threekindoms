@@ -6,7 +6,7 @@ let game;
 before(async () => { game = await startGame(); });
 after(() => game?.close());
 
-for (const [key, file] of [['sfx-clash', 'assets/audio/sfx-clash.mp3'], ['sfx-volley-land', 'assets/audio/original/sfx-volley-land.m4a']]) test(`${key} 首次音效加载较慢时及时回退，素材就绪后不补放过期声音`, async () => {
+for (const [key, file] of [['sfx-clash', 'assets/audio/sfx-clash.mp3'], ['sfx-volley-land', 'assets/audio/original/sfx-volley-land.m4a'], ['sfx-war-march', 'assets/audio/original/sfx-duel-ride.m4a']]) test(`${key} 首次音效加载较慢时及时回退，素材就绪后不补放过期声音`, async () => {
   const page = await game.open('', { setup: async (context) => {
     await context.route(`**/${file}`, async (route) => {
       if (route.request().method() !== 'HEAD') await new Promise((resolve) => setTimeout(resolve, 700));
@@ -80,7 +80,7 @@ test('马蹄、步伐与弓箭落点回退在中高频仍可听，静音通道�
   try {
     const result = await page.evaluate(async () => {
       const { Audio } = await import('./src/audio.js'), out = {};
-      for (const key of ['sfx-step', 'sfx-footstep', 'sfx-volley-land', 'muted']) {
+      for (const key of ['sfx-step', 'sfx-war-march', 'sfx-footstep', 'sfx-volley-land', 'muted']) {
         const ctx = new OfflineAudioContext(1, 12000, 48000), a = new Audio({});
         a.ctx = ctx; a.sfxGain = ctx.createGain(); a.sfxGain.gain.value = key === 'muted' ? 0 : 1;
         const filter = ctx.createBiquadFilter(); filter.type = 'highpass'; filter.frequency.value = 450;
@@ -90,8 +90,30 @@ test('马蹄、步伐与弓箭落点回退在中高频仍可听，静音通道�
       }
       return out;
     });
-    for (const key of ['sfx-step', 'sfx-footstep', 'sfx-volley-land']) assert.ok(result[key] > 0.001, `${key} 输出过弱：${result[key]}`);
+    for (const key of ['sfx-step', 'sfx-war-march', 'sfx-footstep', 'sfx-volley-land']) assert.ok(result[key] > 0.001, `${key} 输出过弱：${result[key]}`);
     assert.equal(result.muted, 0);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
+test('战场行军实际素材经音效通道输出，静音时无输出', async () => {
+  const page = await game.open();
+  try {
+    const result = await page.evaluate(async () => {
+      const { Audio } = await import('./src/audio.js');
+      const file = window.__game.audio.files['sfx-war-march'];
+      const render = async (gain) => {
+        const ctx = new OfflineAudioContext(1, 24000, 48000), a = new Audio({ 'sfx-war-march': file });
+        a.ctx = ctx; a.sfxGain = ctx.createGain(); a.sfxGain.gain.value = gain; a.sfxGain.connect(ctx.destination);
+        const sample = await a.preload('sfx-war-march'); a.sfx('sfx-war-march'); await Promise.resolve();
+        const samples = (await ctx.startRendering()).getChannelData(0);
+        return { duration: sample.duration, rms: Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length) };
+      };
+      return { file, audible: await render(1), muted: await render(0) };
+    });
+    assert.equal(result.file, 'assets/audio/original/sfx-duel-ride.m4a');
+    assert.ok(result.audible.duration > 0 && result.audible.rms > 0.001, JSON.stringify(result));
+    assert.equal(result.muted.rms, 0);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });

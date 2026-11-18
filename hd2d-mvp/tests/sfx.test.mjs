@@ -173,11 +173,11 @@ test('电脑连续行军时，后续移动的武将也有脚步声', async () =>
     await makePlay(wv).aiSide('def');
     return heard;
   });
-  assert.ok(sounds.length >= 2 && sounds.every((sound) => sound.key === 'sfx-step'), JSON.stringify(sounds));
+  assert.ok(sounds.length >= 2 && sounds.every((sound) => sound.key === 'sfx-war-march'), JSON.stringify(sounds));
   assert.ok(sounds.at(-1).at - sounds[0].at > 300, `后续行军应继续发声：${JSON.stringify(sounds)}`);
 });
 
-for (const query of ['', '&flat']) test(`${query ? '平面' : '3D'}战场玩家移动时播放脚步声`, { timeout: 120000 }, async () => {
+for (const [query, label, phone] of [['', '3D', false], ['&flat', '平面', false], ['&flat&phone', '手机', true]]) test(`${label}战场玩家行军时播放原版马蹄素材`, { timeout: 120000 }, async () => {
   const p = await game.open(query);
   await p.evaluate(async () => { (await import('./src/pace.js')).setPace(4); (await import('./src/vignette.js')).setVignettes(false); });
   await newCampaign(p);
@@ -193,7 +193,18 @@ for (const query of ['', '&flat']) test(`${query ? '平面' : '3D'}战场玩家�
     await p.waitForFunction(() => window.__game.war?.finishDeploy && document.body.dataset.screen === 'war', null, { timeout: 60000 });
     await p.evaluate(() => window.__game.war.finishDeploy());
     await p.waitForFunction(() => { const f = window.__game.war.field; return f.turn === f.human && f.day === 1; }, null, { timeout: 30000 });
-    await spy(p);
+    await p.evaluate(async () => {
+      const a = window.__game.audio; a.unlock(); await a.ctx.resume();
+      const sample = await a.preload('sfx-war-march');
+      window.__sounds = []; window.__marchPlayed = 0;
+      const sfx = a.sfx.bind(a); a.sfx = (key) => { window.__sounds.push(key); sfx(key); };
+      const create = a.ctx.createBufferSource.bind(a.ctx);
+      a.ctx.createBufferSource = () => {
+        const source = create(), start = source.start.bind(source);
+        source.start = (...args) => { if (source.buffer === sample) window.__marchPlayed++; return start(...args); };
+        return source;
+      };
+    });
     const target = await p.evaluate(async () => {
       const w = window.__game.war, f = w.field, u = f.side(f.human)[0];
       await w.clickCell(u.x, u.y);
@@ -205,10 +216,15 @@ for (const query of ['', '&flat']) test(`${query ? '平面' : '3D'}战场玩家�
     });
     assert.ok(target, '玩家武将应有可移动的地格');
     await p.evaluate(async ({ x, y }) => window.__game.war.clickCell(x, y), target);
+    if (phone) {
+      assert.ok(!(await heard(p)).includes('sfx-war-march'), '手机预选目的地时不能播放行军音效');
+      await p.evaluate(async ({ x, y }) => window.__game.war.clickCell(x, y), target);
+    }
     assert.deepEqual(await p.evaluate(({ id }) => {
       const u = window.__game.war.field.alive.find((unit) => unit.id === id); return [u.x, u.y];
     }, target), [target.x, target.y]);
-    assert.ok((await heard(p)).includes('sfx-step'), '移动应播放马蹄声');
+    assert.ok((await heard(p)).includes('sfx-war-march'), '移动应播放马蹄声');
+    assert.ok(await p.evaluate(() => window.__marchPlayed > 0), '应启动实际解码后的马蹄素材');
     assert.deepEqual(p.errors, []);
   } finally { stop(); await p.context().close(); }
 });
@@ -303,7 +319,7 @@ test('every sound with only an original file has a stand-in when the file is mis
     }
     return out;
   });
-  assert.deepEqual(Object.keys(r).sort(), ['sfx-chime', 'sfx-duel-blow', 'sfx-duel-desperate', 'sfx-duel-ride', 'sfx-duel-swing', 'sfx-volley-land']);
+  assert.deepEqual(Object.keys(r).sort(), ['sfx-chime', 'sfx-duel-blow', 'sfx-duel-desperate', 'sfx-duel-ride', 'sfx-duel-swing', 'sfx-volley-land', 'sfx-war-march']);
   for (const [k, n] of Object.entries(r)) assert.ok(n > 0, `${k} has no stand-in`);
 });
 
