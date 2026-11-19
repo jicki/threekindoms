@@ -4,6 +4,16 @@
 
 > 本项目是非官方、非商业的同人重制，与 Bandai Namco 无关。仓库不包含原版 ROM，但包含原版和 PS 复刻版音乐及部分音效。立绘等美术由 AI 生成，经人工筛选与修改。
 
+## 更新日志
+
+| 更新日期 | 更新内容 |
+| --- | --- |
+| 2026-11-20 | [v0.3.9 地图情报、手柄、电脑好战和武将素材](docs/changelog/v0.3.9.md) · [桌面下载](https://github.com/jicki/threekindoms/releases/tag/v0.3.9) |
+| 2026-11-20 | [普通步兵守城平衡与小窗口计策面板](docs/changelog/2026-11-20-regression.md) |
+| 2026-11-20 | [君主列传兵种修订 5、Docker 依赖与桌面单挑素材](docs/changelog/2026-11-20-troop-revision-5.md) |
+
+每次更新在 `docs/changelog/` 使用独立的 Markdown 文件，并在此表顶部添加链接。日志记录实际改动、存档兼容性和已完成的验证。正式发布时附上对应的 [GitHub Release](https://github.com/jicki/threekindoms/releases) 链接。
+
 ## 项目结构
 
 ```
@@ -30,7 +40,7 @@ hd2d-mvp/
 
 ## 获取代码与素材
 
-代码库保留代码、规则数据和素材索引。美术、3D 模型、音乐、音效及桌面图标集中在 [GitHub Releases 素材包](https://github.com/jicki/threekindoms/releases/tag/assets-1)，安装后沿用 `hd2d-mvp/assets/` 及桌面图标原目录。
+代码库保留代码、规则数据和素材索引。美术、3D 模型、音乐、音效及桌面图标集中在 [GitHub Releases 素材包](https://github.com/jicki/threekindoms/releases/tag/assets-2)，安装后沿用 `hd2d-mvp/assets/` 及桌面图标原目录。
 
 ```bash
 git clone https://github.com/jicki/threekindoms.git
@@ -38,9 +48,9 @@ cd threekindoms
 make assets  # 本地开发、测试或桌面版打包前运行
 ```
 
-`ASSETS.lock.json` 固定下载地址、大小和整包 SHA-256。`ASSETS.sha256` 固定每个素材文件的路径和 SHA-256。`make assets` 会先校验现有文件，缺少或不匹配时下载并校验整包。通过逐文件校验后安装清单里的素材。已提前下载 ZIP 时，可用 `python3 hd2d-mvp/tools/assets_pack.py install --archive /path/to/threekindoms-assets-1.zip` 离线安装。
+`ASSETS.lock.json` 固定下载地址、大小和整包 SHA-256。`ASSETS.sha256` 固定每个素材文件的路径和 SHA-256。`make assets` 会先校验现有文件，缺少或不匹配时下载并校验整包。通过逐文件校验后安装清单里的素材。已提前下载 ZIP 时，可用 `python3 hd2d-mvp/tools/assets_pack.py install --archive /path/to/threekindoms-assets-2.zip` 离线安装。
 
-更新素材时先更新 `ASSETS.sha256`，再用 `python3 hd2d-mvp/tools/assets_pack.py pack /path/to/threekindoms-assets-2.zip` 打包。将 ZIP 发布到新的素材 Release，用打包工具输出的大小和 SHA-256 更新锁文件。旧的 Release 供旧版代码继续构建。
+更新素材时先更新 `ASSETS.sha256`，再用 `python3 hd2d-mvp/tools/assets_pack.py pack /path/to/threekindoms-assets-3.zip` 打包。将 ZIP 发布到新的素材 Release，用打包工具输出的大小和 SHA-256 更新锁文件。旧的 Release 供旧版代码继续构建。
 
 ## 运行
 
@@ -141,7 +151,7 @@ PS 结局的对应关系依据音源标签，尚未与原 PS 游戏的结局画�
 
 ### 使用 Docker Compose
 
-需要 Docker 和 Docker Compose。全新克隆后可直接运行 `make build` 或 `make up`。构建优先使用项目根目录中与 `ASSETS.lock.json` 下载地址同名的 ZIP，例如 `threekindoms-assets-1.zip`。素材包大小及 SHA-256 一致时直接解压。没有匹配的项目 ZIP 时，构建会检查 BuildKit 缓存，必要时才从锁定的 Release 下载。每个解压后的文件仍会逐一校验。ZIP 和构建缓存只在构建阶段使用，运行镜像只包含解压后的素材，编辑器上传目录继续使用独立数据卷。
+需要 Docker 和 Docker Compose。全新克隆后可直接运行 `make build` 或 `make up`。构建优先使用项目根目录中与 `ASSETS.lock.json` 下载地址同名的 ZIP，例如 `threekindoms-assets-2.zip`。素材包大小及 SHA-256 一致时直接解压。没有匹配的项目 ZIP 时，构建会检查 BuildKit 缓存，必要时才从锁定的 Release 下载。每个解压后的文件仍会逐一校验。ZIP 和构建缓存只在构建阶段使用，运行镜像只包含解压后的素材，编辑器上传目录继续使用独立数据卷。
 
 Dockerfile 从 `reg.deeproute.ai` 拉取 Node 和 Python 基础镜像。本次验证的镜像为 `linux/amd64`；在 ARM 主机上运行需要支持 amd64 模拟。
 
@@ -192,7 +202,9 @@ GAME_BIND_ADDRESS=0.0.0.0 GAME_PORT=8080 make up
 
 #### 新战役玩法
 
-君主列传新开局使用战役规则修订 5。已有记录和中断战斗按保存的修订读取，可在己方战略回合手动升级。采用修订 2 至 4 的新版战场自定义剧本也可手动升至修订 5。自定义版本可在编辑器开启「启用新版战场」，在新开局启用当前战场规则。
+君主列传新开局使用战役规则修订 7。已有记录和中断战斗按保存的修订读取，可在己方战略回合手动升级。采用修订 2 至 6 的新版战场自定义剧本也可手动升至修订 7。自定义版本可在编辑器开启「启用新版战场」，在新开局启用当前战场规则。
+
+修订 7 的城签以势力颜色显示城名，仅无主据点另显示归属。敌城的兵力与武将列表要先侦察，情报可保留三个月，易主即失效。电脑好战默认关闭，开启后的档位跟随开局难度。手柄可用「☰ 系统 → 手柄记录快捷键」设置普通和快捷存读档。
 
 - 大地图运输可走最多三段连通的本势力道路，城市和关隘均可中转。选择目的地时可预览路线。出阵时会显示进场方向、天气、留守兵力和携粮天数。
 - 城市的「太守委任」可安排防灾、征兵或买米，并设置保留金。每月己方回合起始最多执行两条，每条成功命令消耗一张命令书，至少留一张给玩家。关隘由城市直接补给。
@@ -497,11 +509,11 @@ node hd2d-mvp/tools/compare_expanded_openings.mjs --before "$baseline_dir/hd2d-m
 | 普通单锤兵 | 武安国 |
 | 重甲步兵 | 邢道荣 |
 
-每队最多代表 100 兵。达到等级后，部分主队可编为进阶兵种，其余主队使用同兵类的基础兵种。进阶队仍受兵种、人物和等级上限约束，皇家骑兵与骑射兵各最多一队。晋级从下一场白兵生效。一、二级启用骑兵平衡时，新编主力骑队最多约三分之一，原配比已有骑队可保留。守城骑队最多三分之一。步、枪、锤、盾将满编时可带四队主力，兵少时优先留出弓兵阵位。弓将可按城防配比增加弓队。
+每队最多代表 100 兵。达到等级后，部分主队可编为进阶兵种，其余主队使用同兵类的基础兵种。进阶队仍受兵种、人物和等级上限约束，皇家骑兵与骑射兵各最多一队。晋级从下一场白兵生效。一、二级启用骑兵平衡时，新编主力骑队最多约三分之一，原配比已有骑队可保留。守城骑队最多三分之一。步、枪、锤、盾将满编时可带四队主力，兵少时优先留出弓兵阵位。从修订 6 起，普通步兵守城最多两队主力，满编可布置八队弓兵。弓将可按城防配比增加弓队。
 
 新版白兵布阵显示实际主队数及各兵种名称、数量，战斗中仍有单队兵种标记。按实际参战兵类加载正面、侧面及背面动作，素材缺失时回退到已有动作。电脑自动结算从同一编队规则判定有无特色队和骑队，特色队战力继续受原有上限约束。
 
-原版、修订 1 至 4 的保存记录及中断战斗沿用各自兵队配比。使用新版战场的自定义版本可在编辑器「人物与登场」启用特色兵队，为人物选择「普通步兵」、其他兵种或混编。编辑器中的个人上限用于进阶队，独立于基础主队的数量。
+原版、修订 1 至 5 的保存记录及中断战斗沿用各自兵队配比。使用新版战场的自定义版本可在编辑器「人物与登场」启用特色兵队，为人物选择「普通步兵」、其他兵种或混编。编辑器中的个人上限用于进阶队，独立于基础主队的数量。
 
 用同属性武将对照修订 3 与 4，覆盖 14 类兵种、两个等级、两档兵力以及野战攻守和守城。13,440 对配对模拟中，每组 80 个相同种子，胜场变化介于少 14 场和多 8 场之间。变化较大的组合主要出现在兵少时的守城，城防已优先留出弓兵阵位。
 
@@ -590,6 +602,12 @@ npm --prefix hd2d-mvp/desktop start           # 直接用 Electron 运行游戏�
 ```
 
 打包命令先运行 `build-app.mjs`，把游戏快照到 `hd2d-mvp/desktop/app/`，产物放在 `hd2d-mvp/desktop/release/`。桌面包将单挑动作转换为无损 WebP，并通过包内素材索引告知游戏使用该格式。
+
+### 正式版本发布
+
+每个正式发布的重大版本都在 [GitHub Releases](https://github.com/jicki/threekindoms/releases) 提供 macOS Apple 芯片与 Intel 的 DMG，以及 Windows x64 ZIP。同步更新桌面版依赖清单和锁文件中的应用版本号，从对应的 `vX.Y.Z` 标签检出并按素材锁构建。
+
+发布前验证安装包完整性，并从打包后的应用进入游戏与单挑。将安装包、SHA-256 校验清单和该版本的独立更新日志一并附到同一个版本标签的 Release。构建素材继续使用独立的 `assets-N` Release。
 
 ## 许可
 

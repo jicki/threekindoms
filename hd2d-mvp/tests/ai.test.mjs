@@ -50,6 +50,40 @@ test('empty poor cities do not spend the budget before a later city can work', a
   assert.equal(g.aiCursor[4], 30);
 });
 
+test('三档好战只给电脑按实际储备和资金补兵，旧档沿用既有规则', async () => {
+  for (const [level, want] of [[0, [650, 0, 860]], [1, [800, 0, 840]], [2, [1000, 1000, 600]]]) {
+    const { g } = fixture([2]);
+    Object.assign(g, { level, warlike: true, warlikeTiers: true });
+    const city = g.cities[2];
+    city.officers = [2, 3]; city.reserve = 0; g.factions[4].city = city.id;
+    for (const id of city.officers) Object.assign(g.officers[id], { soldiers: 0, hp: 99 });
+    await aiTurn(g, 4, io);
+    // 步长是每 20 金征 100 人，购入后的余兵仍留在该城。
+    assert.deepEqual([g.officers[2].soldiers, g.officers[3].soldiers, city.gold], want);
+    assert.equal(city.reserve, level === 0 ? 50 : 0);
+  }
+  const { g } = fixture([2]);
+  Object.assign(g, { warlike: true, level: 2 });
+  g.officers[2].soldiers = 0;
+  await aiTurn(g, 4, io);
+  assert.equal(g.officers[2].soldiers, 0);
+  assert.equal(g.cities[2].gold, 1000);
+});
+
+test('上级好战的收入增幅有上限，玩家、初中级和旧档的收入保持对应原数值', () => {
+  for (const level of [0, 1, 2]) for (const kind of ['gold', 'rice']) {
+    const { g } = fixture([2, 3]);
+    g.level = level; g.cities[3].faction = g.player;
+    for (const id of [2, 3]) Object.assign(g.cities[id], { pop: 9000, land: 990, industry: 990, gov: 95 });
+    const reference = new Map(G.income(structuredClone(g), kind));
+    const legacy = new Map(G.income({ ...structuredClone(g), warlike: true }, kind));
+    const stronger = new Map(G.income({ ...g, warlike: true, warlikeTiers: true }, kind));
+    assert.deepEqual(legacy, reference);
+    assert.equal(stronger.get(3), reference.get(3));
+    assert.equal(stronger.get(2), reference.get(2) + (level === 2 ? Math.min(250, Math.floor(reference.get(2) / 5)) : 0));
+  }
+});
+
 test('after redeployment the turn stays domestic instead of reinforcing again', async () => {
   const { g } = fixture([2], { weights: [0, 16, 0] });
   g.cities[2].officers = [20, 21, 22];

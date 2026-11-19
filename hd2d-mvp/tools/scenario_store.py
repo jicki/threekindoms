@@ -19,7 +19,7 @@ MAX_PORTRAIT_BYTES = 64 * 1024
 MAX_PORTRAIT_SIDE = 384
 MAX_ASSET_BYTES = 1024 * 1024
 ASSET_ID = re.compile(r'^a-[a-f0-9]{64}$')
-BUILTIN_VISUAL = re.compile(r'^b-(sun|zhen|diao|cai|wang|chen|gao|gongsun|yuanshu|liubiao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong|zhangzhao|zhanghong|zhangxiu|v2-(?:sun|zhen|diao|cai|wang|chen|gao|dao|xin|gongsun|yuanshu|liubiao|guanjing|tiankai|yanxiang|zhangxun|caimao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong))-(portrait|calm|joy|angry|grief|motion)$')
+BUILTIN_VISUAL = re.compile(r'^b-(sun|zhen|diao|cai|wang|chen|gao|guojia|gongsun|yuanshu|liubiao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong|zhangzhao|zhanghong|zhangxiu|v2-(?:sun|zhen|diao|cai|wang|chen|gao|dao|xin|gongsun|yuanshu|liubiao|guanjing|tiankai|yanxiang|zhangxun|caimao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong))-(portrait|calm|joy|angry|grief|motion)$')
 MOODS = ('calm', 'joy', 'angry', 'grief')
 
 
@@ -111,7 +111,7 @@ def visual_ref(value, kind, count):
     builtin = BUILTIN_VISUAL.fullmatch(value)
     officer = re.fullmatch(r'o-(0|[1-9][0-9]{0,5})', value) if kind == 'motion' else None
     if ASSET_ID.fullmatch(value) or (builtin and builtin.group(2) == kind and not (kind == 'motion' and builtin.group(1).startswith('v2-'))
-                                    and (builtin.group(1) not in ('gongsun', 'yuanshu', 'liubiao') or kind == 'motion')) or (officer and int(officer.group(1)) < count):
+                                    and (builtin.group(1) not in ('guojia', 'gongsun', 'yuanshu', 'liubiao') or kind == 'motion')) or (officer and int(officer.group(1)) < count):
         return
     fail('人物素材引用无效')
 

@@ -8,7 +8,8 @@ import { colorOf, paintBanner, surnameOf } from './strategy.js';
 import { TERRITORY_PALETTE, TERRITORY_FILL, TERRITORY_MID_BOOST, TERRITORY_BAND_WORLD, TERRITORY_BORDER_HALF_PX, TERRITORY_NEUTRAL_BORDER, TERRITORY_FOCUS_SCALE } from './sandtable.js';
 import { createSky2d } from './skyfx2d.js';
 import { layoutTags, measureTags } from './citytags.js';
-import { NONE, cityName, factionName } from './core/game.js';
+import { NONE } from './core/game.js';
+import { setCityLabel } from './strategy-label.js';
 import { expandedFlatBoard } from './core/expanded-map.js';
 import { readResource } from './resource.js';
 
@@ -154,7 +155,7 @@ export async function createStrategyFlat(ctx) {
   // What does not move from one frame to the next, kept: scaling the picture and stroking the roads are most of a frame at a high pixel ratio, and flags and rings keep every
   // frame from being skipped outright. Painted again only when something in it has changed.
   const under = document.createElement('canvas'), ug = under.getContext('2d', { alpha: false });
-  let underKey = '', underPaints = 0, territoryFocus = false, territoryOn = false, territoryGame = null;
+  let underKey = '', underPaints = 0, territoryFocus = false, territoryOn = false, territoryGame = null, territoryFaction = null;
   function paintUnder(k, x, y) {
     const wet = skyOn && season.cur.rain > 0.05 ? +season.cur.rain.toFixed(3) : 0, hex = table.getHexString();
     let key = `${k} ${x} ${y} ${cv.width} ${cv.height} ${hex} ${territoryOn ? tintDraws : 0} ${wet} ${roadsOn}`;
@@ -303,11 +304,12 @@ export async function createStrategyFlat(ctx) {
   }
   function paintTint(gs) {
     initTint();
+    const shownOwner = (c) => territoryFaction == null || c.faction === territoryFaction ? c.faction : NONE;
     let changed = tintPlayer !== gs.player;
-    for (const c of gs.cities) if (tintOwners[c.id] !== c.faction) changed = true;
+    for (const c of gs.cities) if (tintOwners[c.id] !== shownOwner(c)) changed = true;
     if (!changed) return;
-    tintPlayer = gs.player; for (const c of gs.cities) tintOwners[c.id] = c.faction;
-    const hues = gs.cities.map((c) => (c.faction === NONE ? null : new THREE.Color(TERRITORY_PALETTE[c.faction]).convertLinearToSRGB())), d = tintPx.data;
+    tintPlayer = gs.player; for (const c of gs.cities) tintOwners[c.id] = shownOwner(c);
+    const hues = Array.from(tintOwners, (f) => f === NONE ? null : new THREE.Color(TERRITORY_PALETTE[f]).convertLinearToSRGB()), d = tintPx.data;
     for (let i = 0; i < tintCells.length; i++) {
       const hue = tintCells[i] < 0 ? null : hues[tintCells[i]], p = i * 4;
       d[p] = hue ? hue.r * 255 + 0.5 : 0; d[p + 1] = hue ? hue.g * 255 + 0.5 : 0; d[p + 2] = hue ? hue.b * 255 + 0.5 : 0; d[p + 3] = hue ? 255 : 0;
@@ -770,8 +772,7 @@ export async function createStrategyFlat(ctx) {
       flagColors[c.id] = colorOf(c.faction);
       m.el.style.setProperty('--c', flagColors[c.id]);
       m.el.classList.toggle('mine', c.faction === gs.player);
-      const n = officerCount(c);
-      m.el.innerHTML = `${cityName(c.id)}<small>${factionName(gs, c.faction)}${n ? `·${n}将` : ''}</small>`;
+      setCityLabel(m.el, gs, c, officerCount);
     }
     measured = false;
   }
@@ -883,7 +884,11 @@ export async function createStrategyFlat(ctx) {
     click(ndc) { const c = pick(ndc); ctx.onCity(c ? c.id : null); },
     roads(on) { roadsOn = on; },
     get roadsOn() { return roadsOn; },
-    territory(on) { on = !!on; if (territoryOn === on) return; territoryOn = on; if (on && territoryGame) paintTint(territoryGame); underKey = ''; },
+    territory(on, faction = null) {
+      on = !!on; if (territoryOn === on && territoryFaction === faction) return;
+      territoryOn = on; territoryFaction = faction;
+      if (on && territoryGame) paintTint(territoryGame); underKey = '';
+    },
     get territoryOn() { return territoryOn; },
     orbit: wander, rotate() {}, // no turning a picture: orbit is the title's pan
     // A left drag (app.js): the map follows the pointer at once.

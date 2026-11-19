@@ -15,10 +15,12 @@ import { chooseCampaignEvent, applyCampaignEvent } from './campaign-events.js';
 import { FAMOUS_ROSTER, FAMOUS_ROSTER_START, activateFamousRoster, extraSearchIds, famousRosterTemplate, hasFamousRoster, rosterRecordName, staticRosterSize } from './famous-roster.js';
 import { readResource } from '../resource.js';
 import { officerPassive, advancedBattle } from './battle-rules.js';
+import { warlikeTier } from './warlike.js';
+import { invalidateCityIntel } from './strategy-intel.js';
 // 原版无主为 7；扩展剧本将无主编号放在实际势力编号之后。
 export let NONE = 7;
 export const DEAD = 3, SERVING = 2, UNAPPEARED = 1, RONIN = 0;
-export const FACTION_COLORS = ['#5a5a66', '#c8402f', '#7a4ad0', '#e0a020', '#3f8f4f', '#c060a0', '#2f9fb0', '#4673aa', '#a46324', '#857b3d'];
+export const FACTION_COLORS = ['#5a5a66', '#c8402f', '#7a4ad0', '#ed873d', '#3f8f4f', '#c060a0', '#2f9fb0', '#4673aa', '#a46324', '#857b3d'];
 
 let D = null; // static data (data/game-data.json)
 let scenarioId = ORIGINAL_SCENARIO;
@@ -55,7 +57,7 @@ const officerRecord = (o) => ({
 });
 
 // 战役规则修订号独立于存档结构。读取旧记录保留其规则，由玩家在战略回合选择升级。
-const CAMPAIGN_REVISION = 5;
+const CAMPAIGN_REVISION = 7;
 const FAMOUS_CAMPAIGN_RULES = { battlefields: 2, famousSkills: 2, famousRoster: 1, siegeTactics: true };
 const supportsNewBattle = () => D.expandedMap === true && (scenarioId === EXPANDED_MAP_ID || D.newBattleRules === true);
 function campaignDefaults() {
@@ -191,6 +193,7 @@ export function income(g, kind) {
     const lord = g.factions[c.faction]?.ruler, home = lord == null ? null : officerCity(g, lord);
     const unique = home?.faction === c.faction ? rulerPassive(g, c.faction)?.combat?.unique : null;
     if ((kind === 'gold' && unique === 'tax') || (kind === 'rice' && unique === 'harvest')) inc += Math.min(kind === 'gold' ? 40 : 50, Math.floor(inc / 20));
+    if (c.faction !== g.player && warlikeTier(g) === 3) inc += Math.min(250, Math.floor(inc / 5));
     c[kind] = Math.min(9999, c[kind] + inc);
     out.push([c.id, inc]);
   }
@@ -492,6 +495,7 @@ export async function run(g, io) {
 
 // After any war or event that can kill rulers or empty a faction: succession, then fall.
 export async function checkFactions(g, io) {
+  invalidateCityIntel(g);
   for (const fac of g.factions) {
     if (fac.ruler == null) continue;
     const f = fac.id, ruler = fac.ruler;
@@ -958,6 +962,8 @@ export function upgrade(g) {
     || g.campaignRevision > CAMPAIGN_REVISION || !supportsNewBattle()
     || (g.campaignRevision === 1 && scenarioId !== EXPANDED_MAP_ID))) return null;
   if (g.frontierMap !== undefined && typeof g.frontierMap !== 'boolean') return null;
+  if (g.scoutedOwner !== undefined && (!(g.campaignRevision >= 7) || !g.scoutedOwner || typeof g.scoutedOwner !== 'object' || Array.isArray(g.scoutedOwner)
+    || Object.entries(g.scoutedOwner).some(([id, owner]) => !/^(0|[1-9]\d*)$/.test(id) || !D.cities[id] || !Number.isInteger(owner) || !D.factions[owner]))) return null;
   if (g.governorMonth !== undefined && (!advancedBattle(g) || !Number.isSafeInteger(g.governorMonth) || g.governorMonth < 0)) return null;
   if (g.governorOrders !== undefined && (!advancedBattle(g) || !g.governorOrders || typeof g.governorOrders !== 'object' || Array.isArray(g.governorOrders)
     || Object.entries(g.governorOrders).some(([id, order]) => !/^(0|[1-9]\d*)$/.test(id) || !D.cities[id] || isPass(+id) || !order
@@ -985,6 +991,7 @@ export function upgrade(g) {
     && (g.balancedTroops === undefined || typeof g.balancedTroops === 'boolean')
     && (g.expandedOpeningGuard === undefined || typeof g.expandedOpeningGuard === 'boolean')
     && (g.campaignRules === undefined || typeof g.campaignRules === 'boolean')
+    && (g.warlikeTiers === undefined || typeof g.warlikeTiers === 'boolean')
     && Array.isArray(g.officers) && Array.isArray(g.factions) && Array.isArray(g.cities) && g.cities.length === D.cities.length && g.cities.every((c) => Array.isArray(c?.officers)) && validRoster(g) && validRaidState(g) && validCampaignEventState(g);
   return ok ? g : null;
 }

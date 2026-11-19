@@ -44,6 +44,10 @@ const nearestCity = (page, at) => page.evaluate((at) => {
   return best.id;
 }, at);
 const screenOf = (page, id) => page.evaluate((id) => window.__game.strategy.screenOfCity(id), id);
+const cameraAtRest = (page, id) => page.waitForFunction((id) => {
+  const s = window.__game.strategy, current = s.screenOfCity(id), target = s.screenAtRest(id);
+  return Math.hypot(current.x - target.x, current.y - target.y) < 0.4;
+}, id);
 // Whether a city's tag lies over any HUD panel.
 const tagCovered = (page, id) => page.evaluate((id) => {
   const t = window.__game.strategy.tagOf(id).getBoundingClientRect();
@@ -55,7 +59,7 @@ const tagCovered = (page, id) => page.evaluate((id) => {
 const placeCity = async (page, id, x, y) => {
   const bare = await bareSpot(page); await page.mouse.click(bare.x, bare.y); await page.waitForTimeout(300);
   await page.evaluate(({ id, x, y }) => { const s = window.__game.strategy, p = s.screenAtRest(id); s.nudge(id, x - p.x, y - p.y); }, { id, x, y });
-  await page.waitForTimeout(1600);
+  await cameraAtRest(page, id);
 };
 
 async function picks(page, kind) {
@@ -66,7 +70,11 @@ async function picks(page, kind) {
   const t = await page.evaluate((id) => { const b = window.__game.strategy.tagOf(id).getBoundingClientRect(); return { x: (b.left + b.right) / 2, y: (b.top + b.bottom) / 2 }; }, foe);
   assert.ok(t.x < 330 && t.y < 280, `${kind}: placed where the panel will go: ${JSON.stringify(t)}`);
   const a = await view(page);
-  await page.mouse.click(t.x, t.y); await page.waitForTimeout(2000);
+  const label = await page.evaluateHandle((id) => window.__game.strategy.tagOf(id), foe);
+  try { await label.asElement().click(); } finally { await label.dispose(); }
+  await page.waitForFunction(() => !!document.querySelector('.citypanel'));
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await cameraAtRest(page, foe);
   const b = await view(page);
   assert.equal(await panelName(page), await page.evaluate((id) => window.__game.G.cityName(id), foe), `${kind}: the tag picked its city`);
   assert.equal(await tagCovered(page, foe), false, `${kind}: the picked city's tag is clear of the HUD`);
@@ -77,9 +85,14 @@ async function picks(page, kind) {
   else assert.equal(b.k, a.k, 'flat: same zoom');
 
   // A city in the clear: the view stays.
-  const mid = await tagAt(page);
+  // 先将据点移到明确可点击的空白处。简洁城签会改变避让幅度，视口中央未必恰好有另一座城。
+  await placeCity(page, foe, 720, 300);
+  const mid = await tagAt(page, await page.evaluate((id) => window.__game.G.cityName(id), foe));
+  assert.ok(mid, `${kind}: the city in the clear is reachable`);
   const c = await view(page);
-  await page.mouse.click(mid.x, mid.y); await page.waitForTimeout(1600);
+  await page.mouse.click(mid.x, mid.y);
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await cameraAtRest(page, foe);
   assert.equal(await panelName(page), mid.name);
   const round = (v) => JSON.stringify(v, (k, x) => (typeof x === 'number' ? Math.round(x * 100) / 100 : x));
   assert.equal(round(await view(page)), round(c), `${kind}: a city in the clear leaves the view where it is`);

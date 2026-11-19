@@ -139,7 +139,13 @@ test('新势力对战时能进入战场并加载双方将领', { timeout: 180000
   try {
     await page.setViewportSize({ width: 812, height: 375 }); await begin(page, '袁术');
     await page.evaluate(() => {
-      const { g, debug } = window.__game, ids = g.cities[13].officers.slice(0, 2);
+      const { g, G, debug } = window.__game, ids = g.cities[13].officers.slice(0, 2);
+      // 刘表的先行回合可能派文聘进驻襄阳。固定此战的参战阵容以验证两军素材。
+      const general = 192, assigned = G.officerCity(g, general), defending = g.cities[21];
+      if (assigned && assigned !== defending && assigned.faction === defending.faction) {
+        assigned.officers = assigned.officers.filter(id => id !== general);
+        defending.officers.push(general);
+      }
       const war = debug.setupWar(g, { from: 13, to: 21, ids, commander: ids[0], gold: 20, rice: 100 });
       debug.fieldWar(war, 'att');
     });

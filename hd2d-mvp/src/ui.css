@@ -264,6 +264,9 @@ body:has(.vig-dim) .cmd-preview { display: none; } /* a show is up (from the boo
 .rightcol > * { pointer-events: auto; }
 .rightcol > .panel { position: relative; top: auto; right: auto; width: auto; }
 .rightcol > .logbox { max-height: 42vh; flex: 0 1 auto; }
+.rightcol.compact-map > .legend { order: -1; }
+.rightcol .logfold { position: sticky; top: 0; font-size: 12px; padding: 2px 8px; }
+.rightcol .logbox.collapsed > p:nth-of-type(n + 2) { display: none; }
 .endturn { position: fixed; bottom: 12px; right: 12px; }
 body.handoff .dock, body.handoff .endturn { pointer-events: none; opacity: .45; filter: saturate(.4); transition: opacity .3s, filter .3s; }
 .ctag { position: relative; pointer-events: auto; cursor: pointer; transform: translate(var(--dx, 0px), var(--dy, 0px)) scale(var(--s, 1)); opacity: var(--o, 1); transition: box-shadow .15s, background .15s, opacity .3s; font: 600 13px/1.2 var(--serif); text-align: center; text-shadow: 0 1px 2px #000; padding: 1px 5px 1px; border-radius: 3px; background: var(--tag-bg); box-shadow: inset 0 -2px 0 var(--c), 0 2px 6px #0006; }
@@ -281,6 +284,7 @@ body.handoff .dock, body.handoff .endturn { pointer-events: none; opacity: .45; 
 .ctag.hov { opacity: 1; background: #4a3214f0; color: #fff4d0; box-shadow: inset 0 -2px 0 var(--c), 0 0 0 2px #ffe890, 0 0 18px #ffe06099; }
 .ctag.hov small { display: block; }
 .ctag small { display: block; font-size: 12px; font-weight: 400; color: var(--c); filter: brightness(1.45) saturate(.8); }
+.ctag.compact-city { color: color-mix(in srgb, var(--c) 67%, #fff5d4); }
 .ctag.mine { font-weight: 900; color: #fff3d6; box-shadow: inset 0 -2px 0 var(--c), 0 0 0 1px #ffd89070, 0 2px 6px #0006; }
 .ctag.news { box-shadow: inset 0 -2px 0 var(--c), 0 0 0 2px var(--news), 0 0 20px var(--news); animation: newsBlink .45s ease-in-out 4 alternate; }
 .ctag.news::before { content: attr(data-news); position: absolute; left: 50%; bottom: calc(100% + 4px); z-index: 1; pointer-events: none; transform: translateX(-50%); padding: 1px 8px; border-radius: 3px; white-space: nowrap; font: 17px var(--brush); letter-spacing: 2px; color: #fff4dc; background: #120c08e8; box-shadow: inset 0 -2px 0 var(--news), 0 2px 8px #000a; }
@@ -295,6 +299,8 @@ body.handoff .dock, body.handoff .endturn { pointer-events: none; opacity: .45; 
 .mappick .mp-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; }
 .mappick h4 { font: 22px var(--brush); letter-spacing: 2px; color: #fff3d6; margin: 0; }
 .mappick .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mappick .mp-candidates { display: contents; }
+.mappick .mp-candidates[hidden] { display: none; }
 .mappick .chips .btn small { margin-left: 6px; color: var(--dim); letter-spacing: 0; }
 /* While a city is picked on the map the rest of the HUD waits (endTurn() also refuses). */
 body.picking #ui > :is(.endturn, .dock, .sysbtns, .citypanel) { opacity: .45; filter: grayscale(.5); }
@@ -438,6 +444,7 @@ body.phone .slots.scenario-choices .slot { min-height: var(--hit); }
 .unitpanel > img { width: 96px; height: 128px; object-fit: cover; object-position: 50% 12%; border: 1px solid var(--gold2); }
 .unitpanel .info { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; container-type: inline-size; } /* one track no wider than the card, so the bars and figures stay inside it */
 .unitpanel .head { display: flex; align-items: center; gap: 12px; }
+.unitpanel .unit-troop { color: var(--dim); font-size: 12px; white-space: nowrap; }
 .unitpanel h3 { font: 26px var(--brush); white-space: nowrap; } .unitpanel h3.mine { color: var(--atk); } .unitpanel h3.foe { color: var(--def); }
 .unitpanel .bars { flex: 1; min-width: 0; display: grid; gap: 3px; }
 .unitpanel .bar { display: grid; grid-template-columns: 1.1em minmax(0, 1fr) 4.6em; gap: 6px; align-items: center; font-size: 13px; line-height: 1; }
@@ -604,6 +611,8 @@ body[data-screen="war"] .sysbtns { --sys-top: 64px; right: auto; left: 12px; ali
 .lg img { width: 28px; height: 34px; object-fit: cover; object-position: 50% 10%; border-radius: 2px; border: 1px solid var(--rule); }
 .lg i { width: 8px; height: 8px; border-radius: 50%; } .lg b { font-size: 16px; } .lg em { font-style: normal; font-size: 14px; color: var(--good); }
 .lg.me { background: #ffffff12; } .lg.now { box-shadow: inset 0 0 0 1px #ffd890; }
+button.lg { width: 100%; border: 1px solid transparent; color: inherit; background: none; text-align: left; cursor: pointer; }
+button.lg[aria-pressed="true"] { border-color: var(--gold); background: #ffffff19; }
 .logbox:empty { display: none; }
 .help h4 { margin: 12px 0 4px; font: 20px var(--brush); color: var(--gold); letter-spacing: 2px; } .help p { margin: 4px 0; line-height: 1.8; color: #e8dcc0; }
 .deploybtn { position: fixed; bottom: 88px; right: 12px; padding: 12px 14px; display: flex; gap: 14px; align-items: center; animation: lift .3s ease; }
@@ -1110,6 +1119,7 @@ body.cine .unitacts, body.cine .actpanel { display: none; }
 @media (max-height: 760px) { .actpanel .ap-sum .hint { display: none; } .actpanel.strike .ap-sum .ap-who { display: none; } /* the step line above says it */ .actpanel .ap-sum p { line-height: 1.35; } .actpanel .ap-btns .btn { padding-top: 3px; padding-bottom: 3px; } .actpanel .ap-foot { gap: 4px; padding-top: 4px; } }
 @media (max-width: 1200px) { .actpanel { padding: 6px 8px 8px; gap: 4px; } .actpanel .ap-body .btn { font-size: 14px; padding: 4px 8px; } .actpanel .ap-sum p { font-size: 12.5px; line-height: 1.4; } .actpanel .ap-sum .ap-does { display: none; } }
 @media (max-height: 760px) {
+  body:not(.phone) .actpanel.confirm:not(.flat) .ap-sum .ap-who { display: none; } /* 标题与高亮目标行已显示双方。 */
   body:not(.phone) .actpanel:not(.flat) .ap-body.targets .btn { padding-block: 3px; line-height: 1.25; }
   body:not(.phone) .actpanel:not(.flat) .runtimes { margin: 2px 0 0; }
   body:not(.phone) .actpanel:not(.flat) .runtimes b { font-size: 16px; }
@@ -1321,3 +1331,10 @@ body[data-glyph-art][data-input=pad] .ctl-tabs::before { --gi: var(--gi-lb); --g
 .lasttag::before { content: '上次'; } /* drawn, not text: a command's or a general's own text stays his name */
 kbd.keycap::before { content: attr(data-label); } /* a key named beside a command without becoming part of its text */
 .otable tbody tr:focus-visible { background: #ffd89018; box-shadow: inset 3px 0 0 #ffd890; } /* the row the keys are on (the officer of last time, to begin with) reads at a glance */
+.pad-record-row { display: grid; grid-template-columns: 1fr minmax(6em, 1fr); gap: 10px; align-items: center; margin-block: 8px; }
+.pad-record-row select { color: inherit; background: #21170e; border: 1px solid #886735; border-radius: 4px; padding: 4px 8px; font: inherit; }
+.pad-record-hints, .mp-pad-note { display: none; }
+body[data-input=pad] .pad-record-hints:not(:empty) { display: inline-flex; flex-wrap: wrap; gap: 4px 8px; font-size: 12px; }
+body[data-input=pad] .pad-record-hints span { white-space: nowrap; }
+body[data-input=pad] .mp-pad-note { display: inline; }
+body[data-input=pad] .mp-head:has(.mp-pad-note) .mp-pointer-note { display: none; }

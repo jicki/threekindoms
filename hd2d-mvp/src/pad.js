@@ -161,14 +161,15 @@ export function createPad({ onButton, onDir, onLook, onFrame, onActivate, onLost
 }
 
 // ---------- The focus, walked by direction ----------
-const FOCUSABLE = 'button, [tabindex="0"], input:not([type=hidden]), select, textarea, a[href]';
+const FOCUSABLE = 'button, [tabindex="0"], input:not([type=hidden]), select, textarea, a[href], details > summary:first-of-type';
 export const shown = (el) => {
   if (!el?.isConnected || el.closest('[hidden], [inert]')) return false;
   const r = el.getClientRects(); if (!r.length) return false;
   const cs = getComputedStyle(el);
   return cs.visibility !== 'hidden' && cs.display !== 'none' && Number(cs.opacity) > 0.05;
 };
-export const focusables = (zone) => [...zone.querySelectorAll(FOCUSABLE)].filter((el) => !el.disabled && el.tabIndex >= 0 && shown(el));
+export const focusables = (zone) => [...zone.querySelectorAll(FOCUSABLE)].filter((el) =>
+  !el.disabled && (el.tabIndex >= 0 || (el.matches('summary') && !el.hasAttribute('tabindex'))) && shown(el));
 export const isControl = (el) => !!el && el !== document.body && el.matches?.(FOCUSABLE) && !el.disabled;
 
 // The control a zone starts on: one marked for it, the default answer, the page or row that is on, else the first.

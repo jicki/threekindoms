@@ -43,7 +43,11 @@ after(async () => { await game?.close(); });
 const books = () => page.evaluate(() => window.__game.g.books);
 const info = (city) => page.getByRole('dialog', { name: `侦察：${city.name}`, exact: true });
 const picker = () => page.getByRole('dialog', { name: '侦察哪座城？', exact: true });
-const choose = async (city) => { await picker().getByRole('button', { name: city.name, exact: true }).click(); await info(city).waitFor(); };
+const choose = async (city) => {
+  const list = picker().locator('.map-list-toggle[aria-expanded=false]');
+  if (await list.isVisible()) await list.click();
+  await picker().getByRole('button', { name: city.name, exact: true }).click(); await info(city).waitFor();
+};
 const begin = async () => {
   await cmd(page, '军', '侦察');
   // Wait for either the old picker or the intended confirmation so the red test fails on behavior, not timing.

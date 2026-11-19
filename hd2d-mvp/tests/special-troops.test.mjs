@@ -35,7 +35,11 @@ test('主辅编队覆盖十四类兵种、不同兵力和守城布阵，并保�
         if (main.current !== main.basic) assert.ok(primary.filter(u => u.special === main.current.sprite).length <= officerSquadLimit(scenarioData, game, hero), label);
         if (terrain === 5 && troop.kind === 'cav') assert.ok(primary.length <= Math.floor(units.length / 3), label);
         if (units.length === 10 && terrain === 2 && troop.kind !== 'cav') assert.equal(primary.length, troop.kind === 'inf' ? 6 : 7, label);
-        if (units.length === 10 && terrain === 5 && troop.kind === 'inf') assert.equal(primary.length, 4, label);
+        if (units.length === 10 && terrain === 5 && troop.kind === 'inf') {
+          const ordinary = main.current === SPECIAL_TROOPS.infantry;
+          assert.equal(primary.length, ordinary ? 2 : 4, label);
+          if (ordinary) assert.equal(units.filter(u => u.kind === 'arc').length, 8, label);
+        }
         if (units.length === 6 && terrain === 5 && troop.kind === 'inf') assert.equal(units.filter(u => u.kind === 'arc').length, 5, label);
         if (units.length === 10 && terrain === 5 && troop.kind !== 'arc') assert.ok(units.some(u => u.kind === 'arc'), label);
         if (terrain === 2 && units.length === 10 && troop.kind === 'cav') assert.equal(primary.length, level === 1 ? 3 : 6, label);
@@ -68,7 +72,7 @@ test('主兵种从修订 4 启用，显式升级可保留兵力、等级及已�
   } finally { G.setData(base); }
 });
 
-test('君主列传修订 5 为全体在籍人物配置兵种，修订 4 混编记录显式升级后才改编', () => {
+test('君主列传为全体在籍人物配置兵种，修订 4 和 5 的旧编队显式升级后才改变', () => {
   const scenarioData = expandMap(structuredClone(expanded));
   G.setData(scenarioData, EXPANDED_MAP_ID);
   try {
@@ -86,6 +90,11 @@ test('君主列传修订 5 为全体在籍人物配置兵种，修订 4 混编�
     assert.ok(officerSquads(scenarioData, previous, regular, false).every(u => !u.primary));
     const squads = officerSquads(scenarioData, game, regular, false);
     assert.equal(squads.filter(u => u.primary && u.special === SPECIAL_TROOPS.infantry.sprite).length, 6);
+    const rev5 = G.upgrade({ ...structuredClone(game), campaignRevision: 5 });
+    assert.equal(officerSquads(scenarioData, rev5, regular, true).filter(u => u.primary).length, 4);
+    assert.ok(G.upgradeCampaign(rev5));
+    assert.equal(officerSquads(scenarioData, rev5, regular, true).filter(u => u.primary).length, 2);
+    assert.deepEqual(rev5, game);
     assert.equal(officerMainTroop(scenarioData, { ...game, scenarioId: 'v-custom' }, regular), null);
     const war = { attacker: 4, defender: 2, att: { ids: [regular], rice: 9999 }, def: { ids: [spear], rice: 9999 } };
     assert.equal(fight(structuredClone(game), war).autoTroopBonus?.att ?? 0, 0, '普通步兵不计入特色队战力');

@@ -362,7 +362,7 @@ test('编辑器扩展城市的出身、登场、售卖、开局年份和被动�
   const d = expandMap(applyScenario(base, s));
   G.setData(d, s.id);
   const g = G.newGame(4, 1, 7);
-  assert.equal(g.year, 193); assert.equal(g.campaignRevision, 5);
+  assert.equal(g.year, 193); assert.equal(g.campaignRevision, 7);
   const old = { ...structuredClone(g), campaignRevision: 2 };
   assert.ok(G.upgradeCampaign(old));
   assert.deepEqual(old, g, '自定义扩展剧本从修订 2 升级时保留人物、数据与进度');

@@ -126,7 +126,11 @@ export function officerSquads(data, game, id, castle, war = game.officers[id].wa
   let total = Math.max(1, Math.round(count * (basic.kind === 'inf' ? 0.6 : 0.65)));
   if (castle) {
     if (basic.kind === 'cav') total = Math.floor(count / 3);
-    else if (basic.kind === 'inf') total = Math.max(1, Math.min(Math.floor(count * 0.4), count - 5));
+    else if (basic.kind === 'inf') {
+      // 普通步兵守城时少占弓阵，避免低等级满编守军失去太多远射兵力。
+      const cap = game.campaignRevision >= 6 && current === SPECIAL_TROOPS.infantry ? 2 : 4;
+      total = Math.max(1, Math.min(cap, Math.floor(count * 0.4), count - 5));
+    }
     else total = Math.max(total, Math.min(count >= 4 ? count - 1 : count, legacy.filter(s => s.kind === 'arc').length));
   } else if (basic.kind === 'cav') {
     if (lowCavalry) total = Math.min(total, Math.max(Math.floor(count / 3), legacy.filter(s => s.kind === 'cav').length));

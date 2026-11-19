@@ -130,19 +130,42 @@ test('no effect of 火矢 or 爆炎 is ever drawn at the middle of the field', a
   await page.context().close();
 });
 
-// The 白兵 plays at half the rate its button reads (the playtest of 2026-10-29: the old 0.5× is 1×), so a round
-// at the 4× button takes the original's 480 frames / 2 = 4 s, and at 1× 16 s.
-test('a round at the 4× button lasts 4 s (16 s at 1×)', async () => {
+// 白兵在 4× 时一回合的节拍目标为 4 秒，在 1× 为 16 秒。密集交战仍要顺序播完动作。
+test('a round at the 4× button targets 4 s and completes its serial animations', async () => {
   const page = await open('a');
   await page.locator('.tq-btn', { hasText: '4×' }).click();
   await page.locator('.tq-btn', { hasText: '自动' }).click();
-  await page.evaluate(() => { const b = window.__tq; window.__rounds = []; let last = b.round; setInterval(() => { if (b.round !== last) { window.__rounds.push(performance.now()); last = b.round; } }, 20); });
+  await page.evaluate(() => {
+    const battle = window.__tq, view = window.__game.tview, play = view.play.bind(view);
+    window.__rounds = [];
+    document.querySelector('.tq-start button').addEventListener('click', () => {
+      window.__rounds.push({ start: performance.now() });
+    }, { capture: true, once: true });
+    const animationMs = new Map();
+    view.play = async (event, hooks) => {
+      const round = battle.round, start = performance.now();
+      if (event.type === 'round') window.__rounds.push({ start, animations: animationMs.get(round - 1) ?? 0 });
+      await play(event, hooks);
+      if (event.type !== 'round') animationMs.set(round, (animationMs.get(round) ?? 0) + performance.now() - start);
+    };
+  });
   await page.locator('.tq-start button:not(.arming)').click();
-  await page.waitForFunction(() => window.__rounds.length >= 4 || window.__tq.over, null, { timeout: 60000 });
+  await page.waitForFunction(() => window.__rounds.length >= 5 || window.__tq.over, null, { timeout: 60000 });
   const t = await page.evaluate(() => window.__rounds);
-  assert.ok(t.length >= 4, 'the battle lasted at least four rounds');
-  const per = t.slice(1).map((x, i) => x - t[i]);
-  for (const ms of per) assert.ok(near(ms, 4000, 0.3), `round took ${Math.round(ms)} ms`);
+  assert.ok(t.length >= 5, 'the battle completed at least four rounds');
+  let pacedRounds = 0;
+  const budget = 4000;
+  for (const [i, { start, animations }] of t.slice(1).entries()) {
+    const elapsed = start - t[i].start;
+    const detail = `round took ${Math.round(elapsed)} ms with ${Math.round(animations)} ms of serial animations`;
+    if (animations <= budget) {
+      pacedRounds++;
+      assert.ok(near(elapsed, budget, 0.3), detail);
+    } else {
+      assert.ok(elapsed >= animations && elapsed - animations < budget, detail);
+    }
+  }
+  assert.ok(pacedRounds >= 3, 'the nominal 4-second pace is measured in at least three rounds');
   await page.context().close();
 });
 

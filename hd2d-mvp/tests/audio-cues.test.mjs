@@ -398,7 +398,10 @@ test('玩家出阵进攻敌城时播放所选曲库的短曲', async () => {
     audio.cue = (key) => { window.__sortieCues.push([key, audio.url(key)]); return cue(key); };
     return { target: G.cityName(to.id), officers: c.officers.length };
   });
-  await cmd(page, '军', '出阵'); await page.locator('.mappick .chips .btn', { hasText: target }).click();
+  await cmd(page, '军', '出阵');
+  const list = page.locator('.mappick .map-list-toggle[aria-expanded=false]');
+  if (await list.isVisible()) await list.click();
+  await page.locator('.mappick .chips .btn', { hasText: target }).click();
   await page.locator('.modal tr[data-id]').first().click();
   if (officers > 1) await page.locator('.modal .foot .btn.primary', { hasText: '确定' }).click();
   await page.locator('.modal .btn.primary', { hasText: '出阵' }).click();

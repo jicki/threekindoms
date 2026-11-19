@@ -3,6 +3,7 @@ import { data, weaponGroup } from './core/game.js';
 
 const STYLES = ['sword', 'blade', 'spear', 'fan', 'bow'];
 const GRID_WEAPONS = {
+  'b-guojia-motion': 'sword',
   'b-sun-motion': 'bow',
   'b-wang-motion': 'bow',
   'b-zhen-motion': 'fan',

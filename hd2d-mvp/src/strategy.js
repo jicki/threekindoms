@@ -10,7 +10,8 @@ import { buildWorld, SEA_Y } from './worldmap.js';
 import { buildSandtable, TERRITORY_PALETTE } from './sandtable.js';
 import { placeCities, siteOfCity } from './china.js';
 import { expandedNodes, expandedSandMeta } from './core/expanded-map.js';
-import { NONE, FACTION_COLORS, cityName, factionName } from './core/game.js';
+import { NONE, FACTION_COLORS } from './core/game.js';
+import { setCityLabel } from './strategy-label.js';
 import { createStrategyRoads } from './strategyroads.js';
 import { createStrategyCities } from './strategycities.js';
 import { createStrategySky } from './strategysky.js';
@@ -43,7 +44,7 @@ export function createStrategy(ctx) {
 
   const roadLayer = createStrategyRoads({ scene, data, sand, world, cityPos, groundY });
   const { pathOf } = roadLayer;
-  let scenicOn = false, territoryOn = false, territoryGame = null;
+  let scenicOn = false, territoryOn = false, territoryGame = null, territoryFaction = null;
   const cities = citySetup.build();
   const { marks, pickables, cityReach } = cities;
   atmosphere.addClouds(camera);
@@ -54,11 +55,12 @@ export function createStrategy(ctx) {
   const tintOwners = new Int16Array(data.cities.length).fill(-1);
   let tintPlayer = -1;
   function tint(g) {
+    const shownOwner = (c) => territoryFaction == null || c.faction === territoryFaction ? c.faction : NONE;
     let changed = tintPlayer !== g.player;
-    for (const c of g.cities) if (tintOwners[c.id] !== c.faction) changed = true;
+    for (const c of g.cities) if (tintOwners[c.id] !== shownOwner(c)) changed = true;
     if (!changed) return;
-    world.tint((cid) => { const f = g.cities[cid].faction; return f === NONE ? null : ownerColor(f); }, (cid) => g.cities[cid].faction, g.player);
-    tintPlayer = g.player; for (const c of g.cities) tintOwners[c.id] = c.faction;
+    world.tint((cid) => { const f = shownOwner(g.cities[cid]); return f === NONE ? null : ownerColor(f); }, (cid) => shownOwner(g.cities[cid]), g.player);
+    tintPlayer = g.player; for (const c of g.cities) tintOwners[c.id] = shownOwner(c);
   }
   // Recolour from the game state: owner colour, officer count, ruler crown. A war passes its own count (Field.headcount).
   function refresh(g, officerCount = (c) => c.officers.length) {
@@ -71,8 +73,7 @@ export function createStrategy(ctx) {
       m.glaze = c.faction === NONE ? null : new THREE.Color(col); // unowned cities keep plain grey tile
       m.el.classList.toggle('mine', c.faction === g.player);
       m.el.classList.toggle('pass', data.cities[c.id].kind === 'pass');
-      const n = officerCount(c);
-      m.el.innerHTML = `${cityName(c.id)}<small>${factionName(g, c.faction)}${n ? `·${n}将` : ''}</small>`;
+      setCityLabel(m.el, g, c, officerCount);
       m.ruled = g.factions.some((f) => f.ruler != null && f.city === c.id && c.officers.includes(f.ruler));
       m.crown.visible = m.ruled && !scenicOn;
     }
@@ -234,8 +235,9 @@ export function createStrategy(ctx) {
     // 道路 overview on or off (T15); with it every tag stays solid and full.
     roads(on) { roadLayer.roads(on); },
     get roadsOn() { return roadLayer.roadsOn; },
-    territory(on) {
-      on = !!on; if (territoryOn === on) return; territoryOn = on;
+    territory(on, faction = null) {
+      on = !!on; if (territoryOn === on && territoryFaction === faction) return;
+      territoryOn = on; territoryFaction = faction;
       if (on && territoryGame) tint(territoryGame);
       if (!on && world.clearTint) { world.clearTint(); tintPlayer = -1; } // the procedural board has vertex colours instead of the sand shader
       world.setTerritory?.(on && !!territoryGame);

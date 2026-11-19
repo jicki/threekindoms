@@ -566,12 +566,14 @@ for (const v of VIEWS) for (const [W, H] of [[1920, 1080], [1440, 900], [1366, 7
     const r = await page.evaluate(async () => {
       const { FLAT_INSET } = await import('./src/warmap2d.js');
       const box = (s) => { const e = document.querySelector(s), b = e && e.getClientRects().length ? e.getBoundingClientRect() : null; return b && { l: b.left, r: b.right, t: b.top, b: b.bottom }; };
-      return { own: box('.unitpanel:not(.compare)'), foe: box('.unitpanel.compare'), dock: box('.wardock'), log: box('.logbox'), bar: box('.warbar'), sys: box('.sysbtns'), W: innerWidth, H: innerHeight, strip: innerHeight - FLAT_INSET.bottom };
+      return { own: box('.unitpanel:not(.compare)'), foe: box('.unitpanel.compare'), dock: box('.wardock'), log: box('.logbox'), bar: box('.warbar'), sys: box('.sysbtns'), W: innerWidth, H: innerHeight, strip: innerHeight - FLAT_INSET.bottom,
+        troops: [...document.querySelectorAll('.unitpanel .unit-troop')].filter((el) => el.getClientRects().length).map((el) => el.textContent) };
     });
     const hit = (a, b) => a.l < b.r && a.r > b.l && a.t < b.b && a.b > b.t;
     const on = ['own', 'foe', 'dock', 'log'].filter((k) => r[k]);
     if (v === 'flat') assert.ok(r.log.t >= r.strip - 4, `the log stays in the bottom strip: ${JSON.stringify(r.log)} < ${r.strip}`);
     for (const k of ['own', 'foe', 'dock']) assert.ok(r[k], `${k} is on screen`);
+    assert.equal(r.troops.length, 2, '双方武将卡均显示兵种');
     assert.ok(r.log, 'the log shows at every width'); assert.ok(r.log.r - r.log.l >= 300, `the log is readable: ${r.log.r - r.log.l}px wide`);
     assert.ok(r.bar && r.sys && !hit(r.bar, r.sys), `系统 clear of the war title ${JSON.stringify([r.bar, r.sys])}`);
     for (const k of on) assert.ok(r[k].l >= 0 && r[k].t >= 0 && r[k].r <= r.W && r[k].b <= r.H, `${k} inside the window ${JSON.stringify(r[k])}`);

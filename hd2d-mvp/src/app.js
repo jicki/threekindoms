@@ -44,6 +44,8 @@ import { chooseRaid, startRaid, resolveRaid, finishRaid, resolveAiRaid, register
 import { Field, STRAT_INFO } from './core/field.js';
 import { battleEntryDirection } from './core/battlefields.js';
 import { advancedBattle, battleWeather, fullStrategyWeather, WEATHER_NAMES, officerPassive } from './core/battle-rules.js';
+import { cityIntel, compactMap, invalidateCityIntel, scoutCityIntel } from './core/strategy-intel.js';
+import { warlikeName, WARLIKE_TIP } from './core/warlike.js';
 import { $, $$, keyName, h, pressable, clear, root, layer, modal, message, toast, banner, officerRow, officerTable, pickOfficers, sliders, confirmBox, face, avatar, figure, setHalfbody, setPortraits, setFaces, blocking } from './ui.js';
 import { MONTH_NAMES, SEASON_OF, WEATHER_OF } from './seasons.js';
 import { ORIGINAL, PACES, paceSpeed, paceLabel, setPace, paced, hold } from './pace.js';
@@ -148,7 +150,7 @@ const configuredMotion = new Map();
 const motionBindings = new Map();
 const officerMotion = (id) => {
   const officer = G.data().officers[id];
-  return officer?.clone ? null : officer?.visual?.motion ?? null;
+  return officer?.clone ? null : officer?.visual?.motion ?? (id === 24 && officer?.name === '郭嘉' ? 'b-guojia-motion' : null);
 };
 async function loadConfiguredMotion(id, complete = true) {
   const ref = officerMotion(id);
@@ -513,13 +515,19 @@ function hoverNow() {
 function showTip(hit, e) {
   const tip = $('#tip');
   if (mode === strategy && g && hit && document.body.dataset.screen === 'strategy' && !dialogOpen()) {
+    if (mapPick && document.body.dataset.input === 'mouse') mapPick.preview(mapPick.cids.has(hit.id) ? hit.id : null);
     const c = g.cities[hit.id];
     tip.hidden = false;
-    tip.innerHTML = `<b>${cityName(c.id)}</b> <span style="color:${colorOf(c.faction)}">${factionName(c.faction)}</span><br>${c.officers.length}将　兵${G.troopsOf(g, c)}${c.faction === g.player ? `<br>金${c.gold} 米${c.rice}` : ''}`;
+    const info = !compactMap(g) || cityIntel(g, c, NONE) ? `${c.officers.length}将　兵${G.troopsOf(g, c)}` : '未侦察';
+    tip.replaceChildren(h('b', {}, cityName(c.id)), ' ', h('span', { style: { color: colorOf(c.faction) } }, factionName(c.faction)), h('br'), info,
+      ...(c.faction === g.player ? [h('br'), `金${c.gold} 米${c.rice}`] : []));
     placeTip(tip, e);
   } else if (mode === war && hit?.tip && !blocking()) {
     tip.hidden = false; tip.innerHTML = hit.tip; placeTip(tip, e);
-  } else tip.hidden = true;
+  } else {
+    if (!hit && mapPick && document.body.dataset.input === 'mouse') mapPick.preview(null);
+    tip.hidden = true;
+  }
 }
 // Below right of the pointer, else the first other corner that stays on screen and clear of the unit's action
 // menu and the unit cards (near the right edge the tip used to squeeze into a column over the 计略 buttons).
@@ -700,6 +708,65 @@ const padKey = (k) => glyphOf(pad.family, pad.confirm === 'east', k);
 const padText = (f) => f((k) => `\u0000${k}\u0000`).split('\u0000').map((t, i) => (i % 2 ? h('kbd', { class: 'pg', 'data-glyph': t, 'data-label': padKey(t) ?? '' }) : t));
 const padKbd = (k) => `<kbd class="pg" data-glyph="${k}" data-label="${padKey(k) ?? ''}"></kbd>`; // the same, as HTML (a toast)
 const padPress = (b) => { b.click(); b.classList.add('padhit'); setTimeout(() => b.classList.remove('padhit'), 160); };
+const PAD_RECORD_KEY = 'hd2d-pad-records';
+const recordButtons = ['lt', 'rt', 'x', 'view', 'l3', 'r3', 'lb', 'rb'];
+const recordActions = { save: '记录进度', load: '读取记录', quickSave: '快捷存档', quickLoad: '快捷读档' };
+const recordHints = { save: '记录', load: '读档', quickSave: '快存', quickLoad: '快读' };
+let recordBindings = {};
+try {
+  const saved = JSON.parse(localStorage.getItem(PAD_RECORD_KEY));
+  for (const key of Object.keys(recordActions)) {
+    if (recordButtons.includes(saved?.[key]) && !Object.values(recordBindings).includes(saved[key])) recordBindings[key] = saved[key];
+  }
+} catch {}
+function padRecordHints() {
+  return Object.entries(recordHints).flatMap(([action, label]) => {
+    const key = recordBindings[action];
+    return key ? [h('span', {}, ...padText((glyph) => `${glyph(key)}${label}`))] : [];
+  });
+}
+function padRecordSetup() {
+  return modal('手柄记录快捷键', (close) => {
+    const draft = { ...recordBindings };
+    const selects = new Map();
+    const rows = Object.entries(recordActions).map(([action, name]) => {
+      const input = h('select', { 'aria-label': name, onchange: () => {
+        const key = input.value;
+        for (const [other, control] of selects) if (other !== action && key && draft[other] === key) {
+          delete draft[other]; control.value = '';
+        }
+        if (key) draft[action] = key; else delete draft[action];
+      } }, h('option', { value: '' }, '未设置'), ...recordButtons.map((key) => h('option', { value: key }, padKey(key))));
+      input.value = draft[action] ?? '';
+      selects.set(action, input);
+      return h('label', { class: 'pad-record-row' }, name, input);
+    });
+    return [h('p', { class: 'hint' }, '仅在己方战略回合生效。若同一个键已有记录用途，将转给本次选择的操作。'),
+      ...rows, h('div', { class: 'foot' }, h('button', { class: 'btn', onclick: () => close(null) }, '取消'),
+        h('button', { class: 'btn primary', onclick: () => {
+          try { localStorage.setItem(PAD_RECORD_KEY, JSON.stringify(draft)); }
+          catch { toast('无法保存手柄快捷键，请检查浏览器存储', 3000); return; }
+          recordBindings = draft; $('.pad-record-hints')?.replaceChildren(...padRecordHints()); close(true);
+        } }, '保存'))];
+  });
+}
+function padRecordAction(key, zone) {
+  if (mode !== strategy || document.body.dataset.screen !== 'strategy' || g?.current !== g?.player || !endPlayer) return false;
+  const action = Object.keys(recordBindings).find((name) => recordBindings[name] === key);
+  if (!action || (zone !== 'map' && zone !== root() && !(zone instanceof Element && zone.matches('.mappick')))) return false;
+  if (!mapCalm()) toast('请先完成或取消当前命令', 3000);
+  else if (action === 'save') recordProgress();
+  else if (action === 'load') loadRecord();
+  else if (action === 'quickSave') quickRecord();
+  else quickLoad();
+  return true;
+}
+function closePadTree(el) {
+  const detail = el?.closest?.('.otree details[open]');
+  const summary = detail?.querySelector(':scope > summary');
+  if (!summary) return false;
+  detail.open = false; summary.focus(); return true;
+}
 const pad = createPad({
   onActivate() {
     // Picked up after the mouse: a button the mouse left focused on the HUD would take the directions from the map.
@@ -739,6 +806,7 @@ const pad = createPad({
     if ($('.boot-press.on, .tt-press.on') || (k === 'start' && (zone === 'keys' || $('.boot')))) { sendKey('Enter'); return; }
     if (k === 'a') return padConfirm(zone);
     if (k === 'b') return padCancel(zone);
+    if (padRecordAction(k, zone)) return;
     const b = padBound(zone, k);
     if (b) {
       padPress(b);
@@ -773,6 +841,10 @@ const pad = createPad({
     if (zone === 'map') return cursorStep(dx, dy);
     if (zone === 'scenic') return;
     const el = document.activeElement;
+    if (zone.contains(el) && dx && !dy && el?.closest?.('.otree')) {
+      if (dx < 0 && closePadTree(el)) return;
+      if (dx > 0 && el.matches('details > summary') && !el.parentElement.open) { el.parentElement.open = true; return; }
+    }
     // Right out of the action panel's list of targets: to the map, its cursor on the one the list was on, to pick there instead.
     if (zone === root() && mode === war && dx > 0 && !dy && el?.matches?.('.actpanel [data-target]')) {
       const u = war.field.alive.find((x) => x.id === Number(el.dataset.target));
@@ -834,7 +906,11 @@ const pad = createPad({
     // The long press, filling up on its glyph.
     for (const el of $$('[data-pad~="y-hold"]')) el.style.setProperty('--hold', holding('y').toFixed(3));
     // The 战略地图 zooms while a trigger is held (the war map steps on each press).
-    if ((zone === 'map' || zone === 'scenic') && mode === strategy) { const z = (pad.isDown('lt') ? 1 : 0) - (pad.isDown('rt') ? 1 : 0); if (z) mode.zoom?.(z * dt * 900); }
+    if ((zone === 'map' || zone === 'scenic') && mode === strategy) {
+      const bound = zone === 'map' && g?.current === g?.player && endPlayer ? Object.values(recordBindings) : [];
+      const z = Number(pad.isDown('lt') && !bound.includes('lt')) - Number(pad.isDown('rt') && !bound.includes('rt'));
+      if (z) mode.zoom?.(z * dt * 900);
+    }
     // 欣赏模式 has no cursor to follow: the left stick slides the view itself, as W A S D do.
     if (zone === 'scenic' && mode === strategy && (move.x || move.y)) mode.pan?.(move.x * dt * 14, move.y * dt * 14);
     cursorFrame(dt, zone); padTipFrame(zone);
@@ -870,6 +946,7 @@ function padConfirm(zone) {
   focusFirst(zone);
 }
 function padCancel(zone) {
+  if (zone instanceof Element && zone.contains(document.activeElement) && closePadTree(document.activeElement)) return;
   // In the action panel B is its 返回 (which shows it): one step back each press, as Esc (D32 §5), wherever the focus is.
   if (zone === root() && mode === war && document.activeElement?.closest?.('.actpanel')) { war.cancel?.(); return; }
   // The strategy command list closes first, the focus back on its group; the next B leaves the HUD.
@@ -1011,7 +1088,7 @@ async function endDay() {
 
 // 战报 (phone): the log box is put away there and its lines pass as toasts; this is the whole of it, newest first.
 function logBook() {
-  const lines = [...($('.logbox')?.children ?? [])].slice(0, 60).map((p) => h('p', { html: p.innerHTML }));
+  const lines = $$('.logbox > p').slice(0, 60).map((p) => h('p', { html: p.innerHTML }));
   return modal('战报', (close) => [h('div', { class: 'logbook' }, ...(lines.length ? lines : [h('p', { class: 'hint' }, '还没有战报')])), h('div', { class: 'foot' }, h('button', { class: 'btn primary', onclick: () => close() }, '关闭'))]);
 }
 
@@ -1162,6 +1239,7 @@ function sysButtons() {
     // Shown once a pad has been used here: which face button confirms (the other cancels).
     pad.seen ? item(confirmText, (b) => { pad.setConfirm(pad.confirm === 'east' ? 'south' : 'east'); b.textContent = confirmText(); },
       '手柄上哪个键确定（另一个取消）　下：Xbox／PlayStation 欧美习惯　右：任天堂与日式习惯。默认按手柄型号') : '',
+    item(() => '手柄记录快捷键', () => { close(); padRecordSetup(); }, '设置记录进度、读取记录、快捷存档和快捷读档的手柄按键'),
     ), group('声音',
     h('div', { class: 'sysmenu-pair' }, item(() => `声音 ${audio.muted ? '关' : '开'}`, (b) => { audio.unlock(); audio.setMuted(!audio.muted); b.textContent = `声音 ${audio.muted ? '关' : '开'}`; }),
       audio.sets.length > 1 ? item(() => `曲目 ${audio.sets.find((t) => t.id === audio.set).label}`, (b) => {
@@ -1190,8 +1268,10 @@ function sysButtons() {
       '原版：体力归零的武将阵亡　不战死：白兵、单挑和计略的致命伤改为被俘并恢复体力至30；电脑战争中的伤亡改为被俘，君主也恢复体力至30（不超过上限）。君主无路可退时优先被俘，无法安置时下野。病逝由武将不老控制。随本局记录保存') : '',
     g ? item(() => `人才寻访 ${g.sangu ? '三顾' : '原版'}`, (b) => { g.sangu = !g.sangu; b.textContent = `人才寻访 ${g.sangu ? '三顾' : '原版'}`; refreshTalentNote(); },
       '原版：人才是否出仕看搜索结果与他心向的君主　三顾：某城的下一位人才可寻访时，在该城第3次搜索他必定出仕，不论他心向哪位君主。只对玩家的搜索有效，随本局记录保存') : '',
-    g ? item(() => `电脑进攻 ${g.warlike ? '好战' : '原版'}`, (b) => { g.warlike = !g.warlike; b.textContent = `电脑进攻 ${g.warlike ? '好战' : '原版'}`; },
-      '原版：电脑出兵前要在出发城集齐「守将数＋3」名武将（上限10），并留1–4人守城，多数回合打不成　好战：只需「守将数＋2」，各城多让出一人，留守少一人，电脑攻打玩家和彼此攻打都更频繁（五年里多出五到九成）。不改变战斗本身的强弱。随本局记录保存') : '',
+    g ? item(warlikeLabel, (b) => {
+      if (!g.warlike) g.warlikeTiers = true;
+      g.warlike = !g.warlike; b.textContent = warlikeLabel();
+    }, `${WARLIKE_TIP} 旧档的旧版好战在关闭并重新开启后切换为对应难度的新档位。随本局记录保存。`) : '',
     g ? item(() => `武将读书 ${g.noStudy ? '不能' : '原版'}`, (b) => { g.noStudy = !g.noStudy; b.textContent = `武将读书 ${g.noStudy ? '不能' : '原版'}`; markNoStudy(); },
       '原版：智力80以下的武将可在学问所学习，电脑也会让武将学习　不能：敌我武将都不能读书提高智力，城市菜单的「学问所」变灰。随本局记录保存') : '',
     g ? item(() => `记录消耗 ${g.freeSave ? '免费' : '原版'}`, (b) => { g.freeSave = !g.freeSave; b.textContent = `记录消耗 ${g.freeSave ? '免费' : '原版'}`; markFreeSave(); },
@@ -1206,13 +1286,13 @@ function sysButtons() {
       g.battleRulerPassives = !g.battleRulerPassives; b.textContent = `被动方案 ${g.battleRulerPassives ? '战场' : '旧版'}`;
     }, '启用增强时，战场方案不增加金米；旧版保留此前的精简效果。敌我同时切换，设置随记录保存。') : '',
     ), group('记录',
+    g ? h('div', { class: 'sysmenu-pair' },
+      item(() => '记录进度', () => { close(); recordProgress(); }, '在己方战略回合保存当前进度'),
+      item(() => '读取记录', () => { close(); loadRecord(); }, '从记录中的月份继续游戏')) : '',
     document.body.dataset.screen === 'strategy' && G.campaignUpgradeAvailable(g)
       ? item(() => '升级当前战役', () => { close(); upgradeCampaignRules(); }, '在原有进度上启用最新战场规则。确认后可另存到一个记录位置。') : '',
-    g ? item(() => '记录进度', (b) => { const why = saveBlocked(); if (why) return toast(`<em>${why}</em>`, 3500); close(); runCommand(saveCity(), '记录'); },
-      '进度不会自动保存。在八个记录位置之一保存当前进度（消耗一张命令书，开启免费记录时不消耗；与城市菜单「录」相同；己方回合、战略地图上可用）') : '',
     g && inWar() ? item(() => '中断战斗', () => { close(); suspendWar(); },
       '保存战斗并回到标题。在标题画面选择「继续战斗」，战场准备完成后清除中断档，恢复失败可重试。不占记录位置，不消耗命令书。己方回合内无动作进行时可用') : '',
-    g ? item(() => '读取记录', () => { close(); loadRecord(); }, '读取一份记录，从记录的月份接着玩（当前未记录的进度不保留）') : '',
     (g || G.hasQuick()) ? h('div', { class: 'sysmenu-quick' },
       g ? item(() => `快捷存档 ${quickSaveKey}`, () => { close(); quickRecord(); },
         `存入独立的快捷记录，不占八个普通位置；消耗遵循「记录消耗」设置，己方回合、战略地图上可用（${quickSaveKey}）`) : '',
@@ -1259,6 +1339,7 @@ function changeScenario(id) {
   catch { toast('<em>无法切换游戏版本</em>', 3500); }
 }
 const sovereignMap = () => [SOVEREIGN_SCENARIO_ID, EXPANDED_MAP_ID].includes(G.currentScenario());
+const warlikeLabel = () => `电脑进攻 ${g.warlike ? `好战 · ${g.warlikeTiers ? warlikeName(g.level) : '旧规则'}` : '原版'}`;
 // ---------- Records (save slots) ----------
 // 系统 → 记录进度 runs the city menu's 记录 (one 命令书, as the original) from wherever the player is on the 战略地图, and says
 // why not elsewhere (feedback F03, 2026-11-02: players found only 读取 in 系统 and lost their progress closing the window).
@@ -1267,7 +1348,10 @@ const saveCity = () => (sel != null && mineCity(sel) ? sel : g.factions[g.player
 async function upgradeCampaignRules() {
   if (!mapCalm()) return toast('请在己方战略回合完成当前操作后升级', 3500);
   const campaign = g;
-  const mechanics = g.campaignRevision === 4 ? '新版兵种配置' : fullStrategyWeather(g) ? '主辅兵种编队' : advancedBattle(g) ? '计策天气及主辅兵种编队' : '新版战场、计策天气、同盟援军、人物被动及主辅兵种编队';
+  const mechanics = g.campaignRevision === 6 ? '地图情报和新版选城'
+    : g.campaignRevision === 5 ? '普通步兵守城新编队与地图情报'
+    : g.campaignRevision === 4 ? '新版兵种配置及守城编队'
+    : fullStrategyWeather(g) ? '主辅兵种编队' : advancedBattle(g) ? '计策天气及主辅兵种编队' : '新版战场、计策天气、同盟援军、人物被动及主辅兵种编队';
   const confirmed = await confirmBox('升级当前战役',
     `启用${mechanics}。保留进度、兵力、装备及已有设置。升级后可另存一格，保留原记录。`);
   if (!confirmed) return;
@@ -1284,6 +1368,11 @@ function saveBlocked() {
   if (busy || mapPick || blocking()) return '请先完成当前命令';
   if (g.books <= 0) return '本月命令书已用完：下月己方回合再记录';
   return null;
+}
+function recordProgress() {
+  const why = saveBlocked();
+  if (why) return toast(`<em>${why}</em>`, 3500);
+  return runCommand(saveCity(), '记录');
 }
 // A record holds the game with this command's 命令书 already spent, as the original; 免费记录 (g.freeSave, an option off
 // by default and absent from older records) spends none.
@@ -1467,8 +1556,8 @@ async function setup() {
   const keep = (box, draw) => { const i = [...box.children].indexOf(document.activeElement); draw(); if (i >= 0) box.children[i]?.focus(); };
   // LEVEL 1 also offers the original's 秘技 (G.maxRulerCity); it only applies while LEVEL 1 is chosen.
   // The original rings 98×3 the frame the 秘技 goes in (bank9 $DB30; original-audio-trace/cheat.json), not a victory phrase.
-  const setCheat = (on) => { cheat = on; if (on) { level = 0; audio.sfx('sfx-chime'); } keep(levels, drawLevels); };
-  const drawLevels = () => levels.replaceChildren(...['LEVEL 1', 'LEVEL 2', 'LEVEL 3'].map((t, i) => h('div', { class: `panel level ${level === i ? 'on' : ''}`, 'aria-pressed': level === i ? 'true' : 'false', ...pressable(() => { level = i; keep(levels, drawLevels); }) },
+  const setCheat = (on) => { cheat = on; if (on) { level = 0; audio.sfx('sfx-chime'); } keep(levels, drawLevels); paintWarlike(); };
+  const drawLevels = () => levels.replaceChildren(...['LEVEL 1', 'LEVEL 2', 'LEVEL 3'].map((t, i) => h('div', { class: `panel level ${level === i ? 'on' : ''}`, 'aria-pressed': level === i ? 'true' : 'false', ...pressable(() => { level = i; keep(levels, drawLevels); paintWarlike(); }) },
     h('b', {}, t), h('span', { class: 'lv-name' }, ['初阵', '群雄', '霸王'][i]), h('small', {}, ['收入较多，电脑190年起进攻', '标准难度', '收入较少，电脑开局即进攻'][i]),
     i === 0 ? h('button', { class: `cheat ${cheat && level === 0 ? 'on' : ''}`, 'aria-pressed': cheat && level === 0 ? 'true' : 'false', title: '原版秘技：选君主时按住START输入↑↓←→三次。君主所在城的金、米、人口、土地、后备兵为9999，产业999，防灾、统治、宝为99',
       onclick: (e) => { e.stopPropagation(); setCheat(!(cheat && level === 0)); }, onkeydown: (e) => e.stopPropagation() },
@@ -1487,9 +1576,14 @@ async function setup() {
     onclick: () => { sangu = !sangu; sanguBtn.classList.toggle('on', sangu); sanguBtn.setAttribute('aria-pressed', String(sangu)); saveOptions(); } },
     h('i', {}), '三顾模式 · 第3次搜索必定出仕');
   const warlikeBtn = h('button', { class: `cheat opt${warlike ? ' on' : ''}`, 'aria-pressed': String(warlike),
-    title: '原版：电脑出兵前要在出发城集齐「守将数＋3」名武将（上限10），并留1–4人守城，多数回合打不成　好战：只需「守将数＋2」，各城多让出一人，留守少一人，电脑攻打玩家和彼此攻打都更频繁（五年里多出五到九成）。不改变战斗本身的强弱；游戏中也可在「☰ 系统」切换。',
-    onclick: () => { warlike = !warlike; warlikeBtn.classList.toggle('on', warlike); warlikeBtn.setAttribute('aria-pressed', String(warlike)); saveOptions(); } },
-    h('i', {}), '电脑好战 · 更常出兵进攻');
+    title: WARLIKE_TIP,
+    onclick: () => { warlike = !warlike; paintWarlike(); saveOptions(); } });
+  const paintWarlike = () => {
+    warlikeBtn.classList.toggle('on', warlike);
+    warlikeBtn.setAttribute('aria-pressed', String(warlike));
+    warlikeBtn.replaceChildren(h('i'), `电脑好战 · ${warlikeName(level)}`);
+  };
+  paintWarlike();
   const noStudyBtn = h('button', { class: `cheat opt${noStudy ? ' on' : ''}`, 'aria-pressed': String(noStudy),
     title: '原版：智力80以下的武将可在学问所学习，电脑也会让武将学习　不能读书：敌我武将都不能读书提高智力，城市菜单的「学问所」变灰。游戏中也可在「☰ 系统」切换。',
     onclick: () => { noStudy = !noStudy; noStudyBtn.classList.toggle('on', noStudy); noStudyBtn.setAttribute('aria-pressed', String(noStudy)); saveOptions(); } },
@@ -1516,7 +1610,7 @@ async function setup() {
   addEventListener('keydown', onCode);
   const rulers = h('div', { class: 'rulers' });
   const passiveNote = D.rulerPassives ? h('p', { class: 'hint setup-passive', 'aria-live': 'polite' }, '选择君主后查看其被动技能。') : null;
-  const start = h('button', { class: 'btn primary', disabled: true, style: { fontSize: '20px', padding: '10px 40px', letterSpacing: '8px' }, onclick: () => { if (start.disabled) return; start.disabled = true; const ng = G.newGame(ruler.faction, level, undefined, { ruler: ruler.officer }); if (cheat && level === 0) G.maxRulerCity(ng); if (ageless) ng.ageless = true; if (noWarDeath) ng.noWarDeath = true; if (sangu) ng.sangu = true; if (freeSave) ng.freeSave = true; if (warlike) ng.warlike = true; if (noStudy) ng.noStudy = true; begin(ng, false); } }, '开始');
+  const start = h('button', { class: 'btn primary', disabled: true, style: { fontSize: '20px', padding: '10px 40px', letterSpacing: '8px' }, onclick: () => { if (start.disabled) return; start.disabled = true; const ng = G.newGame(ruler.faction, level, undefined, { ruler: ruler.officer }); if (cheat && level === 0) G.maxRulerCity(ng); if (ageless) ng.ageless = true; if (noWarDeath) ng.noWarDeath = true; if (sangu) ng.sangu = true; if (freeSave) ng.freeSave = true; ng.warlikeTiers = true; if (warlike) ng.warlike = true; if (noStudy) ng.noStudy = true; begin(ng, false); } }, '开始');
   const factionOrder = [...[4, 2, 3, 1, 6, 5, 0], ...D.factions.slice(7).map((f) => f.id)];
   const choices = factionOrder.flatMap((faction) => [D.factions[faction].ruler,
     ...(D.rulerCandidates ?? []).filter((candidate) => candidate.faction === faction).map((candidate) => candidate.officer)].map((officer) => ({ faction, officer })));
@@ -1548,6 +1642,7 @@ async function begin(state, loaded, resume = null, { keepSuspend = false, notice
   if (!resume && !keepSuspend && !(await leaveSuspend())) return title();
   delete state.auto;
   quickCostExplained = false;
+  focusedFaction = null; strategy.focusTerritoryFaction(null);
   let resumeNotice = '战斗恢复失败，可从标题重试';
   const resumeFailed = async (error) => {
     console.error('中断战斗恢复失败', error);
@@ -1615,9 +1710,26 @@ async function begin(state, loaded, resume = null, { keepSuspend = false, notice
 }
 
 // Phone: the log box is put away (src/phone.css); each line shows as a toast instead, and the whole log is under ☰ 系统.
-const log = (html) => { const box = $('.logbox'); if (box) box.prepend(h('p', { html })); if (PHONE && !/^<small|^\s*$/.test(html)) toast(html, 2400); };
+const log = (html) => {
+  const box = $('.logbox'), row = h('p', { html }), fold = box?.querySelector('.logfold');
+  if (fold) fold.after(row); else box?.prepend(row);
+  if (PHONE && !/^<small|^\s*$/.test(html)) toast(html, 2400);
+};
 const bookPips = () => h('span', { class: 'books' }, Array.from({ length: G.books(g, g.player) }, (_, i) => h('i', { class: i < G.books(g, g.player) - g.books ? 'used' : '' })));
-let mapFocus = false;
+let mapFocus = false, focusedFaction = null;
+let collapsedLog = preference('hd2d-log-collapsed') === '1';
+function toggleFactionFocus(faction) {
+  focusedFaction = focusedFaction === faction ? null : faction;
+  strategy.focusTerritoryFaction(focusedFaction);
+  for (const button of $$('.legend [data-faction]')) button.setAttribute('aria-pressed', String(Number(button.dataset.faction) === focusedFaction));
+}
+function toggleLog(event) {
+  collapsedLog = !collapsedLog; preference('hd2d-log-collapsed', collapsedLog);
+  const button = event.currentTarget;
+  button.setAttribute('aria-expanded', String(!collapsedLog));
+  button.textContent = collapsedLog ? '展开消息' : '收起消息';
+  button.parentElement.classList.toggle('collapsed', collapsedLog);
+}
 function toggleMapFocus() {
   mapFocus = !mapFocus; document.body.classList.toggle('map-focus', mapFocus);
   const b = $('.mapfocusbtn'); b?.classList.toggle('on', mapFocus); b?.setAttribute('aria-pressed', String(mapFocus)); if (b) b.textContent = mapFocus ? '展开' : '简洁';
@@ -1626,12 +1738,21 @@ function toggleMapFocus() {
 
 function hud() {
   if (!g || document.body.dataset.screen !== 'strategy') return;
+  if (focusedFaction != null && g.factions[focusedFaction]?.ruler == null) {
+    focusedFaction = null;
+    strategy.focusTerritoryFaction(null);
+  }
   // Once the player's faction has fallen (its ruler cleared) there is no realm to show; ending() takes over.
   if (g.factions[g.player].ruler == null) { clear(); root().append(sysButtons()); return; }
   const pf = g.player, mine = G.holdingsOf(g, pf), towns = G.citiesOf(g, pf);
   const sum = (k) => mine.reduce((a, c) => a + c[k], 0);
   const troops = mine.reduce((a, c) => a + G.troopsOf(g, c), 0);
   const turnF = g.current;
+  invalidateCityIntel(g);
+  const compact = compactMap(g);
+  if (focusedFaction != null && g.factions[focusedFaction]?.ruler == null) {
+    focusedFaction = null; strategy.focusTerritoryFaction(null);
+  }
   clear();
   root().append(
     sysButtons(),
@@ -1643,12 +1764,15 @@ function hud() {
         h('span', { 'data-k': '兵' }, '兵 ', h('b', {}, troops)), h('span', { 'data-k': '金' }, '金 ', h('b', {}, sum('gold'))), h('span', { 'data-k': '米' }, '米 ', h('b', {}, sum('rice')))),
       h('span', { class: 'tbtns' }, h('button', { class: `btn roadsbtn ${strategy.roadsOn ? 'on' : ''}`, 'aria-pressed': String(strategy.roadsOn), title: '道路总览：加亮全部道路，城名全部常显（G）', 'data-pad': 'view', onclick: toggleRoads }, '道路', h('kbd', { class: 'pad-only' })),
       h('button', { class: `btn terrbtn ${strategy.territoryOn ? 'on' : ''}`, 'aria-pressed': String(strategy.territoryOn), title: '势力范围：按归属给地面着色', onclick: toggleTerritory }, '势力'),
-      h('button', { class: 'btn wikibtn', title: '人物志：查询武将的所属、所在与出仕来历（R）', 'data-pad': 'x', onclick: () => roster() }, '人物志', h('kbd', { class: 'pad-only' })))),
+      h('button', { class: 'btn wikibtn', title: '人物志：查询武将的所属、所在与出仕来历（R）', 'data-pad': 'x', onclick: () => roster() }, '人物志', h('kbd', { class: 'pad-only' }))),
+      turnF === pf ? h('span', { class: 'pad-record-hints' }, ...padRecordHints()) : null),
     // Log and faction standings share one column so the standings never float loose when the log is short.
-    h('div', { class: 'rightcol' },
-      h('div', { class: 'panel logbox' }, ...(hud.log || []).slice(-40).reverse().map((x) => h('p', { html: x }))),
+    h('div', { class: `rightcol${compact ? ' compact-map' : ''}` },
+      h('div', { class: `panel logbox${compact && collapsedLog ? ' collapsed' : ''}` }, compact ? h('button', { class: 'btn logfold', 'aria-expanded': String(!collapsedLog), onclick: toggleLog }, collapsedLog ? '展开消息' : '收起消息') : null,
+        ...(hud.log || []).slice(-40).reverse().map((x) => h('p', { html: x }))),
       h('div', { class: 'panel legend' }, ...g.factions.filter((f) => f.ruler != null).sort((a, b) => G.citiesOf(g, b.id).length - G.citiesOf(g, a.id).length).map((f) =>
-        h('div', { class: `lg ${f.id === g.player ? 'me' : ''} ${f.id === g.current ? 'now' : ''}`, title: `${factionName(f.id)}：${G.citiesOf(g, f.id).length}城${f.id === g.current ? '（行动中）' : ''}` }, avatar(f.ruler), h('i', { style: { background: colorOf(f.id) } }),
+        h(compact ? 'button' : 'div', { class: `lg ${f.id === g.player ? 'me' : ''} ${f.id === g.current ? 'now' : ''}`, title: `${factionName(f.id)}：${G.citiesOf(g, f.id).length}城${f.id === g.current ? '（行动中）' : ''}`,
+          ...(compact ? { 'data-faction': f.id, 'aria-pressed': String(focusedFaction === f.id), onclick: () => toggleFactionFocus(f.id) } : {}) }, avatar(f.ruler), h('i', { style: { background: colorOf(f.id) } }),
           h('span', {}, factionName(f.id)), h('b', {}, G.citiesOf(g, f.id).length), g.factions[g.player].alliance[f.id] ? h('em', {}, '盟') : null)))),
   );
   if (sel != null) cityPanel(sel);
@@ -1762,7 +1886,7 @@ async function mapOverview() {
           !G.isPass(c.id) && c.gov < 50 ? '统治偏低' : '', !G.isPass(c.id) && c.disaster < 50 ? '防灾偏低' : ''].filter(Boolean) : [];
         return h('button', { class: 'btn', onclick: () => close(c.id) },
           h('b', {}, `${cityName(c.id)}${G.isPass(c.id) ? ' · 关隘' : ''}`),
-          h('small', {}, `${G.factionName(current, c.faction)} · ${c.officers.length}将${mine ? ` · ${troops}兵` : ''}`),
+          h('small', {}, `${G.factionName(current, c.faction)} · ${!compactMap(current) || cityIntel(current, c, NONE) ? `${c.officers.length}将${mine ? ` · ${troops}兵` : ''}` : '未侦察'}`),
           warnings.length ? h('small', { class: 'overview-warning' }, warnings.join(' · ')) : null);
       }) : [h('p', { class: 'hint' }, '没有符合条件的据点')]));
     };
@@ -1940,24 +2064,26 @@ async function roster({ city = null } = {}) {
 }
 
 function cityStats(c) {
-  if (G.isPass(c.id)) return h('div', { class: 'stats' }, ...[['金', c.gold], ['米', c.rice], ['宝', c.treasure]].map(([k, v]) => h('div', { 'data-k': k }, h('span', {}, k), h('b', {}, v))));
+  const army = compactMap(g) ? [['武将', c.officers.length], ['正规军', G.troopsOf(g, c)]] : [];
+  if (G.isPass(c.id)) return h('div', { class: 'stats' }, ...[['金', c.gold], ['米', c.rice], ['宝', c.treasure], ...army].map(([k, v]) => h('div', { 'data-k': k }, h('span', {}, k), h('b', {}, v))));
   return h('div', { class: 'stats' },
-    ...[['金', c.gold], ['米', c.rice], ['宝', c.treasure], ['人口', c.pop * 100], ['土地', c.land], ['产业', c.industry], ['统治', c.gov], ['防灾', c.disaster], ['预备兵', c.reserve]]
+    ...[['金', c.gold], ['米', c.rice], ['宝', c.treasure], ['人口', c.pop * 100], ['土地', c.land], ['产业', c.industry], ['统治', c.gov], ['防灾', c.disaster], ['预备兵', c.reserve], ...army]
       .map(([k, v]) => h('div', { 'data-k': k }, h('span', {}, k), h('b', {}, v))));
 }
 
 function cityPanel(cid) {
   if (cid !== tabCity) { tab = '城'; tabOpen = false; cmdFocus = null; tabCity = cid; } // the command menu's group, and its list closed (below)
   const c = g.cities[cid], dc = D.cities[cid], own = c.faction === g.player, f = D.cities[cid].facilities;
-  const showDetail = own || c.faction === NONE || (g.scouted?.[cid] ?? -1) >= g.year * 12 + g.month - 3;
+  const showDetail = cityIntel(g, c, NONE), compact = compactMap(g);
   const ruler = c.faction !== NONE ? g.factions[c.faction].ruler : null;
   const panel = h('div', { class: 'panel citypanel' },
     h('header', {}, h('h2', {}, cityName(cid)), G.cityOrigName(cid) ? h('span', { class: 'hint origname' }, `原版 ${G.cityOrigName(cid)}`) : null, G.isPass(cid) ? h('span', { class: 'hint' }, '关隘') : null, h('span', { class: 'owner', style: { background: colorOf(c.faction) } }, factionName(c.faction)),
-      ruler != null && c.officers.includes(ruler) ? h('span', { class: 'hint' }, '君主所在') : null,
+      (!compact || showDetail) && ruler != null && c.officers.includes(ruler) ? h('span', { class: 'hint' }, '君主所在') : null,
       h('button', { class: `btn mapfocusbtn ${mapFocus ? 'on' : ''}`, 'aria-pressed': String(mapFocus), title: '简洁地图：收起城市详情与势力列表，保留命令', onclick: (e) => { e.stopPropagation(); toggleMapFocus(); } }, mapFocus ? '展开' : '简洁')),
-    showDetail ? cityStats(c) : h('p', { class: 'hint', style: { padding: '8px 14px' } }, PHONE ? `敌方城市：${c.officers.length}将，兵 ${G.troopsOf(g, c)}。使用「侦察」可查看详细情报。` : '敌方城市。使用「侦察」可查看详细情报。'),
-    h('div', { class: 'facs' }, ...[['weapons', '武器屋'], ['school', '学问所'], ['market', '米市'], ['hospital', '病院']].filter(([k]) => f[k]).map(([, t]) => h('i', {}, t)),
-      dc.rice_rate[1] ? h('i', {}, `米价 买${dc.rice_rate[1]}/卖${dc.rice_rate[0]}`) : null),
+    showDetail ? cityStats(c) : h('p', { class: 'hint', style: { padding: '8px 14px' } }, compact ? '未侦察。使用「侦察」可查看城中兵力和武将。' : PHONE ? `敌方城市：${c.officers.length}将，兵 ${G.troopsOf(g, c)}。使用「侦察」可查看详细情报。` : '敌方城市。使用「侦察」可查看详细情报。'),
+    h('div', { class: 'facs' }, ...[['weapons', '武器屋'], ['school', '学问所'], ['market', compact ? '市集' : '米市'], ['hospital', '病院']].filter(([k]) => f[k]).map(([key, t]) =>
+      h('i', {}, compact && key === 'market' ? `${t} · 买${dc.rice_rate[1]}／卖${dc.rice_rate[0]}` : t)),
+      !compact && dc.rice_rate[1] ? h('i', {}, `米价 买${dc.rice_rate[1]}/卖${dc.rice_rate[0]}`) : null),
     G.isPass(cid) ? h('p', { class: 'hint pass-note' }, '关隘可驻军、储存补给，不计城数和税收；君主驻守时，土地、统治和预备兵被动不生效。') : null,
     own && !G.isPass(cid) ? searchNote(cid) : null,
     showDetail && !G.isPass(cid) ? talentNote(cid) : null,
@@ -2204,14 +2330,32 @@ async function spend(res, cid, sub, voice) {
 // frames them; a small panel names them too (hover points the city out) and Esc or 取消 backs out.
 let mapPick = null;
 // required: the pick cannot be put off (a forced retreat), so there is no 取消 and Esc does nothing.
-function pickOnMap(title, cids, describe = () => '', { from = null, note = '点选地图上发光的城市', required = false, routes = null } = {}) {
+function pickOnMap(title, cids, describe = () => '', { from = null, note = '点选地图上发光的城市', required = false, routes = null, compact = false } = {}) {
   return new Promise((resolve) => {
     strategy.pickMode(cids, from); strategy.frame(from != null ? [...cids, from] : cids);
     const ui = root(), before = document.activeElement, blockedEvents = ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'dblclick', 'contextmenu'];
+    const collapsible = compact && compactMap(g) && !PHONE;
+    let listOverride = false;
+    const updateList = () => {
+      const mouse = document.body.dataset.input === 'mouse';
+      const choosing = names.contains(document.activeElement) || names.querySelector('button:hover');
+      const show = !collapsible || listOverride || !mouse || (!names.hidden && !!choosing);
+      if (names.hidden === show) {
+        if (!show && names.contains(document.activeElement)) toggle.focus({ preventScroll: true });
+        names.hidden = !show;
+      }
+      toggle?.setAttribute('aria-expanded', String(show));
+      if (toggle) {
+        toggle.hidden = !mouse;
+        toggle.textContent = show ? '收起列表' : '选择列表';
+      }
+    };
+    const inputWatch = collapsible ? new MutationObserver(updateList) : null;
     // The HUD remains visible over the map, so it must absorb a click rather than passing it through to a city.
     const blockHud = (e) => { e.preventDefault(); e.stopPropagation(); };
     const done = (v) => {
       mapPick = null; document.body.classList.remove('picking'); strategy.pickMode(null); strategy.highlight(null); strategy.supplyRoute(null); panel.remove();
+      inputWatch?.disconnect();
       removeEventListener('keydown', keys, true); for (const type of blockedEvents) ui.removeEventListener(type, blockHud, true);
       if (before?.isConnected && !before.disabled) before.focus?.({ preventScroll: true }); resolve(v);
     };
@@ -2219,24 +2363,37 @@ function pickOnMap(title, cids, describe = () => '', { from = null, note = '点�
       if (panel !== layer().lastElementChild) return; // a dialog above the picker gets its own Esc and Tab
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (!required) done(null); return; }
       if (e.key === 'Tab') {
+        updateList();
         const buttons = $$('button:not(:disabled)', panel).filter((b) => b.offsetParent), i = buttons.indexOf(document.activeElement);
         e.preventDefault(); e.stopPropagation();
         if (buttons.length) buttons[e.shiftKey ? (i <= 0 ? buttons.length - 1 : i - 1) : (i + 1) % buttons.length].focus();
         else panel.focus({ preventScroll: true });
       } else if (ui.contains(e.target)) { e.preventDefault(); e.stopPropagation(); panel.focus({ preventScroll: true }); }
     };
-    const preview = (c) => { strategy.highlight(c); if (routes) strategy.supplyRoute(routes.get(c) ?? null); };
+    let previewed = null;
+    const preview = (c) => {
+      if (previewed === c) return;
+      previewed = c; strategy.highlight(c); if (routes) strategy.supplyRoute(routes.get(c) ?? null);
+    };
     const point = (c) => ({ onmouseenter: () => preview(c), onmouseleave: () => preview(null), onfocus: () => preview(c), onblur: () => preview(null) });
+    const names = h('div', { class: 'mp-candidates', id: 'map-pick-candidates' }, ...cids.map((c) => {
+      const detail = describe(c);
+      return h('button', { class: 'btn', onclick: () => done(c), ...point(c) }, cityName(c), detail ? h('small', {}, detail) : null);
+    }));
+    const toggle = collapsible ? h('button', { class: 'btn ghost map-list-toggle', 'aria-controls': names.id, onclick: () => { listOverride = names.hidden; updateList(); } }) : null;
     const panel = h('div', { class: 'panel mappick', role: 'dialog', tabindex: '-1', 'aria-label': title },
-      h('div', { class: 'mp-head' }, h('h4', {}, title), h('span', { class: 'hint' }, note)),
-      h('div', { class: 'chips' }, ...cids.map((c) => h('button', { class: 'btn', onclick: () => done(c), ...point(c) }, cityName(c), describe(c) ? h('small', {}, describe(c)) : null)),
+      h('div', { class: 'mp-head' }, h('h4', {}, title), h('span', { class: 'hint mp-pointer-note' }, note),
+        compact && compactMap(g) ? h('span', { class: 'hint mp-pad-note' }, ...padText((key) => `方向键选据点 · ${key('a')} 确定`)) : null),
+      h('div', { class: 'chips' }, names, toggle,
         required ? null : h('button', { class: 'btn ghost', onclick: () => done(null) }, '取消', h('kbd', { 'data-glyph': 'b' }, 'Esc'))));
-    mapPick = { cids: new Set(cids), done }; document.body.classList.add('picking');
+    mapPick = { cids: new Set(cids), done, preview }; document.body.classList.add('picking');
     for (const type of blockedEvents) ui.addEventListener(type, blockHud, true);
-    layer().append(panel); addEventListener('keydown', keys, true); panel.focus({ preventScroll: true });
+    layer().append(panel); updateList();
+    inputWatch?.observe(document.body, { attributes: true, attributeFilter: ['data-input'] });
+    addEventListener('keydown', keys, true); panel.focus({ preventScroll: true });
   });
 }
-const pickCityMap = (title, cids, describe) => pickOnMap(title, cids, describe, { from: sel });
+const pickCityMap = (title, cids, describe, compact = false) => pickOnMap(title, cids, describe, { from: sel, compact });
 // A scouting session remains open while the player reads a city and its officers. Esc/backdrop returns to
 // the city picker; only an explicit 结束侦察 ends the session (and, on the last book, the turn).
 async function scoutCity(cid) {
@@ -2529,13 +2686,13 @@ async function command(cid, act) {
       if (!(await sure('侦察', '开始侦察，可连续查看各城。'))) return;
       await spend({ ok: true, msg: '开始侦察各城', quiet: true }, cid);
       while (true) {
-        const target = await pickCityMap('侦察哪座城？', g.cities.map((x) => x.id));
+        const target = await pickCityMap('侦察哪座城？', g.cities.map((x) => x.id), undefined, true);
         if (target == null) {
           if (await confirmBox('结束侦察', '结束本次侦察？已消耗的命令书不会返还。')) return;
           continue;
         }
         if (g.cities[target].faction !== g.player && g.cities[target].faction !== NONE) {
-          g.scouted ||= {}; g.scouted[target] = g.year * 12 + g.month;
+          scoutCityIntel(g, g.cities[target]); strategy.refresh(g);
         }
         sel = target; strategy.select(target); hud();
         if (!(await scoutCity(target))) return;
@@ -2559,7 +2716,7 @@ async function command(cid, act) {
     }
     case '运输': {
       const routes = G.transportRoutes(g, cid); if (!routes.size) return toast('<em>没有连通的己方据点</em>');
-      const to = await pickOnMap('运往哪座城？', [...routes.keys()], n => routes.get(n).slice(1).map(cityName).join(' → '), { from: cid, routes }); if (to == null) return;
+      const to = await pickOnMap('运往哪座城？', [...routes.keys()], n => routes.get(n).slice(1).map(cityName).join(' → '), { from: cid, routes, compact: true }); if (to == null) return;
       const b = g.cities[to];
       const v = await sliders('运输', [{ key: 'gold', label: '金', min: 0, max: Math.min(c.gold, 9999 - b.gold), step: 10 }, { key: 'rice', label: '米', min: 0, max: Math.min(c.rice, 9999 - b.rice), step: 10 }, { key: 't', label: '宝', min: 0, max: Math.min(c.treasure, 99 - b.treasure) }], { note: routes.get(to).map(cityName).join(' → '), validate: (x) => x.gold + x.rice + x.t > 0 }); if (!v) return;
       return spend(G.transport(g, cid, to, v.gold, v.rice, v.t), cid);
@@ -2686,7 +2843,12 @@ async function expedition(cid) {
   const c = g.cities[cid];
   const targets = G.roads(cid).filter((n) => g.cities[n].faction !== g.player);
   if (!targets.length) return toast('<em>没有相邻的敌城或空城</em>');
-  const to = await pickCityMap('进攻哪座城？', targets, (n) => (g.cities[n].faction === NONE ? '空城' : `${factionName(g.cities[n].faction)} ${g.cities[n].officers.length}将`));
+  const to = await pickCityMap('进攻哪座城？', targets, (n) => {
+    const target = g.cities[n];
+    if (target.faction === NONE) return '空城';
+    const info = !compactMap(g) || cityIntel(g, target, NONE) ? `${target.officers.length}将` : '未侦察';
+    return `${factionName(target.faction)} ${info}`;
+  }, true);
   if (to == null) return;
   const t = g.cities[to];
   if (t.faction !== NONE && g.factions[g.player].alliance[t.faction] > 0) return toast('<em>与该势力有同盟</em>　可在「城 → 外交 → 同盟」中废除', 4000);

@@ -84,7 +84,7 @@ bc9d0df471b2ccfe794b4cfdabcac39ccea1928dbf1b69f5551bf496268ce4c3  hd2d-mvp/asset
 d0352643e2c70cd0e679c3e5d4000196628449a56198da823ffc49a50228fe3e  hd2d-mvp/assets/ai/faces/110-grief.webp
 254cbd8eb4aaf50065fe2046114be6b2c42dbcf44a1e4636afb22e611f33d714  hd2d-mvp/assets/ai/faces/110-joy.webp
 3da2e2ec1fea64923c01ce933054bbec6cd4122096035b6dc325c4c3723d3ee5  hd2d-mvp/assets/ai/faces/111-angry.webp
-9a2e3a6dbcadb8d154a85109dfed264aa2f542738bdcb7220e75ba3dc28ba1e3  hd2d-mvp/assets/ai/faces/111-calm.webp
+629c0189bd940cecdd2ff13acfc72d3795666dc1b3e915f0345c356107e42762  hd2d-mvp/assets/ai/faces/111-calm.webp
 90257bda52e643c885cf2f645510c7b174bfeef96fa0e696c89d5350f894c3ae  hd2d-mvp/assets/ai/faces/111-grief.webp
 58676574d07f7e0caf45329bb81474f93e53d7c0e7b9bc87fb18397c827cf3de  hd2d-mvp/assets/ai/faces/111-joy.webp
 1cd8140fe4a4d85e8ea9aaa31465de36d411d08835a851532eea9e80ffbeda74  hd2d-mvp/assets/ai/faces/112-angry.webp
@@ -639,10 +639,10 @@ a5f82e8fd46375637c73c9cea3db6e728ccafae78e64b80cb4baaaa0f4e1e061  hd2d-mvp/asset
 02ef86be3c65e9334fdc045d35bc51534c25d5eccdcbabeef0391ff5e441ea1f  hd2d-mvp/assets/ai/faces/236-calm.webp
 fe31fa490f2bf3373f9ae61672eb10771c2873a9d9305c0a618ae52525a1fe68  hd2d-mvp/assets/ai/faces/236-grief.webp
 b957eecd01d374559db9ff0d2ce048d7d5cb31a6eebbada30671f88410b6aaf0  hd2d-mvp/assets/ai/faces/236-joy.webp
-f6f7b241477182d996ced218507ea7a5bc8b76b5bea1aa1903d1f2248155f69b  hd2d-mvp/assets/ai/faces/24-angry.webp
-2af58bc215ec8573b202f196b6cb5a12ea574041f5d35cfab88f3c01ad7ccaae  hd2d-mvp/assets/ai/faces/24-calm.webp
-1e7001a976545cfab51dabfdfe1790748781828dfa3d7ad21423605c30d073c4  hd2d-mvp/assets/ai/faces/24-grief.webp
-3a0e3bbc535afff2bf7ace9fda17c37a300afa22fc5f46d44ab51384fb26b864  hd2d-mvp/assets/ai/faces/24-joy.webp
+2f873944d85441179680494e1f13a942c38af4755f94d29e673c48dbd64095cd  hd2d-mvp/assets/ai/faces/24-angry.webp
+d41ac55cc018d136d2861bcc5dda5fcd9e160d96b6b5670a972acd5307bbdffb  hd2d-mvp/assets/ai/faces/24-calm.webp
+ced058b8d0764fa6e61afa69bfa4db7460b8a9690cae77ffa057a90c787a3b65  hd2d-mvp/assets/ai/faces/24-grief.webp
+4fd8ad41b93d073e4bd98e268fcb5ea4feddc6708e9a1f7f805ee0f1076fc32f  hd2d-mvp/assets/ai/faces/24-joy.webp
 05fde3ec001df735103e98f39b2caf08193191c5dd9cdcb825e2f2ec464d3a78  hd2d-mvp/assets/ai/faces/25-angry.webp
 36498193cdc24a9d3e79164d84fd879ba48bc6df9e5d73b257073c13ca105b1e  hd2d-mvp/assets/ai/faces/25-calm.webp
 dc74a2afac29f8369bee2f559eb5b9ddcde115f427ecf41e8764f35da9bb8c87  hd2d-mvp/assets/ai/faces/25-grief.webp
@@ -986,7 +986,7 @@ b6beb455fab0fd2508325268fb0b637ca08db7fcf6207574f33e951dc9557cf8  hd2d-mvp/asset
 41dd3ae5f3ac11bf70eb29ce39a06e3a0a5e96d6cb176da4478b5b599965578f  hd2d-mvp/assets/ai/halfbody/109.webp
 2169809b1728a6b2d4bf983125ef168551c96ccc55727df372510658fb0026f5  hd2d-mvp/assets/ai/halfbody/11.webp
 1fe70c6ee5f49e4f02f4e5a531e3f4ff4011b94fe9db738c85318dee0be173bf  hd2d-mvp/assets/ai/halfbody/110.webp
-192d170f49f49af85e321d68b4063bed94808f73a633dd4eb0a8496cf3a563ea  hd2d-mvp/assets/ai/halfbody/111.webp
+fb0c98aee4fd3b12e0a04b86824834656cdc2221ba9599544259578c56253481  hd2d-mvp/assets/ai/halfbody/111.webp
 23183be2b1a0fbe42cc8a940472e899890b4e75cbadcecccc80488866ad1e70d  hd2d-mvp/assets/ai/halfbody/112.webp
 fc6b10743ac08b04ba56d9c136447f000fb0ce4f96cc4a21c1c845c2a930c389  hd2d-mvp/assets/ai/halfbody/113.webp
 26b02db976423b9cc40acf5eed6facfdc534d45f7642bfb7589310193850e6e4  hd2d-mvp/assets/ai/halfbody/114.webp
@@ -1125,7 +1125,7 @@ d02140dd71a86fe737d6cdd57050b0869936a9a64aad5d0b7ce4bb241ba3094f  hd2d-mvp/asset
 e19f29155a26051c3b47521d69314275ea053dc2f1037198d94d167f0daebbda  hd2d-mvp/assets/ai/halfbody/234.webp
 05baadb051818fa13b0fad7017eb1ac22a56c37eb5daf5ae4a39894982a298c4  hd2d-mvp/assets/ai/halfbody/235.webp
 d8a4732359018c81fb26599ac1086d38d4371f83f80f5ffd6c07c7a936c53512  hd2d-mvp/assets/ai/halfbody/236.webp
-46678e9fc20f66cf9fe69ad14787144dbc371976c2d8082472d35311292ae2a5  hd2d-mvp/assets/ai/halfbody/24.webp
+88321672ed6a5a5ddd6f993a765344f4643ab73920c2d2cfa12f3656881a4a5d  hd2d-mvp/assets/ai/halfbody/24.webp
 7b71080f947646684f7e09071e9ee9f75aadf3bc753d811f7f8a020d34c1d1a9  hd2d-mvp/assets/ai/halfbody/25.webp
 8ee5edc8b2efcd7e1f3a56d18091384553e61d0319dea53f5ee9c94d270d7926  hd2d-mvp/assets/ai/halfbody/26.webp
 94b7c6160aeac89ee6404640b87e2277b5d44f6fb888503774676e95a170418e  hd2d-mvp/assets/ai/halfbody/27.webp
@@ -1303,7 +1303,7 @@ f73e58c5ebbb410e117f65ee2b8b135b8beef52e209cdbc33b7e2dc49cac6f12  hd2d-mvp/asset
 9e7ccae91d95a9c427fcf8768714111236bb162b892ae47eefb29880484ce507  hd2d-mvp/assets/ai/portraits/109.webp
 bb24b86af7990b5353042bc552156ddbbe11e26e1fbced99e81933825e5780a3  hd2d-mvp/assets/ai/portraits/11.webp
 d913e26df099005df91c89c226f079b2ef1405949ef0f8a8b17cfbcab28f9460  hd2d-mvp/assets/ai/portraits/110.webp
-f8da5a46e3f321da1743b8d3bcab6284c6ac7ed5e280e3626739893a89d951a7  hd2d-mvp/assets/ai/portraits/111.webp
+a89e5cd2f97278498b2bf1cb39e6906ecc1b85e51055391143d6dae340f4ce82  hd2d-mvp/assets/ai/portraits/111.webp
 080337604aba14253b07a51e0d1666a52eba7a2d332c96224463dc132b9b1185  hd2d-mvp/assets/ai/portraits/112.webp
 964c63cec64d1e1dd2debad726bc7061318b6af34430eeb1517eb847570ba715  hd2d-mvp/assets/ai/portraits/113.webp
 618d9845eec3cc8b7e6ae3eeb77a37d4979174612ec98b53d797d7b15776aa6b  hd2d-mvp/assets/ai/portraits/114.webp
@@ -1442,7 +1442,7 @@ adafb550be03483ee2e670fef9c99bd3cc16d5c0ff0eba7fc40072be13defddf  hd2d-mvp/asset
 e686e5606358e8108070a2280bcbb88f089dee143c71c0d83002a88c294f0f1e  hd2d-mvp/assets/ai/portraits/234.webp
 bc2707e72f8307fe00fac7a4c3b190039c729ca9f4fec813d3ee3e43f947c628  hd2d-mvp/assets/ai/portraits/235.webp
 373997eb16aa4ac2915559b6d40b6c224bdba0bf16e16386f19b31b4f7955207  hd2d-mvp/assets/ai/portraits/236.webp
-9513ffd8df66bd6b9f392048e0a31aa2f7c9002d79bb4a5f5761bfbabf6e1ce3  hd2d-mvp/assets/ai/portraits/24.webp
+d8afd2ed549b7a136894fab5728673d73d5cb48a7c8a36f86287fc488209b465  hd2d-mvp/assets/ai/portraits/24.webp
 35956c45cd8f6e65e20eeaa4736fe0d7c10bc5e743e69d5b2fef88e350aa1a5d  hd2d-mvp/assets/ai/portraits/25.webp
 e71185408e59abdf4dd1adcd5d2fc1c7221673b02f35f2b73e1d2181e55baa17  hd2d-mvp/assets/ai/portraits/26.webp
 f698ba712ace92ec9a6a0c67f8c5e909d44b409f65adcca6d4e980bbd7043b0f  hd2d-mvp/assets/ai/portraits/27.webp
@@ -2202,6 +2202,7 @@ fd275f6ec0d4caa440a6848eaf689d860608bb2d5a936bd02a3e37d67f5a2c3a  hd2d-mvp/asset
 4f7892184a0619d5b44c3e5ec4e6f0d6fbff62b84d12ce2a7145f173714f1b9d  hd2d-mvp/assets/characters/gao/motion.png
 091e221938fa22c447aa8c90a0427e962ec3fceda9d25c6a5c1beefb8862662e  hd2d-mvp/assets/characters/gao/portrait.webp
 dbfbf4c4bd681bf268fb51a13797c3fc52b0af8508666d6f5e950ac2e72c7b12  hd2d-mvp/assets/characters/gongsun/motion.png
+464ea00688e3b28632215dd3e2daceb550b0d4d716103398064d5ab7ef4ce11c  hd2d-mvp/assets/characters/guojia/motion.png
 4aa48b7c50d21d1662f33a928325feae5425752d127d8dc4850325105c7289d5  hd2d-mvp/assets/characters/huangshi/angry.webp
 983c10b936016022cb6006d0910ff1bdfc9ccae52eb82ca060ac23ce65f14f70  hd2d-mvp/assets/characters/huangshi/calm.webp
 acf59c9d4c8c5f8f0ea828acb458c80a038f8a38abb5b3e185f605ef3fe0abd5  hd2d-mvp/assets/characters/huangshi/grief.webp

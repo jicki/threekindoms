@@ -29,7 +29,7 @@ const DETAIL_ZOOM = [18, 55], HAMLET_FAR_OPACITY = 0.55, SEA_CREST_FADE = 0.7;
 const SEA_DEEP = [0.006, 0.034, 0.105], SEA_MID = [0.014, 0.08, 0.2], SEA_SHALLOW = [0.03, 0.2, 0.26];
 const SEA_SHELF_BIAS = 5.5, SEA_SHELF = [0.05, 0.75], SEA_SHELF_TINT = 0.45, SEA_GRAIN = 0.3, SEA_CREST = 0.12;
 // Wash colours keep the flags' identities in snow and ochre fields; the wash changes chroma, not the painted texture.
-export const TERRITORY_PALETTE = ['#5a5a66', '#d12d3e', '#7a4ad0', '#f5c51a', '#3f8f4f', '#c060a0', '#2f9fb0', '#4673aa', '#a46324', '#857b3d'];
+export const TERRITORY_PALETTE = ['#5a5a66', '#d12d3e', '#7a4ad0', '#f58a43', '#3f8f4f', '#c060a0', '#2f9fb0', '#4673aa', '#a46324', '#857b3d'];
 export const TERRITORY_FILL = [0.008, 0.5], TERRITORY_RIM_FILL = 0.2, TERRITORY_BAND_WORLD = [0.35, 4.5];
 export const TERRITORY_MID_BOOST = 0.08; // more chroma between the accepted near and far looks, without changing either end
 export const TERRITORY_BORDER_HALF_PX = 1.35, TERRITORY_NEUTRAL_BORDER = 0.55, TERRITORY_FOCUS_SCALE = 0.7;

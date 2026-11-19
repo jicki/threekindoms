@@ -69,7 +69,7 @@ async function openWar(view) {
 }
 const idle = (p) => p.waitForFunction(() => { const w = window.__game.war; return !w.st.busy && !document.querySelector('.banner, .panel.msg'); }, null, { timeout: 30000 });
 
-for (const view of ['3d', 'flat']) test(`${view}: the threat view shows the forecast and changes nothing; the landing preview and the keys`, async (t) => {
+for (const view of ['3d', 'flat']) test(`${view}: the threat view shows the forecast and changes nothing; the landing preview and the keys`, async () => {
   const p = await openWar(view);
   try {
     // I01 / I05: on and off, with the pointer crossing cells, the field is as it was and no random number is drawn.
@@ -103,25 +103,44 @@ for (const view of ['3d', 'flat']) test(`${view}: the threat view shows the fore
     await p.keyboard.press(']'); await p.waitForFunction((id) => window.__game.war.st.sel?.id === id, order[1], { timeout: 5000 });
     await p.keyboard.press('['); await p.waitForFunction((id) => window.__game.war.st.sel?.id === id, order[0], { timeout: 5000 });
     await p.keyboard.press('['); await p.waitForFunction((id) => window.__game.war.st.sel?.id === id, order.at(-1), { timeout: 5000 });
-    const casting = await p.evaluate(() => { const w = window.__game.war, f = w.field; f.pool[f.human] = 40; for (const u of f.alive.filter((u) => u.side === f.human)) for (const x of f.strategies(u)) if (f.alive.some((e) => f.legal(u, x.id, e))) { w.cancel(); w.clickCell(u.x, u.y); w.chooseStrategy(x.id); return { id: u.id, stage: w.st.stage }; } return null; });
-    if (casting) { await p.keyboard.press(']'); await p.waitForTimeout(300); assert.deepEqual(await p.evaluate(() => { const w = window.__game.war; return { id: w.st.sel?.id, stage: w.st.stage }; }), casting, 'the keys leave a target choice alone'); await p.evaluate(() => { const w = window.__game.war; for (let i = 0; i < 6 && w.cancel(); i++); }); }
-    else t.diagnostic('no 计略 could be cast: the target-choice half of I04 was not exercised');
+    const scenario = await p.evaluate(async () => {
+      const { PLAIN, W, H } = await import('./src/core/field.js'), w = window.__game.war, f = w.field;
+      const me = f.side(f.human).find(u => !u.commander) ?? f.side(f.human)[0], foe = f.alive.find(u => u.side !== f.human);
+      // 开局可能选到多层攻城地图。在同一段空旷平地验证施计与行军预览，不依赖两军随机布阵。
+      const free = (x, y) => !f.unitAt(x, y) && f.terr(x, y) === PLAIN;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W - 2; x++) {
+        if (![x, x + 1, x + 2].every(col => free(col, y))) continue;
+        for (const [u, col] of [[me, x], [foe, x + 2]]) {
+          Object.assign(u, { x: col, y });
+          w.spriteOf(u)?.position.set(col - W / 2 + 0.5, w.probe().top(col, y), y - H / 2 + 0.5);
+        }
+        f.O(me.id).int = Math.max(f.O(me.id).int, 80);
+        f.pool[f.human] = 40;
+        w.cancel(); w.clickCell(me.x, me.y); w.chooseStrategy(0);
+        return { caster: me.id, target: foe.id, landing: [x + 1, y], stage: w.st.stage };
+      }
+      throw new Error('战场没有可用于计略和行军测试的连续平地');
+    });
+    await p.locator(`.actpanel.targets [data-target="${scenario.target}"]`).waitFor();
+    await p.keyboard.press(']'); await p.waitForTimeout(300);
+    assert.deepEqual(await p.evaluate(() => { const w = window.__game.war; return { id: w.st.sel?.id, stage: w.st.stage }; }), { id: scenario.caster, stage: scenario.stage }, 'the keys leave a target choice alone');
+    await p.evaluate(() => { const w = window.__game.war; for (let i = 0; i < 6 && w.cancel(); i++); });
     // I03: the preview names whom he could strike from a cell; walked there, those are the enemies beside him.
     const stop = closeMessages(p);
     try {
-      const pre = await p.evaluate(() => {
-        const w = window.__game.war, f = w.field, me = f.alive.find((u) => u.side === f.human && !u.commander) ?? f.side(f.human)[0]; window.__me = me;
-        for (const pool of [20, 40, 80]) {
-          f.pool[f.human] = pool; w.cancel(); w.clickCell(me.x, me.y);
-          const hit = [...w.st.reach.dist.keys()].map((k) => k.split(',').map(Number)).find(([x, y]) => (x !== me.x || y !== me.y) && f.adjacentEnemies({ ...me, x, y }).length);
-          if (hit) { const tip = w.hoverCell({ x: hit[0], y: hit[1] }).tip; const left = f.pool[f.human] - w.st.reach.dist.get(hit.join(',')); w.clickCell(hit[0], hit[1]); return { hit, tip, left }; }
-        }
-        return null;
-      });
-      assert.ok(pre, 'a cell of his reach beside an enemy');
+      const pre = await p.evaluate(({ caster, landing: [x, y] }) => {
+        const w = window.__game.war, f = w.field, me = f.alive.find(u => u.id === caster);
+        w.clickCell(me.x, me.y);
+        const cost = w.st.reach.dist.get(`${x},${y}`);
+        const tip = w.hoverCell({ x, y }).tip, left = f.pool[f.human] - cost;
+        w.clickCell(x, y);
+        return { cost, tip, left };
+      }, scenario);
+      assert.ok(pre.cost > 0, 'a cell of his reach beside an enemy');
       await idle(p);
-      const post = await p.evaluate(() => { const w = window.__game.war, f = w.field, me = window.__me, G = window.__game.G; return { at: [me.x, me.y], foes: f.adjacentEnemies(me).map((e) => e.id), pool: f.pool[f.human] }; });
-      assert.deepEqual(post.at, pre.hit); assert.equal(post.pool, pre.left, 'the pool left is what the preview said');
+      const post = await p.evaluate((id) => { const f = window.__game.war.field, me = f.alive.find(u => u.id === id); return { at: [me.x, me.y], foes: f.adjacentEnemies(me).map(e => e.id), pool: f.pool[f.human] }; }, scenario.caster);
+      assert.deepEqual(post.at, scenario.landing); assert.equal(post.pool, pre.left, 'the pool left is what the preview said');
+      assert.ok(post.foes.includes(scenario.target));
       const names = await p.evaluate(async (ids) => { const { name } = await import('./src/core/game.js'); return ids.map((i) => name(i)); }, post.foes);
       assert.match(pre.tip, /到此可攻击/); for (const nm of names) assert.ok(pre.tip.includes(nm), `the preview named ${nm}: ${pre.tip}`);
       assert.match(pre.tip, pre.left >= 2 ? new RegExp(`够攻击 ${Math.floor(pre.left / 2)} 次`) : /不够攻击/);

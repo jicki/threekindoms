@@ -1,6 +1,6 @@
 // 继位 (user report, 2026-11-03): a faction is called after its ruler, so when an heir takes over, the city tags,
 // the legend and the rest of the screens must carry the heir's name rather than the founder's from the scenario data.
-import { test, before, after } from 'node:test';
+import { test, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import * as G from '../src/core/game.js';
@@ -65,6 +65,17 @@ test('every caller hands the game over, and none reads the scenario name', () =>
 let game;
 before(async () => { game = await startGame({ scenario: 'original' }); });
 after(() => game?.close());
+const openContexts = new Set();
+async function openPage(...options) {
+  const page = await game.open(...options);
+  openContexts.add(page.context());
+  return page;
+}
+afterEach(async () => {
+  // 释放前一案例的地图与 WebGL 上下文，双页面读档验证也在本例结束后关闭。
+  await Promise.all([...openContexts].map((ctx) => ctx.close()));
+  openContexts.clear();
+});
 
 // Kills an AI ruler in the running game, through the game's own succession, and repaints the map.
 const killRuler = (page, f) => page.evaluate(async (f) => {
@@ -76,7 +87,7 @@ const killRuler = (page, f) => page.evaluate(async (f) => {
 }, f);
 
 test('on screen: tags, legend and the 继位 notice carry the new ruler, also after loading the record', async () => {
-  const page = await game.open();
+  const page = await openPage();
   await newCampaign(page, '刘备');
   const f = 2, stop = closeMessages(page);
   let said = '';
@@ -93,9 +104,11 @@ test('on screen: tags, legend and the 继位 notice carry the new ruler, also af
     const rendered = await p.waitForFunction((f) => {
       const { g, G } = window.__game, c = g.cities.find((x) => x.faction === f);
       if (!c) return null;
-      const tag = [...document.querySelectorAll('.ctag')].find((el) => el.textContent.startsWith(G.cityName(c.id)))?.querySelector('small');
+      const labels = [...document.querySelectorAll('.ctag')];
+      const tag = labels.find((el) => el.textContent.startsWith(G.cityName(c.id)));
+      const owner = (el) => el.getAttribute('aria-label')?.split('，')[1] ?? el.querySelector('small')?.textContent;
       // 读取记录后战略视图先就绪，三维地图的城名牌在素材读取完成后才挂载。
-      return tag ? { tag: tag.textContent, all: [...document.querySelectorAll('.ctag small')].map((s) => s.textContent).join(' ') } : null;
+      return tag ? { tag: owner(tag), all: labels.map(owner).join(' ') } : null;
     }, f);
     try { return await rendered.jsonValue(); } finally { await rendered.dispose(); }
   };
@@ -105,7 +118,7 @@ test('on screen: tags, legend and the 继位 notice carry the new ruler, also af
   assert.ok(!t.all.includes(old), `an old tag: ${t.all}`);
 
   const save = await saveCampaign(page);
-  const again = await game.open('', { save });
+  const again = await openPage('', { save });
   await resumeCampaign(again);
   await again.evaluate(() => window.__game.strategy.refresh(window.__game.g));
   const r = await tags(again);
@@ -132,7 +145,7 @@ const takeRuler = (page, f, alone) => page.evaluate(async ({ f, alone }) => {
 }, { f, alone });
 
 test('on screen: a captured ruler\'s house is told of the capture, not of a death', async () => {
-  const page = await game.open();
+  const page = await openPage();
   await newCampaign(page, '刘备');
   const stop = closeMessages(page), notice = said(page, '继');
   let r, text;
@@ -143,7 +156,7 @@ test('on screen: a captured ruler\'s house is told of the capture, not of a deat
 });
 
 test('on screen: a protected ronin ruler is announced as 下野 and the house crowns an heir', async () => {
-  const page = await game.open();
+  const page = await openPage();
   await newCampaign(page, '刘备');
   const stop = closeMessages(page), notice = said(page, '继');
   let r, text;
@@ -160,11 +173,10 @@ test('on screen: a protected ronin ruler is announced as 下野 and the house cr
   assert.equal(r.status, r.ronin);
   assert.ok(text.includes(`${r.old}下野`) && text.includes(r.heir) && !text.includes('去世'), `notice: ${text}`);
   assert.deepEqual(page.errors, []);
-  await page.close();
 });
 
 test('on screen: a player whose ruler went 下野 is asked to choose an heir', async () => {
-  const page = await game.open();
+  const page = await openPage();
   await newCampaign(page, '曹操');
   const prompt = said(page, '选出继承者');
   const done = page.evaluate(async () => {
@@ -183,11 +195,10 @@ test('on screen: a player whose ruler went 下野 is asked to choose an heir', a
     assert.notEqual(r.old, r.heir); assert.equal(r.status, r.ronin);
   } finally { stop(); }
   assert.deepEqual(page.errors, []);
-  await page.close();
 });
 
 test('on screen: a player whose ruler is taken is told so, then chooses the heir', async () => {
-  const page = await game.open();
+  const page = await openPage();
   await newCampaign(page, '曹操');
   const prompt = said(page, '选出继承者');
   const done = page.evaluate(async () => {
@@ -212,7 +223,7 @@ test('on screen: a player whose ruler is taken is told so, then chooses the heir
 });
 
 test('on screen: a fallen house\'s next officer comes to the player naming the lord he follows', async () => {
-  const page = await game.open();
+  const page = await openPage();
   await newCampaign(page, '刘备');
   const stop = closeMessages(page);
   let r, text;
@@ -228,7 +239,7 @@ test('on screen: a fallen house\'s next officer comes to the player naming the l
 });
 
 test('on screen: the standard in an AI war bears the new ruler\'s surname', async () => {
-  const page = await game.open();
+  const page = await openPage();
   await newCampaign(page, '刘备');
   const stop = closeMessages(page);
   try {

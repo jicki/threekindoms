@@ -244,9 +244,10 @@ import { selectScenario } from './src/core/scenario-store.js';
 import { ORIGINAL_SCENARIO } from './src/core/scenario.js';
 import { recordOfficerVisual } from './src/core/famous-roster.js';
 import { equipmentIconUrl } from './src/core/equipment.js';
-import { h, modal, toast, avatar, figure, setPortraits, setFaces, setHalfbody, visualAvatar } from './src/ui.js';
+import { h, layer, modal, toast, avatar, figure, setPortraits, setFaces, setHalfbody, visualAvatar } from './src/ui.js';
 import { OFFICER_FIELDS, CITY_FIELDS, ALLIANCE_MAX, hpText, setOfficer, setCity, setAlliance, checkRecord, setBug, setPhantomOwner } from './src/core/saveedit.js';
 import { PHANTOM_ROADS } from './src/core/ahuinan.js';
+import { createPad, focusFirst, isControl, sendKey, walk } from './src/pad.js';
 
 const D = await G.loadData().catch((error) => {
   const reset = h('button', { class: 'btn primary', onclick: () => { selectScenario(ORIGINAL_SCENARIO); location.reload(); } }, '切换到原版');
@@ -717,6 +718,53 @@ window.__editor = { get g() { return g; }, get slot() { return slot; }, changes 
 
 const list = renderSlots(), latest = G.latest(list);
 open(latest ? latest.slot ?? 'quick' : null);
+
+const editorZone = () => layer().lastElementChild ?? document.body;
+const syncEditorFocus = () => {
+  const zone = editorZone(), el = document.activeElement;
+  if (!zone.contains(el) || !isControl(el)) focusFirst(zone);
+};
+createPad({
+  onActivate: syncEditorFocus,
+  onFrame: () => { if (document.body.dataset.input === 'pad') syncEditorFocus(); },
+  onButton(key, phase) {
+    if (phase !== 'press') return;
+    const zone = editorZone(), el = document.activeElement;
+    if (key === 'b') {
+      if (zone === document.body) $('back').click(); else sendKey('Escape');
+    } else if (key === 'a' && zone.contains(el) && isControl(el) && !el.matches('input, select, textarea')) {
+      el.click();
+    }
+  },
+  onDir(dx, dy) {
+    const zone = editorZone(), el = document.activeElement;
+    if (dx && !dy && zone.contains(el)) {
+      if (el.matches('input[type=range], input[type=number]')) {
+        const before = el.value;
+        if (dx > 0) el.stepUp(); else el.stepDown();
+        if (el.value !== before) {
+          const event = el.matches('[type=range]') ? 'input' : 'change';
+          el.dispatchEvent(new Event(event, { bubbles: true }));
+        }
+        return;
+      }
+      if (el.matches('select')) {
+        const next = el.selectedIndex + dx;
+        if (next >= 0 && next < el.options.length) {
+          el.selectedIndex = next; el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        return;
+      }
+    }
+    walk(zone, dx, dy);
+  },
+  onLook(_, dy, dt) {
+    if (!dy) return;
+    const el = document.activeElement;
+    const scroll = el.closest('.rows, .modal') ?? document.scrollingElement;
+    scroll?.scrollBy(0, dy * dt * 800);
+  },
+});
 </script>
 </body>
 </html>

@@ -29,9 +29,13 @@ test('the setup screen offers it, off, and a game started with it on carries the
 
 test('☰ 系统 shows the state and switches it; the record keeps it', async () => {
   await page.getByRole('button', { name: '☰ 系统', exact: true }).click();
-  assert.equal((await item().textContent()).trim(), '电脑进攻 好战');
+  assert.equal((await item().textContent()).trim(), '电脑进攻 好战 · 初级');
   if (process.env.WARLIKE_SHOT) await page.screenshot({ path: `${process.env.WARLIKE_SHOT}/sysmenu.png` });
-  assert.equal(await page.evaluate(() => { const { g, G } = window.__game; G.save(g, 3); return JSON.parse(localStorage.getItem('haou-hd2d-save:3')).warlike; }), true);
+  assert.deepEqual(await page.evaluate(() => {
+    const { g, G } = window.__game;
+    G.save(g, 3); const record = JSON.parse(localStorage.getItem('haou-hd2d-save:3'));
+    return [record.warlike, record.warlikeTiers, record.level];
+  }), [true, true, 0]);
   await item().click();
   assert.equal((await item().textContent()).trim(), '电脑进攻 原版');
   assert.equal(await page.evaluate(() => window.__game.g.warlike), false);
