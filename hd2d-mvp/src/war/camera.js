@@ -4,10 +4,12 @@
 import * as THREE from 'three';
 import { blurWeight } from '../post.js';
 import { W, H } from '../core/field.js';
-import { YAWS, PITCH, TOP_PITCH, TURN_MS, EDGE, tween } from './shared.js';
+import { YAWS, PITCH, TOP_PITCH, TURN_MS, EDGE, tween, siegeFrame } from './shared.js';
 
 export function makeCamera(wv) {
   const { field, human, camera, flat, wx, wz, topY, S, showRoundels } = wv;
+  const fort = wv.fortification?.fort;
+  const fortHeight = fort ? new THREE.Box3().setFromObject(fort).max.y : 0;
   // --- Camera ---
   // The wheel steps through four distances: the whole battle at the board's own slant (全景, the overview), the board filling the
   // screen (远), 9×6 cells, 5×3 cells (feedback R04, 2026-11-02: 远 alone left the enemy off the screen at a corner angle).
@@ -22,22 +24,26 @@ export function makeCamera(wv) {
   // its corners). The whole board (world = true) is fixed to the map; the 9×6 and 5×3 boxes are laid out on the screen, centred on `target`.
   const corner = new THREE.Vector3();
   function fitBox(wCells, hCells, { yaw = view.yawGoal, pitch = view.pitchGoal ?? view.pitch, target = view.targetGoal, world = false, at = CENTRE, ys = world ? [0, 3] : [0, 1.4], side = 0.96 } = {}) {
-    const p = new THREE.Vector3(), cs = Math.cos(yaw), sn = Math.sin(yaw);
+    const cs = Math.cos(yaw), sn = Math.sin(yaw);
     const pts = [];
     for (const a of [-1, 1]) for (const b of [-1, 1]) for (const y of ys) {
       const x = a * wCells / 2, z = b * hCells / 2;
       pts.push(world ? new THREE.Vector3(at.x + x, y, at.z + z) : new THREE.Vector3(target.x + x * cs + z * sn, y, target.z - x * sn + z * cs));
     }
+    return Math.min(fitPoints(pts, { yaw, pitch, target, side }), 70);
+  }
+  function fitPoints(pts, { yaw, pitch, target, side = 0.96, max = 90 }) {
+    const p = new THREE.Vector3();
     // Between the HUD bands (the title bar, the cards and the dock) and right of the action panel's column, with a small margin.
     const top = Math.min(0.86, 1 - 2 * (Math.max(inset.top, 46) + 8) / innerHeight), bot = Math.max(-0.96, -1 + 2 * (inset.bottom + 8) / innerHeight);
     const lft = -side + 2 * inset.left / innerWidth;
-    let lo = 3, hi = 90;
+    let lo = 3, hi = max;
     for (let i = 0; i < 18; i++) {
       const dist = (lo + hi) / 2; poseOn(scratch, { yaw, pitch, dist, target });
       const fits = pts.every((c) => { p.copy(c).project(scratch); return p.x < side && p.x > lft && p.y < top && p.y > bot; });
       if (fits) hi = dist; else lo = dist;
     }
-    return Math.min(hi, 70);
+    return hi;
   }
   // The ground the screen shows: where its four corners meet the plane through the target, as offsets from the target (null when one
   // looks over the horizon), at the given pose, centred on `target` (the view's centre unless given). The screen is the part right of
@@ -69,6 +75,21 @@ export function makeCamera(wv) {
   const wholeAt = new THREE.Vector3();
   function wholeView(o = {}) {
     const yaw = o.yaw ?? view.yawGoal, pitch = o.pitch ?? view.pitchGoal ?? view.pitch;
+    const siege = pitch <= 1.2 && siegeFrame(field);
+    if (siege) {
+      const { cx, cy, moat, outer } = field.siege;
+      const points = [];
+      for (const dx of [-1, 1]) for (const dy of [-1, 1]) {
+        points.push(new THREE.Vector3(wx(cx + dx * (moat + 0.5)), 0, wz(cy + dy * (moat + 0.5))));
+        points.push(new THREE.Vector3(wx(cx + dx * (outer + 0.5)), fortHeight, wz(cy + dy * (outer + 0.5))));
+      }
+      for (const u of field.alive) for (const dx of [-0.65, 0.65]) {
+        points.push(new THREE.Vector3(wx(u.x + dx), topY(u.x, u.y) + 2.6, wz(u.y - 0.5)));
+        points.push(new THREE.Vector3(wx(u.x + dx), topY(u.x, u.y), wz(u.y + 0.5)));
+      }
+      wholeAt.set(wx((siege.x0 + siege.x1) / 2), CENTRE.y, wz((siege.y0 + siege.y1) / 2));
+      return { target: wholeAt, dist: Math.max(fitPoints(points, { yaw, pitch, target: wholeAt, max: 125 }), 1.2 * farDist(yaw, pitch)) };
+    }
     const board = fitBox(W, H, { world: true, target: CENTRE, yaw, pitch });
     if (pitch > 1.2) return { target: CENTRE, dist: board };
     const xs = field.alive.map((u) => wx(u.x)), zs = field.alive.map((u) => wz(u.y));
@@ -96,7 +117,9 @@ export function makeCamera(wv) {
   }
   // The overview: the whole board between the bands, centred.
   function fitBoard() {
-    view.panned = false; view.dist = stepDist('whole'); view.distGoal = null; view.atFit = true; view.zoom = 'whole'; view.targetGoal.copy(wholeView().target);
+    const opening = view.size == null, framing = wholeView();
+    view.panned = false; view.dist = framing.dist; view.distGoal = null; view.atFit = true; view.zoom = 'whole'; view.targetGoal.copy(framing.target);
+    if (opening && field.siege?.revision === 2) view.target.copy(framing.target);
   }
   // The corner an attacking army starts nearest the viewer's bottom left from (it marches up and to the right).
   function pickYaw() {
@@ -245,7 +268,7 @@ export function makeCamera(wv) {
   // The camera part of each frame (the entry's api.update): the overview refit, the eases of distance, tilt and centre, the turn.
   function updateCamera(dt) {
     if (view.atFit && view.zoom === 'whole' && view.size !== `${innerWidth}x${innerHeight}`) view.fit = true; // a resized window: the overview fitted again
-    if (view.fit && camera.aspect !== 1) { view.fit = false; view.size = `${innerWidth}x${innerHeight}`; fitBoard(); }
+    if (view.fit) { view.fit = false; fitBoard(); view.size = `${innerWidth}x${innerHeight}`; }
     // Wheel zoom (and a scripted tilt) ease toward their goals like the target, instead of stepping per event.
     const ez = 1 - Math.exp(-dt * 9);
     if (view.distGoal != null) { view.dist += (view.distGoal - view.dist) * ez; if (Math.abs(view.distGoal - view.dist) < 0.01) view.distGoal = null; }

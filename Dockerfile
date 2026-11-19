@@ -3,7 +3,8 @@ FROM reg.deeproute.ai/deeproute-public/zzh/node:22-bookworm-slim AS dependencies
 
 WORKDIR /dependencies
 COPY hd2d-mvp/desktop/package.json hd2d-mvp/desktop/package-lock.json ./
-RUN npm ci --include=dev --omit=optional --ignore-scripts --no-audit --no-fund
+RUN --mount=type=cache,id=threekindoms-npm,target=/root/.npm,sharing=locked \
+    npm ci --prefer-offline --include=dev --omit=optional --ignore-scripts --no-audit --no-fund
 
 # FROM python:3.13-slim
 FROM reg.deeproute.ai/deeproute-public/zzh/python:3.13-slim AS assets

@@ -365,7 +365,7 @@ test('桌面三维地图显示新增据点，并能打开道路和势力图层',
     await page.getByText('继续记录').click();
     await page.waitForFunction(() => document.body.dataset.screen === 'strategy' && window.__game.g?.current === window.__game.g.player);
     assert.equal(await page.evaluate(() => window.__game.strategy.kind), '3d');
-    assert.equal(await page.locator('.ctag').count(), 39);
+    await page.waitForFunction(() => document.querySelectorAll('.ctag').length === 39);
     await page.locator('.roadsbtn').click(); await page.locator('.terrbtn').click();
     assert.equal(await page.locator('.roadsbtn').getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('.terrbtn').getAttribute('aria-pressed'), 'true');

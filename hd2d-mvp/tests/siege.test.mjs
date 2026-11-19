@@ -66,7 +66,8 @@ test('内院扩到九格，驻门守军受闭门保护且普通移动负责突�
   Object.assign(a, { x: cx - moat, y: cy }); Object.assign(d, { x: gate.x, y: gate.y });
   f.pool.att = 100; f.units = [a, d]; f.O(a.id).int = 99;
   assert.equal(f.legal(a, 0, d), false);
-  assert.equal(f.legal(d, 0, a), false, '闭门阻隔适用于双方');
+  assert.equal(blockedStrategy(f.siege, d, a), true, '闭门仍阻隔视线');
+  assert.equal(f.legal(d, 0, a), true, '门格守军可用火计迎击近敌');
   assert.equal(f.reach(a).dist.has(`${gate.x},${gate.y}`), false, '驻门敌将阻止进入');
   Object.assign(d, { x: cx + 1, y: cy });
   const cost = f.cost(a, gate.x, gate.y);
@@ -133,6 +134,57 @@ test('实际战场中双方专属计策对同一斜线路径得到相同阻隔',
     assert.equal(f.dist(a,d),4); assert.ok(f.strategies(a).some(s=>s.id===16)); assert.ok(f.strategies(d).some(s=>s.id===17));
     assert.equal(f.legal(a,16,d),f.legal(d,17,a),'新局和已有多层攻城记录恢复后都修复阻隔');
   }
+});
+
+test('守军可从内外城门迎击近敌，城墙、侧面、远处和攻方仍受原阻隔', () => {
+  const g = game(), w = war(), f = new Field(g, w, 'def');
+  const [a, flank] = f.side('att'), [d] = f.side('def'), { cx, cy, outer, inner } = f.siege;
+  f.turn = 'def'; f.pool.def = 100; f.r = () => 0;
+  Object.assign(f.O(d.id), { int: 99, level: 7 }); Object.assign(f.O(a.id), { int: 20, soldiers: 700 });
+  for (const ring of [outer, inner]) {
+    Object.assign(d, { x: cx - ring, y: cy }); Object.assign(a, { x: cx - ring - 1, y: cy });
+    f.map[a.y][a.x] = 2;
+    assert.equal(f.legal(d, 0, a), true); assert.equal(f.legal(d, 9, a), true);
+    assert.equal(f.legal(d, 13, a), true); assert.ok(f.odds(d, 0, a) < 95);
+    assert.equal(f.legal(a, 0, d), false); assert.equal(f.legal(d, 5, a), false);
+    assert.equal(f.cast(a, 0, d, true).ok, false);
+    assert.equal(f.cast(d, 0, a).hit, true);
+    const gate = f.siege.gates.find(g => g.x === cx - ring && g.y === cy);
+    assert.equal(gate.open, false);
+    Object.assign(flank, { x: a.x, y: cy + 1 });
+    assert.equal(f.legal(d, 0, flank), false, '不能从闭门斜穿到侧面');
+    d.x++; assert.equal(f.legal(d, 0, a), true, '门后第一格可迎击两格内敌军');
+    a.x--; assert.equal(f.legal(d, 0, a), false, '两格之外不能迎击');
+  }
+  const old = structuredClone(g); delete old.siegeTactics;
+  const legacy = Field.restore(old, w, f.snapshot());
+  const [la] = legacy.side('att'), [ld] = legacy.side('def');
+  Object.assign(la, { x: cx - outer - 1, y: cy }); Object.assign(ld, { x: cx - outer, y: cy });
+  assert.equal(legacy.legal(ld, 0, la), false);
+  const layout = battlefieldLayout(expanded, g, w.city, w.from);
+  const first = siegeLayout(layout.map, layout.dep, layout.villages, layout.direction, false, 1);
+  const snap = f.snapshot(); snap.siegeRevision = 1; snap.siegeGates = first.siege.gates;
+  assert.equal(Field.restore(g, w, snap).fortifiedDefense, false);
+});
+
+test('电脑守军迎击近敌、回防城门，主将和部队不出城追逐', () => {
+  const f = new Field(game(), war(), null), [a, ...foes] = f.side('att'), [d, guard, reserve] = f.side('def');
+  const { cx, cy, outer } = f.siege, west = cx - outer;
+  f.turn = 'def'; f.pool.def = 100; f.r = () => 0;
+  f.units = [a, d, guard, reserve]; foes.forEach(u => { u.gone = true; });
+  for (const u of f.units) Object.assign(f.O(u.id), { soldiers: 700, hp: 99, int: 30, loyalty: 100 });
+  Object.assign(a, { x: west - 2, y: cy }); f.map[cy][a.x] = 2;
+  Object.assign(d, { x: cx, y: cy }); Object.assign(guard, { x: west + 1, y: cy, role: 1 });
+  Object.assign(reserve, { x: west + 1, y: cy + 1, role: 2 });
+  assert.equal(f.aiDecide(d), null, '主将保卫中央城格');
+  assert.equal(f.aiDecide(guard)?.type, 'move'); assert.equal(guard.x, west);
+  const cast = f.aiDecide(guard);
+  assert.equal(cast?.type, 'strategy'); assert.equal(cast.id, 0); assert.equal(cast.t, a);
+  f.O(a.id).soldiers = 700; f.map[cy][a.x] = 1;
+  for (const act of f.aiActions('def')) if (act.type === 'move') assert.ok(act.u.x >= west, '守军不越过城门追击');
+  Object.assign(a, { x: west + 1, y: cy }); f.siege.gates.find(g => g.x === west && g.y === cy).open = true;
+  f.pool.def = 2;
+  assert.equal(f.aiDecide(guard)?.type, 'attack', '城门失守后近战反击入城敌军');
 });
 
 test('真实战场中断存取保留城门状态，损坏的城门记录不能恢复',() => {

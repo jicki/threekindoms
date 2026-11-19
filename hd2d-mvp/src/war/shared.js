@@ -13,6 +13,15 @@ export const YAWS = [1, 3, 5, 7].map((k) => k * Math.PI / 4), PITCH = 0.663, TOP
 // The painted board (src/warplate.js): terrain → material, and the board plate's margin (cells) and density.
 export const KIND = ['forest', 'sand', 'grass', 'river', 'hill', 'castle'], PLATE_M = 2, PLATE_PX = 72;
 
+// 护城河外沿和当前部队占据的范围，共用于手机平面与三维战场。
+export function siegeFrame(field) {
+  if (field.siege?.revision !== 2) return null;
+  const { cx, cy, moat } = field.siege;
+  const x = [cx - moat, cx + moat], y = [cy - moat, cy + moat];
+  for (const u of field.alive) { x.push(u.x); y.push(u.y); }
+  return { x0: Math.min(...x), x1: Math.max(...x), y0: Math.min(...y), y1: Math.max(...y) };
+}
+
 // Painted woods (A2): four crowns to a forest cell, one in each corner so neighbouring cells close into one
 // canopy, the odd conifer; the row in front of the castle low; the odd lone tree on open ground; two
 // to a cell in the country around, dimmed with its ground.

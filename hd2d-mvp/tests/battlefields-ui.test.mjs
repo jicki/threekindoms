@@ -15,6 +15,7 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
   try {
     assert.deepEqual(spriteRequests, [], '标题页按需加载战斗精灵图');
     if (mode === 'phone') await p.setViewportSize({ width: 812, height: 375 });
+    else await p.setViewportSize({ width: 900, height: 900 });
     await newCampaign(p, '刘备');
     await p.evaluate(() => {
       const { g, debug } = window.__game;
@@ -26,6 +27,16 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
     const stop = closeMessages(p);
     try {
       await p.waitForFunction(() => { if (window.__battleError) throw new Error(window.__battleError); return window.__game.war?.st?.deploying && document.body.dataset.screen === 'war'; }, null, { timeout: 60000 });
+      if (mode === '3d') await p.waitForFunction(() => window.__game.war.viewState().still);
+      const framing = await p.evaluate(() => {
+        const w = window.__game.war, { cx, cy, moat } = w.field.siege;
+        const cells = [...w.field.alive];
+        for (const dx of [-moat, moat]) for (const dy of [-moat, moat]) cells.push({ x: cx + dx, y: cy + dy });
+        const points = cells.map(u => w.screenOf(u.x, u.y));
+        return { shown: points.every(p => p.x > 8 && p.x < innerWidth - 8 && p.y > 42 && p.y < innerHeight - 24), zoom: w.viewState?.().zoom };
+      });
+      assert.equal(framing.shown, true, '默认视角包含双方队伍与整圈护城河');
+      if (mode === '3d') assert.equal(framing.zoom, 'whole');
       assert.ok(spriteRequests.some(path => /\/march\/(attacker|defender)\.png$/.test(path)), '进入战场后加载行军素材');
       const state = await p.evaluate(() => {
         const w = window.__game.war, pass = [], doors = [], masonry = [];

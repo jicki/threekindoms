@@ -102,16 +102,34 @@ const sprites = {};
 const officerSprites = Array.isArray(officerList) ? officerList : [];
 // 单挑 action strips (tools/slice_duel_frames.py): star officers' own, plus the two generic generals'.
 const duelStrips = Array.isArray(duelList) ? duelList : [];
-async function loadDuelStrip(key) {
-  if (!duelStrips.includes(String(key)) || sprites[`duel-${key}`]) return;
-  const strip = async (k) => packSpriteStrip({ meta: await (await fetch(`assets/ai/sprites/duel/${k}.json`)).json(), tex: await loadPixelTexture(`assets/ai/sprites/duel/${k}.png`) });
-  // The 白兵 board also turns him to face along a column with his front / back strip (<key>-turn); in a 单挑 his
-  // horse wheels round through that strip and the three-quarter views between it and his side (<key>-wheel).
-  // The third sheet (<key>-c: 舍身 run, crushing hit, defeat and triumph; tools/slice_duel_extra.py) only for the riders
-  // listed in extra.json, so the others ask for no file they do not have.
+const duelLoads = new Map(), duelExtras = new WeakMap(), duelNativeKeys = new WeakMap();
+const stripSource = async (dir, key) => {
+  const root = `assets/ai/sprites/${dir}/${key}`;
+  const [meta, tex] = await Promise.allSettled([readResource(`${root}.json`, r => r.json(), { timeout: 3500 }), loadPixelTexture(`${root}.png`)]);
+  if (tex.status === 'rejected') throw tex.reason;
+  if (meta.status === 'rejected') { tex.value.dispose(); throw meta.reason; }
+  return { meta: meta.value, tex: tex.value };
+};
+async function loadDuelStrip(key, complete = true) {
+  key = String(key);
+  if (!duelStrips.includes(key)) return;
+  const sprite = `duel-${key}`;
+  const asset = (k) => stripSource('duel', k).then(pack => packSpriteStrip(pack)).catch(() => null);
+  // 白兵只用侧面与正背动作，掉头和胜负特写在真正进入单挑时读取。
+  if (!sprites[sprite]) {
+    if (!duelLoads.has(key)) duelLoads.set(key, Promise.all([asset(key), asset(`${key}-turn`)]).then(([side, turn]) => {
+      if (side) { sprites[sprite] = { ...side, turn }; duelNativeKeys.set(sprites[sprite], key); }
+      else turn?.tex.dispose();
+    }).finally(() => duelLoads.delete(key)));
+    await duelLoads.get(key);
+  }
+  const strip = sprites[sprite];
+  if (!complete || duelNativeKeys.get(strip) !== key) return;
   extraStrips ||= json('assets/ai/sprites/duel/extra.json').catch(() => []);
-  const extra = (await extraStrips).includes(String(key)) ? await strip(`${key}-c`).catch(() => null) : null;
-  try { sprites[`duel-${key}`] = { ...(await strip(key)), turn: await strip(`${key}-turn`).catch(() => null), wheel: await strip(`${key}-wheel`).catch(() => null), extra }; } catch {}
+  if (!duelExtras.has(strip)) duelExtras.set(strip, Promise.all([asset(`${key}-wheel`),
+    extraStrips.then(list => Array.isArray(list) && list.includes(key) ? asset(`${key}-c`) : null)])
+    .then(([wheel, extra]) => Object.assign(strip, { wheel, extra })));
+  await duelExtras.get(strip);
 }
 let extraStrips = null;
 // War-map march strips: each side's general from the side, three-quarter front and three-quarter back,
@@ -119,7 +137,7 @@ let extraStrips = null;
 // 单挑 strips (tools/build_officer_march.py) and loaded when they take the field.
 const loadMarch = async (key) => {
   if (sprites[`march-${key}`]) return;
-  try { sprites[`march-${key}`] = { meta: await (await fetch(`assets/ai/sprites/march/${key}.json`, { cache: 'no-store' })).json(), tex: await loadPixelTexture(`assets/ai/sprites/march/${key}.png`) }; } catch {}
+  try { sprites[`march-${key}`] = await stripSource('march', key); } catch {}
 };
 const marchStrips = Array.isArray(marchList) ? marchList : [];
 const configuredMotion = new Map();
@@ -128,7 +146,7 @@ const officerMotion = (id) => {
   const officer = G.data().officers[id];
   return officer?.clone ? null : officer?.visual?.motion ?? null;
 };
-async function loadConfiguredMotion(id) {
+async function loadConfiguredMotion(id, complete = true) {
   const ref = officerMotion(id);
   // 新人物和旧记录的动态武将可能共用编号，动作缓存按素材来源切换。
   if (motionBindings.has(id) && motionBindings.get(id) !== ref) {
@@ -141,7 +159,7 @@ async function loadConfiguredMotion(id) {
   if (existing) {
     const key = existing[1];
     if (marchStrips.includes(key) && !sprites[`march-${key}`]) await loadMarch(key);
-    await loadDuelStrip(key);
+    await loadDuelStrip(key, complete);
     if (officerMotion(id) !== ref) return;
     if (sprites[`march-${key}`]) sprites[`march-${id}`] = sprites[`march-${key}`];
     if (sprites[`duel-${key}`]) sprites[`duel-${id}`] = sprites[`duel-${key}`];
@@ -165,23 +183,23 @@ async function loadConfiguredMotion(id) {
   }
 }
 const loadOfficerMarch = async (ids) => {
-  await Promise.all(ids.map(loadConfiguredMotion));
+  await Promise.all(ids.map(id => loadConfiguredMotion(id, false)));
   await Promise.all(ids.filter((id) => marchStrips.includes(String(id)) && !sprites[`march-${id}`]).map(loadMarch));
 };
 // 兵队只在进入白兵前加载，特色兵队失败时保留普通素材回退。
 const specialKeys = new Set(Object.values(SPECIAL_TROOPS).map((troop) => troop.sprite)), troopLoads = new Map();
-const troopStrip = async (key) => ({ meta: await (await fetch(`assets/ai/sprites/troops/${key}.json`)).json(), tex: await loadPixelTexture(`assets/ai/sprites/troops/${key}.png`) });
+const troopStrip = (key) => stripSource('troops', key);
 async function loadTroop(key) {
   const loaded = sprites[`troop-${key}`];
   if (loaded && (!specialKeys.has(key) || loaded.turn)) return;
   if (!troopLoads.has(key)) {
     const pending = (async () => {
       try {
-        const side = loaded ?? await troopStrip(key);
-        const turn = await troopStrip(`${key}-turn`).catch((error) => {
+        const [side, turn] = await Promise.all([loaded ?? troopStrip(key).catch(() => null), troopStrip(`${key}-turn`).catch((error) => {
           if (specialKeys.has(key)) console.warn(`特色兵队转向素材无法读取，使用侧面动作：${key}`, error);
           return null;
-        });
+        })]);
+        if (!side) { turn?.tex.dispose(); return false; }
         sprites[`troop-${key}`] = { ...side, turn }; return !!turn || !specialKeys.has(key);
       } catch (error) {
         if (specialKeys.has(key)) console.warn(`特色兵队素材无法读取，使用默认动作：${key}`, error);
@@ -212,6 +230,22 @@ const loadTacticalSprites = () => tacticalSprites ??= Promise.all([
     return [key, key];
   }))),
 ]).finally(() => { tacticalSprites = null; });
+const squadSprite = { inf: 'soldier', arc: 'archer', cav: 'cavalry' };
+async function loadBattleTroops(battle, looks) {
+  const normal = new Set(), special = new Set();
+  // 白兵此时尚未打开布阵界面，先由同一套编队规则列出双方所需的兵类。
+  if (!battle.units.length) battle.deploy();
+  for (const u of battle.units) {
+    if (u.special) special.add(u.special);
+    if (squadSprite[u.kind]) normal.add(`${looks[u.side]}-${squadSprite[u.kind]}`);
+  }
+  // 单挑背景的观战士兵，以及两种阵营实际出场的兵队。
+  for (const side of Object.values(looks)) normal.add(`${side}-soldier`);
+  await Promise.all([...special].map(loadTroop).concat([...normal].map(async (key) => {
+    await Promise.all([key, `${key}-v2`].filter((variant) => Array.isArray(troopList) && troopList.includes(variant)).map(loadTroop));
+    if (!sprites[`troop-${key}`] && !sprites[`troop-${key}-v2`]) await loadSharedSprites([[key, key]]);
+  })));
+}
 const weaponMotionLoads = new Map();
 async function loadBattleWeapon(style) {
   if (!weaponMotionLoads.has(style)) {
@@ -225,12 +259,19 @@ async function loadBattleWeapon(style) {
   }
   await weaponMotionLoads.get(style);
 }
-async function loadOfficerSprites(ids, game = g) {
-  await Promise.all([loadTacticalSprites(), ...ids.map(loadConfiguredMotion), loadSpecialTroops(ids, game)]);
-  for (const id of ids) if (officerSprites.includes(id) && !sprites[`officer-${id}`]) sprites[`officer-${id}`] = await loadPixelTexture(`assets/ai/sprites/officers/${id}.png`);
-  await Promise.all([...ids, 'attacker', 'defender'].map(loadDuelStrip));
-  const weapons = new Set(ids.map((id) => replacementWeaponMotion(game, id, G.weaponGroup(game?.officers[id]?.weapon), sprites[`duel-${id}`])).filter(Boolean));
-  await Promise.all([...weapons].map(loadBattleWeapon));
+async function loadOfficerSprites(ids, game = g, battle, looks) {
+  const officers = ids.map(async (id) => {
+    await loadConfiguredMotion(id, !battle);
+    await loadDuelStrip(id, !battle);
+    const style = replacementWeaponMotion(game, id, G.weaponGroup(game?.officers[id]?.weapon), sprites[`duel-${id}`]);
+    if (style) await loadBattleWeapon(style);
+    if (!sprites[`duel-${id}`] && officerSprites.includes(id) && !sprites[`officer-${id}`]) {
+      try { sprites[`officer-${id}`] = await loadPixelTexture(`assets/ai/sprites/officers/${id}.png`); }
+      catch (error) { console.warn('武将战斗立姿无法读取，使用通用动作', error); }
+    }
+  });
+  await Promise.all([loadFieldSprites(), battle ? loadBattleTroops(battle, looks) : loadTacticalSprites(),
+    ...(!battle ? [loadSpecialTroops(ids, game)] : []), ...officers, ...battleSides.map(side => loadDuelStrip(side, !battle))]);
 }
 
 // ---------- Renderer ----------
@@ -2749,15 +2790,17 @@ async function fieldWar(w, humanSide, { after = { kind: humanSide === 'att' ? 'a
     loadWarGround(g.month, w.city).catch((e) => console.warn('war ground', e)), // painted materials (src/warplate.js)
   ]);
   warFlat = nextWarFlat();
-  war = createWarView({ T, audio, ui, sprites, flat: warFlat, yaw, onSkirmish: (a, d, res, terrain) => cutIn(field, a, d, res, terrain) }, field);
+  war = createWarView({ T, audio, ui, sprites, flat: warFlat, yaw, prepareSkirmish: (res) => prepareSkirmish(field, res.pending),
+    onSkirmish: (a, d, res, terrain, ready) => cutIn(field, a, d, res, terrain, ready) }, field);
   warNav?.dispose(); warNav = war.flat ? null : createWarNav(war, document.body); // on <body>: a HUD redraw clears #ui
   await prewarm(war); // under the fade
+  tview.setPlace({ month: g.month, city: w.city }); // 进入战场后在后台预取当地白兵地形。
   terrainPinned = false; terrainView(); // each battle opens with its generals shown
   threatHeld = false; threatView();
   const wasBusy = war.st.busy;
   if (onReady) war.st.busy = true;
   try {
-    setMode(war); audio.playBgm('bgm-battle');
+    setMode(war); if (field.siege?.revision === 2) frameWar(); audio.playBgm('bgm-battle');
     if (onReady) await onReady();
   } finally {
     if (onReady) war.st.busy = wasBusy;
@@ -3027,13 +3070,13 @@ function actPanel(info, was) {
     // it; one that cannot be cast is told the same way, with the reason. stratArmed outlives the panel's redraws.
     if (fresh) stratArmed = null;
     const idle = PHONE ? '点一下计略看说明，再点一次选用' : idle0;
-    const tell = (x) => { if (!x) { info2.textContent = idle; return; } const i = STRAT_INFO[x.id]; info2.replaceChildren(h('b', {}, x.name), `　${i.does}。条件：${i.where}。`, x.usable ? (PHONE ? h('i', { class: 'again' }, '再点一次选用') : '') : h('em', {}, `现在不能用：${x.why || '无法施展'}`)); };
+    const tell = (x) => { if (!x) { info2.textContent = idle; return; } const i = STRAT_INFO[x.id]; info2.replaceChildren(h('b', {}, x.name), `　${i.does}。条件：${war.field.strategyWhere(u, x.id)}。`, x.usable ? (PHONE ? h('i', { class: 'again' }, '再点一次选用') : '') : h('em', {}, `现在不能用：${x.why || '无法施展'}`)); };
     // (the second tap of a quick pair is the pick: it does not pass fresh2, which refuses the second click of a double click)
     const arm = (x, e) => { stratArmed = x.id; for (const b of e.currentTarget.parentNode.children) b.classList.toggle('on', b === e.currentTarget); tell(x); };
     // The row says it short (the foot has the whole reason): no mobility, no target in reach, or his own place.
     const short = (w = '') => (w.startsWith('机动力不足') ? '机动力不足' : w.startsWith('6格内') ? '6格内无合适目标' : w || '无法施展');
     body = h('div', { class: 'ap-body strats', role: 'menu', 'aria-label': '计略', onpointerleave: PHONE ? null : () => tell(null) },
-      ...strategies.map((x) => h('button', { class: `btn${PHONE && stratArmed === x.id ? ' on' : ''}${PHONE && !x.usable ? ' off' : ''}`, role: 'menuitem', disabled: !!busy || (!PHONE && !x.usable), 'aria-disabled': PHONE && !x.usable ? 'true' : null, 'data-sid': x.id, title: `${STRAT_INFO[x.id].does}\n条件：${STRAT_INFO[x.id].where}${x.usable ? '' : `\n现在不能用：${x.why || '无法施展'}`}`,
+      ...strategies.map((x) => h('button', { class: `btn${PHONE && stratArmed === x.id ? ' on' : ''}${PHONE && !x.usable ? ' off' : ''}`, role: 'menuitem', disabled: !!busy || (!PHONE && !x.usable), 'aria-disabled': PHONE && !x.usable ? 'true' : null, 'data-sid': x.id, title: `${STRAT_INFO[x.id].does}\n条件：${war.field.strategyWhere(u, x.id)}${x.usable ? '' : `\n现在不能用：${x.why || '无法施展'}`}`,
         onclick: (e) => { if (PHONE && (!x.usable || stratArmed !== x.id)) return arm(x, e); if (PHONE || fresh2(e)) war.chooseStrategy(x.id); }, onfocus: PHONE ? null : () => tell(x), onkeydown: walk },
       h('span', {}, x.name, x.last ? h('i', { class: 'lasttag' }) : null), h('small', {}, x.cost), x.usable ? null : h('em', {}, short(x.why)))));
     // A greyed button takes no pointer events of its own in every browser, so the list watches the pointer for it.
@@ -3291,11 +3334,18 @@ async function retreatOnMap(field, u, cids) {
 }
 
 // ---------- 白兵 (tactical battle) ----------
-async function cutIn(field, a, d, res, terrain) {
+function prepareSkirmish(field, battle) {
+  if (!battle) return null;
+  const where = { month: field.g.month, city: field.war.city };
+  const looks = battle.human === 'a' ? { a: 'attacker', d: 'defender' } : { a: 'defender', d: 'attacker' };
+  tview.setPlace(where);
+  return { where, looks, done: Promise.all([loadOfficerSprites([battle.side.a.id, battle.side.d.id], field.g, battle, looks), tview.ready()]) };
+}
+async function cutIn(field, a, d, res, terrain, ready = prepareSkirmish(field, res.pending)) {
   const human = field.human, battle = res.pending;
   if (!battle) return;
   const look = (u) => (u.side === human || (!human && u.side === 'att') ? 'attacker' : 'defender');
-  const looks = { a: look(a), d: look(d) }, hs = battle.human;
+  const { where, looks, done } = ready, hs = battle.human;
   const cine = $('#cine');
   cine.innerHTML = `<div class="bar top"></div><div class="bar bot"></div><div class="vsmark">白兵</div><div class="speed"></div><div class="flash"></div>`;
   cine.className = ''; cine.hidden = false; document.body.classList.add('cine');
@@ -3303,10 +3353,7 @@ async function cutIn(field, a, d, res, terrain) {
   let restored = false; const restore = () => { if (!restored) { restored = true; restoreView(); } };
   try { // a throw in the cut must not leave the close-up on: it locks Q / E / Tab for the rest of the battle
     cine.classList.add('enter'); cineFlash(); audio.sfx('sfx-horn');
-    await sleep(600);
-    await loadOfficerSprites([battle.side.a.id, battle.side.d.id]);
-    const where = { month: g.month, city: field.war.city }; tview.setPlace(where); // same season and place as the war map
-    await tview.ready(); // its painted ground (src/tacticalground.js)
+    await Promise.all([sleep(600), done]);
     // Under the walls when either general is within two cells of the castle: the 单挑 is fought before the gate.
     const [cx, cy] = field.castle(), near = (u) => Math.max(Math.abs(u.x - cx), Math.abs(u.y - cy)) <= 2;
     dview.setPlace({ ...where, siege: near(a) || near(d) ? { color: G.FACTION_COLORS[field.faction('def')] ?? '#5a5a66', look: look({ side: 'def' }) } : null });
@@ -3322,13 +3369,20 @@ async function cutIn(field, a, d, res, terrain) {
 // 单挑 cut: letterbox, white flash and the 单挑 mark, then the duel scene; the reverse on exit.
 function duelStage() {
   const cine = $('#cine');
+  function prepare(battle) {
+    const riders = [battle.side.a.id, battle.side.d.id];
+    return Promise.all([...battleSides.map(side => loadDuelStrip(side)), ...riders.map(async (id) => {
+      await loadConfiguredMotion(id); await loadDuelStrip(id);
+    })]);
+  }
   return {
-    view: dview,
+    view: dview, prepare,
     async enter(battle, looks) {
+      const motions = prepare(battle);
       cine.innerHTML = `<div class="bar top"></div><div class="bar bot"></div><div class="vsmark">单挑</div><div class="speed"></div><div class="flash"></div>`;
       cine.className = ''; cine.hidden = false; void cine.offsetWidth;
       cine.classList.add('enter'); cineFlash(); // the original only changes to the duel theme (bank31 $E35C), no clash
-      await sleep(220); setMode(dview);
+      await Promise.all([sleep(220), motions]); setMode(dview);
       await dview.enter(battle, looks, () => prewarm(dview));
     },
     async exit() {
@@ -3578,13 +3632,12 @@ async function quickTactical(aId = 38, dId = 51, terrain = 2, { month = g?.month
   const { Tactical } = await import('./core/tactical.js');
   g ||= G.newGame(4, 1, 3);
   const battle = new Tactical(g, aId, dId, terrain, G.rng(g), { human });
-  await loadOfficerSprites([aId, dId]);
+  const looks = human === 'a' ? { a: 'attacker', d: 'defender' } : { a: 'defender', d: 'attacker' };
   strategy.setSeason(month, true); tview.setPlace({ month, city }); dview.setPlace({ month, city, siege });
-  await tview.ready();
+  await Promise.all([loadOfficerSprites([aId, dId], g, battle, looks), tview.ready()]);
   // a 白兵 is fought from the war screen; on the title screen the unit labels would stay hidden
   document.body.dataset.screen = 'war';
   setMode(tview); document.body.classList.add('cine'); clear(); audio.playBgm('bgm-skirmish');
-  const looks = human === 'a' ? { a: 'attacker', d: 'defender' } : { a: 'defender', d: 'attacker' };
   const res = await runTactical({ battle, hs: human, looks, view: tview, duel: duelStage(), audio, face, name, D, banner, message, profiles: battleProfiles, warm: () => prewarm(tview) });
   document.body.classList.remove('cine'); return res;
 }

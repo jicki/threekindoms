@@ -70,7 +70,7 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
   // The one way into the fight from the opening pause (开始交战, ▶ 继续, Space, the pad's Start): a new input, after the prompt came up.
   // Until then (the 白兵战 开始 banner included, before the prompt is up) ▶ 继续 and the pad's Start do nothing.
   let begun = false;
-  const begin = (e) => { if (!opening || !fresh(e)) return; begun = true; setPaused(false); };
+  const begin = (e) => { if (!opening || !fresh(e)) return; begun = true; void stage.prepare?.(battle); setPaused(false); };
   const setPaused = (on) => { if (on !== paused) pauseClock(on); paused = on; if (!on) { opening?.remove(); opening = null; resume(); } detail(); drawConsole(); };
   // Each squad's exact strength shows on its bar while the battle is paused (and while Alt is held, app.js).
   const detail = () => document.body.classList.toggle('tq-detail', paused);

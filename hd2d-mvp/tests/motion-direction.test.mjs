@@ -185,9 +185,12 @@ for (const [query, label] of [['&flat', '平面'], ['', '三维']]) test(`${labe
     });
     const stop = closeMessages(page);
     try {
-      await page.waitForFunction(() => window.__game.war?.finishDeploy && document.body.dataset.screen === 'war', null, { timeout: 60000 });
+      await page.waitForFunction(() => window.__game.war?.st.deploying && document.body.dataset.screen === 'war', null, { timeout: 60000 });
       await page.evaluate(() => window.__game.war.finishDeploy());
-      await page.waitForFunction(() => window.__game.war.field.turn === window.__game.war.field.human, null, { timeout: 30000 });
+      await page.waitForFunction(() => {
+        const w = window.__game.war;
+        return w.myTurn && !w.st.deploying && !w.st.busy && !document.querySelector('.banner,.shade,#fade.on');
+      }, null, { timeout: 30000 });
       const target = await page.evaluate(() => {
         const w = window.__game.war, f = w.field, u = f.side(f.human)[0];
         w.clickCell(u.x, u.y);

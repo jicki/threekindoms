@@ -7,7 +7,14 @@ import assert from 'node:assert/strict';
 import { startGame, near } from './game.mjs';
 
 let game, page;
-before(async () => { game = await startGame(); page = await game.open(); });
+before(async () => {
+  game = await startGame(); page = await game.open();
+  // 本套测量命令书与演出的节拍。先把素材读入，避免网络和解码时间计入命令书闪烁。
+  assert.equal(await page.evaluate(async () => {
+    const { sceneFrame } = await import('./src/vignette.js');
+    return sceneFrame('land', 0, document.createElement('canvas'));
+  }), true);
+});
 after(() => game?.close());
 
 const CAPTION = '关羽开发了土地　土地价值增加了十五';

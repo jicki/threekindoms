@@ -9,6 +9,7 @@
 import { h } from './ui.js';
 import { pacer } from './framecap.js';
 import { keyTaken, paced, paceSpeed, ORIGINAL } from './pace.js';
+import { readImage, readResource } from './resource.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let enabled = true;
@@ -31,13 +32,24 @@ export const sceneFor = (act, sub) => (act === '开发' ? { land: 'land', indust
 // ---------- assets ----------
 let index = null;
 const images = new Map();
-const img = (src) => { if (!images.has(src)) images.set(src, new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = `assets/ai/vignettes/${src}`; })); return images.get(src); };
+function img(src) {
+  const pending = images.get(src) ?? readImage(`assets/ai/vignettes/${src}`).catch(() => {
+    if (images.get(src) === pending) images.delete(src);
+    return null;
+  });
+  // 一张九帧图解码后约 9 MiB，只保留最近用过的四张。
+  images.delete(src); images.set(src, pending);
+  if (images.size > 4) images.delete(images.keys().next().value);
+  return pending;
+}
 async function load(scene) {
-  index ||= await fetch('assets/ai/vignettes/index.json', { cache: 'no-store' }).then((r) => r.json()).catch(() => ({}));
-  const S = index[scene]; if (!S) return null;
+  index ??= readResource('assets/ai/vignettes/index.json', (r) => r.json(), { timeout: 3000 })
+    .catch(() => { index = null; return null; });
+  const S = (await index)?.[scene]; if (!S?.story?.src) return null;
   const storyImg = await img(S.story.src);
   return storyImg ? { ...S, storyImg } : null;
 }
+export function warmVignette(scene) { if (enabled && scene) void load(scene); }
 const CN = '〇一二三四五六七八九';
 const cnum = (n) => String(n).split('').map((d) => CN[d]).join('');
 const MONTH = ['正', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二'];
@@ -119,8 +131,12 @@ export const showSpan = (duration) => duration - 320 * Math.min(1, duration / 32
 // onShow() runs on the picture's first frame: the command's or 计略's phrase starts there, with the picture, not
 // before the book's blink or while the art loads (playtest of 2026-10-31, F07). No select blip opens it (F06).
 // part: which frames of a storyboard to play (see story()), so the picture never tells an outcome the game did not reach.
-export async function playVignette({ scene, caption, onBook, books = 1, onShow, audio, text, result, duration, force, part }) {
-  const S = (enabled || force) && scene ? await load(scene) : null;
+export async function playVignette({ scene, caption, onBook, books = 1, onShow, audio, text, result, duration, force, part, assetWait }) {
+  if ((!enabled && !force) || !scene) return false;
+  const pending = load(scene);
+  let timer;
+  const S = assetWait ? await Promise.race([pending, new Promise(resolve => { timer = setTimeout(() => resolve(null), assetWait); })]) : await pending;
+  clearTimeout(timer);
   if (!S) return false;
   const start = performance.now();
   let skip = false, cue = null;

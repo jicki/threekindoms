@@ -254,6 +254,7 @@ export function makeInteract(wv) {
     const u = st.sel; if (!u || st.busy || field.turn !== human) return;
     st.menu = false;
     if (!castable(u, id)) return refuse(u, id);
+    wv.warmStrategy(id);
     if (id === 11) return askCast(u, 11, null);
     st.cast = id; st.peek = null; st.confirm = null; st.ask = null; frameCast(u, id); stage(); showOptions(); ui.log(`选择${STRATS[id].name}的目标（紫色格或名单${document.body.dataset.input === 'pad' || PHONE ? '' : '；Esc 或右键返回'}）`); // (on a pad the panel's 返回 shows its button)
   }

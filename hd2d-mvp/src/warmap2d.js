@@ -11,6 +11,7 @@ import { name, data } from './core/game.js';
 import { createSky2d } from './skyfx2d.js';
 import { rng } from './pixel.js';
 import { PHONE, margins } from './phone.js';
+import { siegeFrame } from './war/shared.js';
 
 const KIND = ['forest', 'sand', 'grass', 'river', 'hill', 'castle'];
 // px kept for the HUD strips (ui.css body.flat2d). Under 1200 px the foe's card stacks as a strip above ours (ui.css .unitpanel.compare), so the bottom strip is that much taller.
@@ -184,15 +185,29 @@ export function flatten(war, G, blankScene) {
     box = { k, cw: (B.w * k) / W, ch: (B.h * k) / H, x: (vw - B.w * k) / 2 + view.x, y: FLAT_INSET.top + (band - B.h * k) / 2 + view.y, dpr };
   }
   // Phone only: one finger slides the board, two fingers zoom it about the point between them (app.js).
-  const slide = (dx, dy) => { goal = null; view.x += dx; view.y += dy; place(); };
+  let autoFrame = PHONE && field.siege?.revision === 2;
+  const slide = (dx, dy) => { autoFrame = false; goal = null; view.x += dx; view.y += dy; place(); };
   const zoomAt = (deltaY, ndc) => {
     const z = Math.max(1, Math.min(2.4, view.z * Math.exp(-deltaY * 0.001))); if (z === view.z) return;
+    autoFrame = false; goal = null;
     const px = (ndc.x + 1) / 2 * innerWidth, py = (1 - ndc.y) / 2 * innerHeight, fx = (px - box.x) / (box.cw * W), fy = (py - box.y) / (box.ch * H);
     view.z = z; place();
     view.x += px - (box.x + fx * box.cw * W); view.y += py - (box.y + fy * box.ch * H); place();
   };
   // Bring a cell to where the HUD leaves the board clear (the middle of the screen, a little above centre).
-  const centreOn = (x, y) => { view.x += innerWidth / 2 - (box.x + (x + 0.5) * box.cw); view.y += innerHeight * 0.45 - (box.y + (y + 0.5) * box.ch); place(); };
+  const centreOn = (x, y) => { autoFrame = false; view.x += innerWidth / 2 - (box.x + (x + 0.5) * box.cw); view.y += innerHeight * 0.45 - (box.y + (y + 0.5) * box.ch); place(); };
+  function resetView() {
+    view.z = 1; view.x = view.y = 0; goal = null; place();
+    if (!autoFrame) return;
+    const { x0, x1, y0, y1 } = siegeFrame(field), g = margins();
+    const top = g.t + 40, bottom = innerHeight - g.b - 44;
+    const cols = x1 - x0 + 2, rows = y1 - y0 + 4;
+    view.z = Math.min(1.6, Math.max(1, Math.min((innerWidth - g.l - g.r - 24) / (cols * box.cw), (bottom - top) / (rows * box.ch))));
+    place();
+    view.x += (g.l + innerWidth - g.r) / 2 - (box.x + ((x0 + x1) / 2 + 0.5) * box.cw);
+    view.y += (top + bottom) / 2 - (box.y + ((y0 + y1) / 2 - 0.5) * box.ch);
+    place();
+  }
   // The phone's camera follows the play (a mouse sees the whole board at once; a zoomed or slid phone board does not): the
   // general just selected, the enemy asked about, a unit that has just moved in the enemy's turn. A cell already in the clear
   // middle of the screen moves nothing; otherwise the board eases until it stands there. A drag of the player's ends the ease.
@@ -200,19 +215,25 @@ export function flatten(war, G, blankScene) {
   const ensure = (x, y) => {
     const px = box.x + (x + 0.5) * box.cw, py = box.y + (y + 0.5) * box.ch, vw = innerWidth, vh = innerHeight;
     if (px > vw * 0.24 && px < vw * 0.76 && py > 52 && py < vh - 112) return;
+    autoFrame = false;
     goal = { x: view.x + vw / 2 - px, y: view.y + vh * 0.45 - py };
   };
   function follow(dt) {
     const st = war.st, f = field, mine = f.units.filter((u) => u.side === f.human && !u.gone);
-    if (!opened && mine.length) { opened = true; const cx = mine.reduce((a, u) => a + u.x, 0) / mine.length, cy = mine.reduce((a, u) => a + u.y, 0) / mine.length; centreOn(cx - 0.5, cy - 0.5); }
+    if (!opened && mine.length) {
+      opened = true;
+      if (autoFrame) lastSel = st.sel;
+      else { const cx = mine.reduce((a, u) => a + u.x, 0) / mine.length, cy = mine.reduce((a, u) => a + u.y, 0) / mine.length; centreOn(cx - 0.5, cy - 0.5); }
+    }
     if (st.sel !== lastSel) { lastSel = st.sel; if (st.sel && !st.sel.gone) ensure(st.sel.x, st.sel.y); }
     const ask = st.confirm?.t ?? st.strike?.t ?? st.ask ?? null;
     if (ask !== lastAsk) { lastAsk = ask; if (ask && !ask.gone) ensure(ask.x, ask.y); }
     for (const u of f.units) { const k = `${u.x},${u.y}`, was = stood.get(u); stood.set(u, k); if (was && was !== k && !u.gone && (f.turn !== f.human || u.side !== f.human)) ensure(u.x, u.y); }
     if (goal) { const k = 1 - Math.exp(-dt * 7); view.x += (goal.x - view.x) * k; view.y += (goal.y - view.y) * k; if (Math.abs(goal.x - view.x) + Math.abs(goal.y - view.y) < 1) goal = null; place(); }
   }
-  layout(); addEventListener('resize', layout);
-  wrap.dispose = () => { removeEventListener('resize', layout); wrap.remove(); };
+  const resize = () => { layout(); if (autoFrame) resetView(); };
+  resize(); addEventListener('resize', resize);
+  wrap.dispose = () => { removeEventListener('resize', resize); wrap.remove(); };
   const cellAt = (ndc) => {
     const px = (ndc.x + 1) / 2 * innerWidth, py = (1 - ndc.y) / 2 * innerHeight;
     const x = Math.floor((px - box.x) / box.cw), y = Math.floor((py - box.y) / box.ch);
@@ -633,7 +654,7 @@ export function flatten(war, G, blankScene) {
     // A cell's centre on screen, in CSS px (tools click the map as a player would).
     screenOf: (x, y) => ({ x: box.x + (x + 0.5) * box.cw, y: box.y + (y + 0.5) * box.ch, cw: box.cw, ch: box.ch }),
     screenAxes: () => ({ x: [box.cw, 0], y: [0, box.ch] }), // one grid step on screen (the gamepad's cursor, app.js)
-    orbit() {}, zoom(d, ndc) { if (PHONE) zoomAt(d, ndc); }, pan() {}, resetView() { if (PHONE) { view.z = 1; view.x = view.y = 0; place(); } }, frame() {}, overview() { war.overview(); },
+    orbit() {}, zoom(d, ndc) { if (PHONE) zoomAt(d, ndc); }, pan() {}, resetView() { if (PHONE) { autoFrame = field.siege?.revision === 2; resetView(); } }, frame() {}, overview() { war.overview(); },
     ...(PHONE ? { slide, centreOn } : {}),
     rotate: undefined, turn: undefined, turnEnd: undefined, tactical: undefined, viewState: undefined, dof: undefined, setTerrainView: undefined, // the flat map has no turn, zoom step or overview of its own
     setInsets() {},

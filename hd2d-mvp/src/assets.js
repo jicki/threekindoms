@@ -47,11 +47,17 @@ export async function loadManifest() {
 // The painted icon of a piece of equipment (tools/gen_equip_icons_codex.sh): 0-23 weapons, 24-31 armour, as D.equipment.
 export const equipIcon = (id) => equipmentIconUrl(data()?.equipment?.[id]?.icon ?? id);
 
-export function loadPixelTexture(url) {
-  return new Promise((res, rej) => new THREE.TextureLoader().load(url, (t) => {
-    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestMipmapNearestFilter;
-    t.colorSpace = THREE.SRGBColorSpace; res(t);
-  }, undefined, rej));
+export function loadPixelTexture(url, timeout = 5000) {
+  return new Promise((res, rej) => {
+    let expired = false;
+    const timer = setTimeout(() => { expired = true; rej(new Error(`读取 ${url} 超时`)); }, timeout);
+    new THREE.TextureLoader().load(url, (t) => {
+      clearTimeout(timer);
+      if (expired) { t.dispose(); return; }
+      t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestMipmapNearestFilter;
+      t.colorSpace = THREE.SRGBColorSpace; res(t);
+    }, undefined, (error) => { clearTimeout(timer); rej(error); });
+  });
 }
 
 // 将过宽的单行动作条无损排列成多行，避免超过低端设备的纹理宽度上限。

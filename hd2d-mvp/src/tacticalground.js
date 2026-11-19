@@ -10,11 +10,17 @@ import * as THREE from 'three';
 import { siteOfCity } from './china.js';
 import { plateKey } from './seasonenv.js';
 import { vnoise } from './diorama.js';
+import { readImage, readResource } from './resource.js';
+import { PHONE } from './phone.js';
 
 const WG = 'assets/ai/warground/', TG = 'assets/ai/tactical/';
 const cache = new Map();
-const image = (url) => cache.get(url) ?? cache.set(url, new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; })).get(url);
-const json = (url) => cache.get(url) ?? cache.set(url, fetch(url).then((r) => r.json())).get(url);
+function cached(url, load) {
+  if (!cache.has(url)) cache.set(url, load(url).catch(error => { cache.delete(url); throw error; }));
+  return cache.get(url);
+}
+const image = (url) => cached(url, readImage);
+const json = (url) => cached(url, path => readResource(path, r => r.json()));
 
 // The month's ground at the battle's latitude, from the same horizon plate the scene's ring shows.
 function seasonOf(month, lat) {
@@ -24,29 +30,33 @@ function seasonOf(month, lat) {
   if (k === 'spring') return { grass: 'grass-spring', trees: 'trees-spring' };
   return { grass: 'grass', trees: 'trees' };
 }
-const MATS = ['dirt', 'sand', 'hilltop', 'forest-floor', 'paving', 'bank', 'water', 'cliff', 'snow', 'village'];
-let loaded = null;
+const MATS = ['dirt', 'sand', 'hilltop', 'forest-floor', 'paving', 'bank', 'water', 'cliff'];
+const grounds = new Map();
+const groundSeason = (month, city) => seasonOf(month, siteOfCity(city)?.lat ?? 33);
+const groundKey = (season) => season.snow ? 'winter' : season.trees;
 // Before the field is built (app.js awaits it): the materials for this battle's month and place.
-export async function loadTacticalGround(month, city) {
-  const key = `${month}|${city}`;
-  if (loaded?.key === key) return loaded;
-  const season = seasonOf(month, siteOfCity(city)?.lat ?? 33);
-  const names = [...MATS, season.grass];
-  const [imgs, atlas, sheet, sets] = await Promise.all([
+export function loadTacticalGround(month, city) {
+  const season = groundSeason(month, city), key = groundKey(season);
+  if (grounds.has(key)) return grounds.get(key).pending;
+  const names = [...MATS, season.grass, ...(season.snow ? ['snow'] : [])];
+  const entry = { value: null, pending: null };
+  entry.pending = Promise.all([
     Promise.all(names.map((n) => image(`${WG}${n}.webp`))), image(`${WG}${season.trees}.webp`), json(`${WG}${season.trees}.json`),
     Promise.all(['wall-face', 'wall-top', 'banners'].map((n) => image(`${TG}${n}.webp`).catch(() => null))),
-  ]);
-  const bannerRects = sets[2] ? await json(`${TG}banners.json`).catch(() => null) : null;
-  const img = Object.fromEntries(names.map((n, i) => [n, imgs[i]]));
-  img.grass = img[season.grass];
-  loaded = { key, season, img, atlas, sheet, wallFace: sets[0], wallTop: sets[1], banners: bannerRects && { img: sets[2], ...bannerRects } };
-  return loaded;
+    json(`${TG}banners.json`).catch(() => null),
+  ]).then(([imgs, atlas, sheet, sets, bannerRects]) => {
+    const img = Object.fromEntries(names.map((n, i) => [n, imgs[i]]));
+    img.grass = img[season.grass];
+    return (entry.value = { season, img, atlas, sheet, wallFace: sets[0], wallTop: sets[1], banners: sets[2] && bannerRects && { img: sets[2], ...bannerRects } });
+  }).catch(error => { grounds.delete(key); throw error; });
+  grounds.set(key, entry);
+  return entry.pending;
 }
-export const tacticalGround = (month, city) => (loaded?.key === `${month}|${city}` ? loaded : null);
+export const tacticalGround = (month, city) => grounds.get(groundKey(groundSeason(month, city)))?.value ?? null;
 
 // How many cells one repeat of a swatch spans.
 const SPAN = { grass: 5, snow: 5, dirt: 4.5, sand: 5, hilltop: 3, 'forest-floor': 4, paving: 2.6, bank: 2.5, water: 4 };
-const PX = 56, M = 8; // canvas texels and mask texels a cell
+const PX = PHONE ? 40 : 56, M = 8; // 手机上白兵地表画布的像素量减半，地形掩码与格数不变。
 export const WATER_Y = 0.25, KNOLL = 0.62, WALL_H = 0.95;
 const smooth = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
 

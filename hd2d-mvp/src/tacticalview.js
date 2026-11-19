@@ -103,7 +103,7 @@ export function createTacticalView(T, sprites) {
   const blastMarkMat = new THREE.MeshBasicMaterial({ color: '#ffb33b', transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide });
   for (let i = 0; i < 9; i++) { const tile = new THREE.Mesh(blastTile, blastMarkMat); tile.rotation.x = -Math.PI / 2; blastMark.add(tile); }
   blastMark.name = 'blast-preview'; blastMark.visible = false; scene.add(blastMark);
-  let where = { month: 2, city: 12 }, place = env.set(where), loading = loadTacticalGround(2, 12).catch(() => null);
+  let where = { month: 2, city: 12 }, place = env.set(where), loading = null;
 
   let set = null, units = new Map(), battle = null, time = 0, shake = 0, speed = 1, shift = 0, fit = 1, billboards = [], corpses = [], water = null, cellH = () => H0;
   let stepAt = -Infinity;

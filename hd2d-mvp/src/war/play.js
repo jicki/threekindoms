@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { W, H, STRATS, stratCount } from '../core/field.js';
 import { slash, sparkBurst, dustPuff, STRATEGY_FX, levelUp } from '../fx.js';
 import { name, cityName, takeLevelUps, DEAD } from '../core/game.js';
-import { playVignette } from '../vignette.js';
+import { playVignette, warmVignette } from '../vignette.js';
 import { ORIGINAL, paced, hold as holdBeat } from '../pace.js';
 import { stage } from '../commitguard.js';
 import { tween, STRAT_SCENE, STRAT_CUE, STRAT_FX, STRAT_FX_SOUND } from './shared.js';
@@ -28,6 +28,13 @@ function strategySceneId(strategy) {
   if (strategy.stop) return 2;
   if (strategy.hp) return 1;
   return 3;
+}
+function strategyVisual(strategy) {
+  return Object.hasOwn(SKILL_VISUALS, strategy.visualEffect) ? SKILL_VISUALS[strategy.visualEffect] : null;
+}
+function warmStrategy(id) {
+  const s = STRATS[id];
+  warmVignette(strategyVisual(s)?.scene ?? STRAT_SCENE[strategySceneId(s)]);
 }
 
 export function makePlay(wv) {
@@ -202,8 +209,9 @@ export function makePlay(wv) {
   }
   async function playAttack(a, d, res) {
     ui.log(`${name(a.id)} 攻击 ${name(d.id)}`);
+    const ready = ctx.prepareSkirmish?.(res);
     await lunge(a, d);
-    await ctx.onSkirmish(a, d, res, terr(d.x, d.y));
+    await ctx.onSkirmish(a, d, res, terr(d.x, d.y), ready);
     ui.log(`　${name(d.id)} 损兵 ${res.lossD}，${name(a.id)} 损兵 ${res.lossA}`);
     for (const [u, info] of [[a, res.a], [d, res.d]]) {
       if (info.fate === 'dead') ui.log(`　<em>${name(u.id)} 阵亡</em>`);
@@ -234,7 +242,7 @@ export function makePlay(wv) {
   async function playStrategy(u, t, id, res) {
     const name0 = STRATS[id].name;
     const visualId = strategySceneId(STRATS[id]);
-    const visual = Object.hasOwn(SKILL_VISUALS, STRATS[id].visualEffect) ? SKILL_VISUALS[STRATS[id].visualEffect] : null;
+    const visual = strategyVisual(STRATS[id]);
     ui.log(`${name(u.id)} 施展<strong>${name0}</strong>${t ? `→${name(t.id)}` : ''}`);
     const cue = () => { if (!audio.cue(visual?.cue ?? STRAT_CUE[visualId])) audio.sfx('sfx-horn'); }; // its phrase, then the war theme from the top (T13)
     // The player has just picked the target on the view he has and keeps it; an enemy's 计略 is shown to him (devblog #96, 2026-11-03).
@@ -242,7 +250,7 @@ export function makePlay(wv) {
     // The original's beats (src/pace.js): the cast animation names the 计略 and plays its phrase, then a window
     // tells what it did while the effect lands on the board, then the board has the rest of the 3.48 s. Without
     // the picture (演出 off) a banner stands in for the cast.
-    const shown = await playVignette({ scene: visual?.scene ?? STRAT_SCENE[visualId], caption: `${name(u.id)}的${name0}……`, audio, duration: paced(ORIGINAL.strategyShow), onShow: cue, part: res.hit ? undefined : 'attempt' }); // a 计略 that fails stops short of the outcome
+    const shown = await playVignette({ scene: visual?.scene ?? STRAT_SCENE[visualId], caption: `${name(u.id)}的${name0}……`, audio, assetWait: 1200, duration: paced(ORIGINAL.strategyShow), onShow: cue, part: res.hit ? undefined : 'attempt' }); // a 计略 that fails stops short of the outcome
     if (!shown) { cue(); await ui.stratBanner?.(name0); }
     const t0 = performance.now(); // the window and the board keep the original's time after the show, however long it ran
     // The face the original's window wears (bank 12 $AACD / $AAE5, bank 13 $C0B6 / $C0C0): the player's caster, 喜 when
@@ -347,5 +355,5 @@ export function makePlay(wv) {
     check();
   }
   function endTurn() { if (st.busy || st.confirm || st.strike || field.turn !== human || !wv.endHuman) return; st.peek = null; const f = wv.endHuman; wv.endHuman = null; f(); }
-  return { lock, faceToward, pose, moveAlong, burst, lossNum, tellLevelUps, qimenBeat, lunge, recoil, playAttack, rect, castOn, playStrategy, check, aiSide, loop, endTurn };
+  return { lock, faceToward, pose, moveAlong, burst, lossNum, tellLevelUps, qimenBeat, lunge, recoil, playAttack, rect, castOn, playStrategy, warmStrategy, check, aiSide, loop, endTurn };
 }

@@ -8,12 +8,13 @@ import { roll100, realChance } from './origrng.js';
 import { relationshipAffinity, recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
 import { passiveRiceUse } from './ruler-passives.js';
 import { battlefieldLayout, battlefieldProfile } from './battlefields.js';
-import { siegeLayout, wallAt, gateAt, blockedStrategy, restoreGates } from './siege.js';
+import { siegeLayout, siegeRing, wallAt, gateAt, gateDefense, blockedStrategy, restoreGates } from './siege.js';
 import { abilityStrategy, abilityStrategyIds, strategySpecs } from './famous-skills.js';
 
 const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0]]; // 上下左右
 export const W = 32, H = 19, FOREST = 0, SAND = 1, PLAIN = 2, RIVER = 3, MOUNT = 4, CASTLE = 5;
 export const ATTACK_COST = 2, MAX_DAY = 30;
+const GATE_STRATEGIES = [0, 4, 9, 13]; // 火计、乱水、落石、连弩皆只作用于一个目标
 // The terrains by the manual's names (M p34), in the order of the constants above.
 export const TERRAIN_NAME = ['林', '沙地', '平地', '河', '山', '城'];
 
@@ -197,7 +198,7 @@ export class Field {
     const gate = gateAt(this.siege, x, y);
     return D.rules.move_cost[o.soldiers >= 600 ? 'large' : 'small'][o.army][t] + (u.side === 'att' && gate && !gate.open ? 2 : 0);
   }
-  reach(u, budget = this.pool[u.side]) {
+  reach(u, budget = this.pool[u.side], allows = () => true) {
     const dist = new Map([[u.x + ',' + u.y, 0]]), prev = new Map(), open = u.stop || u.qimen ? [] : [[0, u.x, u.y]];
     while (open.length) {
       open.sort((a, b) => a[0] - b[0]);
@@ -205,8 +206,7 @@ export class Field {
       if (d > dist.get(x + ',' + y)) continue;
       for (const [dx, dy] of DIRS) {
         const nx = x + dx, ny = y + dy, k = nx + ',' + ny;
-        if (!this.inside(nx, ny) || this.unitAt(nx, ny)) continue;
-        if (u.side === 'def' && false) continue;
+        if (!this.inside(nx, ny) || !allows(nx, ny) || this.unitAt(nx, ny)) continue;
         const nd = d + this.cost(u, nx, ny);
         if (nd > budget || nd >= (dist.get(k) ?? Infinity)) continue;
         dist.set(k, nd); prev.set(k, x + ',' + y); open.push([nd, nx, ny]);
@@ -384,13 +384,24 @@ export class Field {
     const custom = abilityStrategyIds(data(), this.g, u.id).map((id) => STRATS[id]).filter((s) => s?.custom);
     return [...normal, ...custom];
   }
+  get fortifiedDefense() { return this.siege?.revision === 2 && this.g.siegeTactics === true; }
+  defendingFromGate(u, id, t) {
+    return this.fortifiedDefense && u.side === 'def' && t?.side === 'att' && GATE_STRATEGIES.includes(id)
+      && !!gateDefense(this.siege, u, t);
+  }
+  strategyWhere(u, id) {
+    const where = STRAT_INFO[id].where;
+    if (!this.fortifiedDefense || u.side !== 'def' || !GATE_STRATEGIES.includes(id)) return where;
+    return `${where}；闭门迎击${id === 9 || id === 13 ? '须站门格，目标紧邻门口' : '须站门格或门后第一格，目标在正前方两格内'}`;
+  }
   // Terrain/adjacency gate `$AD80` plus distance <6; target null for 十面埋伏.
   legal(u, id, t) {
     if (this.war.raid && id === 8) return false; // 特殊守城的临时敌军不会收编或被收编。
     const T = (v) => this.terr(v.x, v.y);
     if (id === 11) return T(u) === FOREST && this.O(u.id).soldiers >= 100 && !this.ambush?.[u.side];
     if (!t || t.gone || t.side === u.side || this.dist(u, t) >= 6) return false;
-    if (blockedStrategy(this.siege, u, t)) return false;
+    const tower = this.defendingFromGate(u, id, t);
+    if (!tower && blockedStrategy(this.siege, u, t)) return false;
     if (STRATS[id]?.custom) return true;
     switch (id) {
       case 0: return T(t) === FOREST || T(t) === PLAIN;
@@ -400,9 +411,9 @@ export class Field {
       case 6: return T(t) === CASTLE && this.adjacent(u, t);
       case 7: return (T(t) === FOREST || T(t) === MOUNT) && this.enemyNeighbours(t).length > 0;
       case 8: return T(t) !== CASTLE;
-      case 9: return (T(u) === MOUNT || T(u) === CASTLE) && this.adjacent(u, t) && T(t) !== CASTLE;
+      case 9: return (tower || T(u) === MOUNT || T(u) === CASTLE) && this.adjacent(u, t) && T(t) !== CASTLE;
       case 10: case 12: return T(t) === RIVER && this.enemyNeighbours(t, (e) => T(e) === RIVER).length > 0;
-      case 13: return T(u) === CASTLE && this.adjacent(u, t);
+      case 13: return (tower || T(u) === CASTLE) && this.adjacent(u, t);
       case 14: return T(t) !== CASTLE && this.enemyNeighbours(t, (e) => T(e) !== CASTLE).length > 0;
       case 15: return T(t) !== RIVER && T(t) !== CASTLE;
     }
@@ -416,19 +427,22 @@ export class Field {
     if (S.custom && S.maxUses && (u.skillUses?.[id] ?? 0) >= S.maxUses) return '本场使用次数已用完';
     if (this.pool[u.side] < S.cost) return `机动力不足（需 ${S.cost}，剩 ${this.pool[u.side]}）`;
     if (id === 11) return T !== FOREST ? '需自己位于森林' : o.soldiers < 100 ? '兵数不足100' : this.ambush?.[u.side] ? '我军已设下伏兵' : this.legal(u, 11) ? null : '现在无法施展';
+    if (this.side(u.side === 'att' ? 'def' : 'att').some((e) => this.legal(u, id, e))) return null;
+    if (this.fortifiedDefense && u.side === 'def' && GATE_STRATEGIES.includes(id) && gateAt(this.siege, u.x, u.y)) return '城门迎击只对门口正前方近敌生效';
     if (id === 9 && T !== MOUNT && T !== CASTLE) return '需自己位于山地或城中';
     if (id === 13 && T !== CASTLE) return '需自己位于城中';
-    if (this.side(u.side === 'att' ? 'def' : 'att').some((e) => this.legal(u, id, e))) return null;
     if (this.side(u.side === 'att' ? 'def' : 'att').some((e) => this.dist(u,e) < 6 && blockedStrategy(this.siege,u,e))) return '城墙阻隔计策，需先突破相应城门';
     return `${S.custom ? 5 : 6}格内没有符合条件的敌军（${STRAT_INFO[id].where.replace(/^自己在[^，]*，/, '')}）`;
   }
-  hitChance(u, t) {
+  hitChance(u, t, id) {
     const d = this.dist(u, t); if (d >= 6) return 0;
     const a = this.O(u.id), b = this.O(t.id), D = u.side === this.human || !this.human ? 10 : [5, 10, 20][this.g.level];
     let s = [15, 10, 5, 0, -5, -10][d] + Math.max(a.int - b.int, 0) + 2 * Math.max(a.level - b.level, 0) + D;
     // 新局按完整数值封顶；没有标记的原版与旧记录保留原作的 8 位判定。
     if (this.g.safeStrategyChance !== true) { s &= 255; if (s & 128) s = 0; }
-    return this.passiveChance(Math.min(95, Math.max(5, s)), u.side, 95);
+    const throughGate = this.defendingFromGate(u, id, t);
+    const cap = throughGate ? 75 : 95;
+    return this.passiveChance(Math.min(cap, Math.max(5, s - (throughGate ? 10 : 0))), u.side, cap);
   }
   // 原版随机表并非均匀分布，按实际概率限制增益而非简单增加判定阈值。
   passiveChance(base, side, limit) {
@@ -445,7 +459,7 @@ export class Field {
   }
   // What the player is told: the chance the cast really has. hitChance / lureChance are the numbers the roll is
   // compared with; the original's roll (core/origrng.js) comes under them more often than that many times in 100.
-  odds(u, id, t) { return Math.round(realChance(id === 8 ? this.lureChance(u, t) : this.hitChance(u, t))); }
+  odds(u, id, t) { return Math.round(realChance(id === 8 ? this.lureChance(u, t) : this.hitChance(u, t, id))); }
   // Connected enemy component from t (right,left,down,up), castles excluded (`$B8A1`).
   component(t) {
     const out = [t], seen = new Set([t]);
@@ -484,7 +498,7 @@ export class Field {
   }
   cast(u, id, t, ai = false) {
     const S = STRATS[id], r = this.r, a = this.O(u.id), U = (n) => r(n), lines = [], hits = [];
-    if (t && blockedStrategy(this.siege,u,t)) return { ok:false, hit:false, name:S.name, lines:['城墙阻隔计策'], hits };
+    if (t && blockedStrategy(this.siege,u,t) && !(this.defendingFromGate(u, id, t) && this.legal(u, id, t))) return { ok:false, hit:false, name:S.name, lines:['城墙阻隔计策'], hits };
     if (S.custom && S.maxUses && (u.skillUses?.[id] ?? 0) >= S.maxUses) return { ok: false, hit: false, name: S.name, lines: ['本场使用次数已用完'], hits };
     if (!ai && !this.canCast(u, id, t)) return { ok: false, hit: false, name: S.name, lines: [this.pool[u.side] < S.cost ? '机动力不足' : `无法施展${S.name}`], hits };
     this.pool[u.side] = Math.max(0, this.pool[u.side] - (ai ? S.ai : S.cost));
@@ -509,7 +523,7 @@ export class Field {
       a.soldiers -= 100; (this.ambush ||= {})[u.side] = { u, x: u.x, y: u.y, days: 5 };
       return { ok: true, hit: true, name: S.name, lines: [`${nm(u)} 在林中设下伏兵`], hits };
     }
-    const p = id === 8 ? this.lureChance(u, t) : this.hitChance(u, t);
+    const p = id === 8 ? this.lureChance(u, t) : this.hitChance(u, t, id);
     if (roll100(r) >= p) return { ok: true, hit: false, name: S.name, lines: [`${S.name}失败`], hits };
     if (S.custom) {
       const extra = this.conditionalSkill(S, u, t), stop = Math.min(10, S.stop + extra.stop);
@@ -634,13 +648,14 @@ export class Field {
     const myRice = ch.rice, foeRice = this.chest(foe).rice;
     if (myRice >= need(s) * left && foeRice < need(foe) * left && foeRice < need(foe) * 5) { for (const u of mine) if (full(u) && (u.role === 1 || u.role === 2)) u.role = 4; return; }
     const shop = this.villages.find((v) => v.kind === '米店'), hospital = this.villages.find((v) => v.kind === '病院');
-    if (myRice < need(s) * left && shop && ch.gold >= 100) {
+    const garrison = s === 'def' && this.fortifiedDefense;
+    if (myRice < need(s) * (garrison ? Math.min(left, 4) : left) && shop && ch.gold >= 100) {
       if (!missions('rice').length) {
         const pick = [2, 4, 1, 3].map((role) => mine.find((u) => full(u) && u.role === role)).find(Boolean);
         if (pick) { pick.mission = { kind: 'rice', x: shop.x, y: shop.y, home: pick.role }; pick.role = 5; }
       }
     } else if (myRice < need(s) * 10) { for (const u of mine) if (full(u)) u.role = 1; return; }
-    if (hospital && ch.gold >= 50 && missions('heal').length < 2) {
+    if (!garrison && hospital && ch.gold >= 50 && missions('heal').length < 2) {
       for (const u of mine) {
         if (missions('heal').length >= 2) break;
         if (full(u) && this.O(u.id).hp < Math.floor(maxHp(this.O(u.id)) * 0.6)) { u.mission = { kind: 'heal', x: hospital.x, y: hospital.y, home: u.role }; u.role = 6; }
@@ -734,6 +749,14 @@ export class Field {
     if (custom) return this.doCast(u, custom.skill.id, custom.target);
     const special = this.aiStrategy(u, true);
     if (special) return special;
+    if (this.fortifiedDefense && s === 'def') {
+      const invader = adj.filter(v => siegeRing(this.siege, v) <= this.siege.outer);
+      if (invader.length && this.pool[s] >= ATTACK_COST) return this.doAttack(u, invader);
+      const cast = this.aiStrategy(u, false);
+      if (cast) return cast;
+      if (adj.length && this.pool[s] >= ATTACK_COST) return this.doAttack(u, adj);
+      return this.guardCastle(u);
+    }
     if (u.role === 0) {
       if (s === 'def') return this.aiStrategy(u, false);
       if (this.pool[s] >= ATTACK_COST && adj.length) return this.doAttack(u, adj);
@@ -773,6 +796,32 @@ export class Field {
     }
     if (u.role === 2) { if (s === 'def') return this.approach(u, commanderFoe); const [cx, cy] = this.castle(); return this.approach(u, { x: cx, y: cy }); }
     return this.aiStrategy(u, false) || this.approach(u, this.side(s).find((x) => x.commander));
+  }
+  guardCastle(u) {
+    const siege = this.siege, inside = (v) => siegeRing(siege, v) <= siege.outer;
+    if (u.commander || u.stop || u.qimen || this.pool.def <= 0) return null;
+    const distance = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    const enemies = this.side('att');
+    const gates = siege.gates.filter(g => g.ring === siege.outer);
+    // 城内先堵已经进城的敌军。对城外敌军只调往受威胁的门口，不跟到护城河外。
+    const threats = enemies.filter(inside);
+    const posts = threats.length ? threats : gates.filter(g => enemies.some(e => distance(e, g) <= 5));
+    if (!posts.length && inside(u)) return null;
+    const goals = posts.length ? posts : gates;
+    const stationed = inside(u);
+    const reach = this.reach(u, this.pool.def, (x, y) => !stationed || inside({ x, y }));
+    const score = (v) => Math.min(...goals.map(g => distance(v, g) + (threats.length ? siegeRing(siege, g) : 0)));
+    let best = { x: u.x, y: u.y, score: score(u), cost: 0 };
+    for (const [key, cost] of reach.dist) {
+      const [x, y] = key.split(',').map(Number);
+      const candidate = score({ x, y });
+      if (candidate < best.score || (candidate === best.score && cost < best.cost)) best = { x, y, score: candidate, cost };
+    }
+    const step = this.path(reach, best.x, best.y)[0];
+    if (!step) return null;
+    const cost = this.cost(u, ...step);
+    this.move(u, ...step, cost);
+    return { type: 'move', u, path: [step], cost };
   }
   // AI strategy choice (6.8 §5): normal priority 6→5→8→9→7→random{2,1,3}→4→0; special 10→15 for listed strategists.
   aiStrategy(u, special) {

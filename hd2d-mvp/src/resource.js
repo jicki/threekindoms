@@ -10,3 +10,16 @@ export async function readResource(url, read, { timeout = 8000, ...options } = {
     throw error;
   } finally { clearTimeout(timer); }
 }
+
+export function readImage(url, timeout = 5000) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const finish = () => { clearTimeout(timer); image.onload = image.onerror = null; };
+    const timer = setTimeout(() => {
+      finish(); image.removeAttribute('src'); reject(new Error(`读取 ${url} 超时`));
+    }, timeout);
+    image.onload = () => { finish(); resolve(image); };
+    image.onerror = () => { finish(); reject(new Error(`读取 ${url} 失败`)); };
+    image.src = url;
+  });
+}

@@ -76,6 +76,20 @@ export function siegeLayout(map, dep, villages, direction, connectRiver = false,
 }
 export const wallAt = (siege,x,y) => siege?.walls.some(w => w.x===x && w.y===y) ?? false;
 export const gateAt = (siege,x,y) => siege?.gates.find(g => g.x===x && g.y===y);
+export const siegeRing = ({ cx, cy }, { x, y }) => Math.max(Math.abs(x - cx), Math.abs(y - cy));
+
+// 只有门楼和紧邻门楼的格子能迎击正对门口的敌军。
+export function gateDefense(siege, from, target) {
+  if (!target) return null;
+  return siege.gates.find(gate => {
+    if (gate.open) return false;
+    const dx = Math.sign(gate.x - siege.cx), dy = Math.sign(gate.y - siege.cy);
+    const forward = (point) => (point.x - gate.x) * dx + (point.y - gate.y) * dy;
+    const aligned = (point) => (point.x - gate.x) * dy === (point.y - gate.y) * dx;
+    const a = forward(from), b = forward(target);
+    return aligned(from) && aligned(target) && a >= -1 && a <= 0 && b > 0 && b - a <= 2;
+  });
+}
 export function blockedStrategy(siege, a, b) {
   if (!siege || !a || !b) return false;
   const dx=b.x-a.x, dy=b.y-a.y, eps=1e-9;
