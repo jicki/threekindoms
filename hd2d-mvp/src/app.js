@@ -116,28 +116,43 @@ const stripSource = async (dir, key) => {
   if (meta.status === 'rejected') { tex.value.dispose(); throw meta.reason; }
   return { meta: meta.value, tex: tex.value };
 };
-async function loadDuelStrip(key, complete = true) {
+async function loadDuelStrip(key, complete = true, sprite = `duel-${key}`) {
   key = String(key);
   if (!duelStrips.includes(key)) return;
-  const sprite = `duel-${key}`;
   const asset = (k) => stripSource('duel', k).then(pack => packSpriteStrip(pack)).catch(() => null);
   // 白兵只用侧面与正背动作，掉头和胜负特写在真正进入单挑时读取。
   if (!sprites[sprite]) {
-    if (!duelLoads.has(key)) duelLoads.set(key, Promise.all([asset(key), asset(`${key}-turn`)]).then(([side, turn]) => {
+    if (!duelLoads.has(sprite)) duelLoads.set(sprite, Promise.all([asset(key), asset(`${key}-turn`)]).then(([side, turn]) => {
       if (side) { sprites[sprite] = { ...side, turn }; duelNativeKeys.set(sprites[sprite], key); }
       else turn?.tex.dispose();
-    }).finally(() => duelLoads.delete(key)));
-    await duelLoads.get(key);
+    }).finally(() => duelLoads.delete(sprite)));
+    await duelLoads.get(sprite);
   }
   const strip = sprites[sprite];
-  if (!complete || duelNativeKeys.get(strip) !== key) return;
+  if (!complete || duelNativeKeys.get(strip) !== key) return strip;
   extraStrips ||= json('assets/ai/sprites/duel/extra.json').catch(() => []);
   if (!duelExtras.has(strip)) duelExtras.set(strip, Promise.all([asset(`${key}-wheel`),
     extraStrips.then(list => Array.isArray(list) && list.includes(key) ? asset(`${key}-c`) : null)])
     .then(([wheel, extra]) => Object.assign(strip, { wheel, extra })));
   await duelExtras.get(strip);
+  return strip;
 }
 let extraStrips = null;
+
+let guoJiaDuelLoad;
+async function loadGuoJiaDuel() {
+  const original = loadDuelStrip(24, true, 'duel-guojia-original');
+  guoJiaDuelLoad ??= stripSource('duel', 'guojia-v2').then(packSpriteStrip).catch(() => {
+    guoJiaDuelLoad = null;
+    return null;
+  });
+  const [fallback, remade] = await Promise.all([original, guoJiaDuelLoad]);
+  if (!remade) return fallback;
+  // 掉头、落马特写和败北演出沿用完整的个人动作。
+  const { turn, wheel, extra } = fallback ?? {};
+  return { ...remade, turn, wheel, extra };
+}
+
 // War-map march strips: each side's general from the side, three-quarter front and three-quarter back,
 // standing and walking (tools/slice_march_frames.py); star officers ride in their own, built from their
 // 单挑 strips (tools/build_officer_march.py) and loaded when they take the field.
@@ -3580,11 +3595,14 @@ async function cutIn(field, a, d, res, terrain, ready = prepareSkirmish(field, r
 // 单挑 cut: letterbox, white flash and the 单挑 mark, then the duel scene; the reverse on exit.
 function duelStage() {
   const cine = $('#cine');
-  function prepare(battle) {
-    const riders = [battle.side.a.id, battle.side.d.id];
-    return Promise.all([...battleSides.map(side => loadDuelStrip(side)), ...riders.map(async (id) => {
+  async function prepare(battle) {
+    const [a, d] = await Promise.all(['a', 'd'].map(async (side) => {
+      const { id } = battle.side[side];
+      // 郭嘉在白兵和行军仍使用原来的格图。
+      if (id === 24 && officerMotion(id) === 'b-guojia-motion') return loadGuoJiaDuel();
       await loadConfiguredMotion(id); await loadDuelStrip(id);
-    })]);
+    }).concat(battleSides.map(side => loadDuelStrip(side))));
+    return { a, d };
   }
   return {
     view: dview, prepare,
@@ -3593,8 +3611,8 @@ function duelStage() {
       cine.innerHTML = `<div class="bar top"></div><div class="bar bot"></div><div class="vsmark">单挑</div><div class="speed"></div><div class="flash"></div>`;
       cine.className = ''; cine.hidden = false; void cine.offsetWidth;
       cine.classList.add('enter'); cineFlash(); // the original only changes to the duel theme (bank31 $E35C), no clash
-      await Promise.all([sleep(220), motions]); setMode(dview);
-      await dview.enter(battle, looks, () => prewarm(dview));
+      const [, personal] = await Promise.all([sleep(220), motions]); setMode(dview);
+      await dview.enter(battle, looks, () => prewarm(dview), personal);
     },
     async exit() {
       cineFlash(); await sleep(220); dview.abort(); setMode(tview);

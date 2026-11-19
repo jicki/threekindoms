@@ -31,7 +31,7 @@ const HERO_H = 2.1; // idle rider + horse height in world units (0.1.0's 2.3 rea
 // Strips are cut to one figure height including the weapon, so a raised glaive shrank its rider. Riders
 // are sized by their solid body instead (meta.body px, thin weapons left out), within -15 %…+20 %.
 const BODY_PX = 110;
-const unitOf = (meta) => (HERO_H / meta.figH) * Math.min(1.2, Math.max(0.85, meta.body ? BODY_PX / meta.body : 1));
+const unitOf = (meta) => (HERO_H / meta.figH) * Math.min(1.2, Math.max(0.85, meta.body ? BODY_PX / meta.body : 1)) * (meta.scale ?? 1);
 const GALLOP = 5.5, WALK = 1.4, DRIVE = 9; // world units per second; DRIVE: the fastest a blow's drive in covers ground
 // Gaits are driven by ground covered, not by time: one frame per STEP of travel, so hooves never slide.
 const STEP = { gallop: 0.55, walk: 0.3, loose: 0.6, flee: 0.55 };
@@ -346,10 +346,10 @@ export function createDuelView(T, sprites = {}, audio) {
     body.position.y = (ch * unit) / 2; body.userData.ax = (cw / 2 - meta.anchor) * unit;
     return { body, unit };
   }
-  function rider(battle, side, look, dir) {
+  function rider(battle, side, look, dir, personal) {
     // A star officer without his own strip keeps his own sprite rather than borrowing the generic rider.
     const g = new THREE.Group(), officer = battle.side[side], { id, eq } = officer;
-    const A = riderStrip(sprites, battle.g, officer, look), weapon = equippedWeaponStyle(battle.g, eq.wgrp);
+    const A = riderStrip(sprites, battle.g, officer, look, personal), weapon = equippedWeaponStyle(battle.g, eq.wgrp);
     let body, unit = 1, meta = null;
     // Cards beside the side strip for the wheel: head-on and from behind (<key>-turn, never mirrored) and the
     // three-quarter views between (<key>-wheel, drawn with his head to the right and mirrored by setCard).
@@ -1052,7 +1052,7 @@ export function createDuelView(T, sprites = {}, audio) {
     focusPoint() { return cam.look; },
     // Stage the field's two generals; ranks scale with the troops each side still has.
     // warm: run once the set and riders are made, before the camera moves (app.js compiles their shaders then).
-    async enter(battle, looks, warm = null) {
+    async enter(battle, looks, warm = null, personal = {}) {
       abort(); aborted = false; lastNow = 0; cheering = 0;
       const T0 = performance.now(); // tools/scene_switch_trace.mjs (PERF-05): measures only
       const gone = [set, ...cast, ...riders.map((R) => R.g)];
@@ -1060,7 +1060,7 @@ export function createDuelView(T, sprites = {}, audio) {
       for (const R of riders) scene.remove(R.g);
       buildSet(battle.terrain, siegeOf && looks.a === siegeOf.look ? 1 : -1);
       const n = (s) => Math.max(3, Math.min(27, Math.ceil(battle.fielded(s) / 40)));
-      const RA = rider(battle, 'a', looks.a, 1), RD = rider(battle, 'd', looks.d, -1);
+      const RA = rider(battle, 'a', looks.a, 1, personal.a), RD = rider(battle, 'd', looks.d, -1, personal.d);
       riders = [RA, RD];
       cast = [...rank(looks.a, n('a'), 1), ...rank(looks.d, n('d'), -1)];
       release(gone, scene, Object.values(T)); // the last duel's set, riders and ranks

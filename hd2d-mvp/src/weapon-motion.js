@@ -25,8 +25,7 @@ export function replacementWeaponMotion(game, id, group, personal) {
   return original === style ? null : style;
 }
 
-export function riderStrip(sprites, game, { id, eq }, look) {
-  const personal = sprites[`duel-${id}`];
+export function riderStrip(sprites, game, { id, eq }, look, personal = sprites[`duel-${id}`]) {
   const replacement = replacementWeaponMotion(game, id, eq.wgrp, personal);
   return (replacement && sprites[`weapon-${replacement}`]) || personal
     || (sprites[`officer-${id}`] ? null : sprites[`duel-${look}`]);
