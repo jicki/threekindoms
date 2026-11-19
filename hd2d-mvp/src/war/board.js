@@ -13,6 +13,7 @@ import { seeThrough } from '../seethrough.js';
 import { W, H, FOREST, SAND, PLAIN, RIVER, MOUNT, CASTLE } from '../core/field.js';
 import { FACTION_COLORS } from '../core/game.js';
 import { WATER_Y, PITCH, KIND, PLATE_M, PLATE_PX, DIRS, woodsOf, keySun, phase, WAR_RAIN } from './shared.js';
+import { buildFortification } from '../fortification.js';
 
 export function makeBoard(wv) {
   const { ctx, field, T0 } = wv; let tp = T0;
@@ -180,23 +181,13 @@ export function makeBoard(wv) {
     const direction=field.siege?.direction ?? field.entryDirection;
     if (direction) S.castle.facing = { n: Math.PI, s: 0, w: -Math.PI / 2, e: Math.PI / 2 }[direction];
   }
-  // 低矮城墙与城门按照可通行格绘制，避免遮住棋子；城门突破后同步降低门板。
-  if (field.siege && !flat) {
-    S.outskirts.length = 0;
-    const wallGeo=new THREE.BoxGeometry(0.96,0.55,0.96), gateGeo=new THREE.BoxGeometry(0.78,0.55,0.78);
-    const outer=new THREE.MeshStandardMaterial({color:'#887d68',roughness:0.9}), inner=new THREE.MeshStandardMaterial({color:'#b09a73',roughness:0.9});
-    const gateMat=new THREE.MeshStandardMaterial({color:'#835b35',roughness:0.85});
-    for (const ring of [3,1]) {
-      const walls=field.siege.walls.filter(p=>p.ring===ring), mesh=new THREE.InstancedMesh(wallGeo,ring===3?outer:inner,walls.length);
-      walls.forEach((p,i)=>mesh.setMatrixAt(i,new THREE.Matrix4().makeTranslation(wx(p.x),topY(p.x,p.y)+0.275,wz(p.y))));
-      mesh.instanceMatrix.needsUpdate=true; scene.add(mesh);
-    }
-    for (const p of field.siege.gates) { const m=new THREE.Mesh(gateGeo,gateMat); m.position.set(wx(p.x),topY(p.x,p.y)+0.275,wz(p.y)); m.userData.siegeGate=p; scene.add(m); }
-  }
+  if (field.siege) S.outskirts.length = 0;
   S.castleColor = FACTION_COLORS[field.faction('def')] ?? '#5a5a66'; // roofs glazed in the holder's colour, as on the strategy map
   S.siteKind = field.sceneProfile?.kind;
   if (S.siteKind === 'pass') S.outskirts.length = 0;
   const before = new Set(scene.children);
+  const fortification = field.siege && !flat ? buildFortification(field.siege, { wx, wz, topY }) : null;
+  if (fortification) scene.add(fortification.fort);
   const dressing = flat ? { billboards: [], lights: [], labels: [], update() {} } : dressBoard(scene, S, field.war.city * 31 + 5, { calm: true, painted: !!G });
   const woods = G && !flat && plantWoods(scene, G, woodsOf(S, rng(field.war.city * 53 + 1)), PITCH, field.war.city);
   // Everything the dressing stood up (castle, villages, cottages, trees, rocks, grass) thins out in front of a general (src/seethrough.js):
@@ -238,5 +229,5 @@ export function makeBoard(wv) {
   // vsignW is reassigned later (the units' tag layout): it is read and written as wv.vsignW from here on, never copied.
   return { audio, ui, sprites, map, human, scene, camera, sun, back, hemi, env, where, G, flat, wx, wz, terr, inside, hillCell, topY,
     APRON, GW, GH, grid, tiles, r, billboards, S, dressing, woods, dressed, LANDMARK_KEEP, cutout, still, sky, shafts, waterTex, torches,
-    vsignW, vsigns, VICON, disposeBoard };
+    vsignW, vsigns, VICON, fortification, disposeBoard };
 }

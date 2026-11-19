@@ -1,19 +1,26 @@
 // 侦察 (虚名如浮云@小红书): one 命令书 opens a session in which any number of cities can be inspected.
-import { test, before, after } from 'node:test';
+import { test, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { startGame, newCampaign, cmd } from './game.mjs';
+import { startGame, newCampaign, saveCampaign, resumeCampaign, cmd, tapFakePad } from './game.mjs';
 
-let game, page, cities;
+let game, page, cities, record;
 before(async () => {
   game = await startGame({ width: 1440, height: 900 });
-  page = await game.open('', { setup: (ctx) => ctx.addInitScript(() => {
+  const seed = await game.open('&fixedseed');
+  await seed.evaluate(async () => { (await import('./src/pace.js')).setPace(4); (await import('./src/vignette.js')).setVignettes(false); });
+  await newCampaign(seed);
+  record = await saveCampaign(seed);
+  await seed.context().close();
+});
+beforeEach(async () => {
+  page = await game.open('&fixedseed', { save: record, setup: (ctx) => ctx.addInitScript(() => {
     const pad = { id: 'Xbox Wireless Controller', index: 0, mapping: 'standard', connected: true, timestamp: 0,
       axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })) };
     Object.defineProperty(navigator, 'getGamepads', { value: () => [pad, null, null, null] });
-    window.__scoutPad = { set(i, on) { pad.buttons[i] = { pressed: on, touched: on, value: on ? 1 : 0 }; pad.timestamp = performance.now(); } };
+    window.__fakePad = { set(i, on) { pad.buttons[i] = { pressed: on, touched: on, value: on ? 1 : 0 }; pad.timestamp = performance.now(); } };
   }) });
   await page.evaluate(async () => { (await import('./src/pace.js')).setPace(4); (await import('./src/vignette.js')).setVignettes(false); });
-  await newCampaign(page);
+  await resumeCampaign(page);
   cities = await page.evaluate(() => {
     const { g, G } = window.__game, home = g.factions[g.player].city;
     const foes = g.cities.filter((c) => c.faction !== g.player && c.faction !== G.NONE && c.officers.length);
@@ -24,6 +31,7 @@ before(async () => {
   });
   assert.ok(cities.near && cities.far && cities.empty, JSON.stringify(cities));
 });
+afterEach(() => page?.context().close());
 after(async () => { await game?.close(); });
 
 const books = () => page.evaluate(() => window.__game.g.books);
@@ -100,28 +108,25 @@ test('the city picker isolates the HUD and returns from an overlapping dialog sa
   assert.equal(await picker().count(), 1, 'the picker remains open underneath');
   assert.equal(await page.getByRole('dialog', { name: '结束侦察' }).count(), 0, 'the picker did not intercept that Escape');
   const mapCity = await page.evaluate(() => {
-    const { g, G } = window.__game;
-    for (const el of document.querySelectorAll('.ctag.cand')) {
+    const { g, G, strategy } = window.__game;
+    const reachable = g.cities.flatMap((c) => {
+      const el = strategy.tagOf(c.id);
+      if (!el?.classList.contains('cand')) return [];
       const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
-      if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight || !el.contains(document.elementFromPoint(x, y))) continue;
-      const c = g.cities.find((c) => el.textContent.startsWith(G.cityName(c.id)));
-      if (c) return { id: c.id, name: G.cityName(c.id), x, y };
-    }
-    return null;
+      if (!el.contains(document.elementFromPoint(x, y))) return [];
+      return [{ id: c.id, name: G.cityName(c.id), x, y }];
+    });
+    const centreDistance = ({ x, y }) => Math.hypot(x - innerWidth / 2, y - innerHeight / 2);
+    return reachable.sort((a, b) => centreDistance(a) - centreDistance(b))[0] ?? null;
   });
   assert.ok(mapCity, 'a highlighted city is reachable on the map');
   // A drag that begins on a highlighted tag moves the map and picks nothing (D52).
   await page.mouse.move(mapCity.x, mapCity.y); await page.mouse.down();
-  for (let i = 1; i <= 6; i++) await page.mouse.move(mapCity.x + 15 * i, mapCity.y + 8 * i);
+  for (let i = 1; i <= 6; i++) await page.mouse.move(mapCity.x + 7 * i, mapCity.y + 4 * i);
   await page.mouse.up(); await page.waitForTimeout(300);
   assert.equal(await info(mapCity).count(), 0, 'a drag from a candidate picks nothing');
   assert.equal(await picker().count(), 1);
-  await page.waitForTimeout(1200);
-  Object.assign(mapCity, await page.evaluate((id) => {
-    const el = [...document.querySelectorAll('.ctag.cand')].find((e) => e.textContent.startsWith(window.__game.G.cityName(id))), r = el.getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-  }, mapCity.id));
-  await page.mouse.click(mapCity.x, mapCity.y);
+  await page.locator('.ctag.cand').filter({ hasText: new RegExp(`^${mapCity.name}`) }).click();
   await info(mapCity).waitFor();
   await info(mapCity).getByRole('button', { name: '结束侦察', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('.shade, .mappick'));
@@ -139,10 +144,7 @@ test('a gamepad can return to the city picker, select another city and end scout
   }, cities.home.name);
   await begin(); await page.locator('.modal[aria-label="侦察"] .btn.primary').click();
   await picker().waitFor(); await choose(cities.near);
-  const tap = async (i) => {
-    await page.evaluate((i) => window.__scoutPad.set(i, true), i); await page.waitForTimeout(80);
-    await page.evaluate((i) => window.__scoutPad.set(i, false), i); await page.waitForTimeout(240);
-  };
+  const tap = (i) => tapFakePad(page, i, 240);
   await page.waitForTimeout(250); await tap(1); // B returns from the detail to the picker
   await picker().waitFor();
   await page.waitForFunction(() => document.querySelector('.mappick')?.contains(document.activeElement));

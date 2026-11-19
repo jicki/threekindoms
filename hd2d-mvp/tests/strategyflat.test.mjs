@@ -33,6 +33,17 @@ const settled = async () => {
   }
   throw new Error('the view never settled');
 };
+// 战争演出的镜头必须完成缩放和平移。没有新帧时，两次采样也可能读到同一位置。
+const cameraRest = async () => {
+  await page.waitForFunction(() => {
+    const s = window.__game.strategy;
+    return [0, 29].every((id) => {
+      const a = s.screenOfCity(id), b = s.screenAtRest(id);
+      return Math.hypot(a.x - b.x, a.y - b.y) < 0.2;
+    });
+  }, null, { timeout: 20000 });
+  return view();
+};
 const same = (a, b, what) => assert.ok(Math.abs(a.k - b.k) < 1e-3 && Math.abs(a.x - b.x) < 1 && Math.abs(a.y - b.y) < 1, `${what}: ${JSON.stringify([a, b])}`);
 const zoomAllOut = async () => { await page.evaluate(() => window.__game.strategy.zoom(99999)); return settled(); };
 const zoomAllIn = async () => { await page.evaluate(() => window.__game.strategy.zoom(-99999)); return settled(); };
@@ -771,16 +782,17 @@ for (const [what, from] of [['from === to', 8], ['no road between them', 0], ['n
 });
 
 test('the camera: the march keeps the whole board, the clash closes in on the fight, and the player gets his view back', async () => {
-  const v = await bare();
+  await bare();
+  const v = await cameraRest();
   await page.evaluate(() => { const s = window.__game.strategy; window.__w = s.aiWar({ from: 12, to: 8, att: 2, def: 3, attName: '袁绍', defName: '曹操' }); window.__w.march(800); });
-  same(await settled(), v, 'the board fits: frame does not move it');
+  same(await cameraRest(), v, 'the board fits: frame does not move it');
   await page.evaluate(() => window.__w.clash(800));
-  const close = await settled();
+  const close = await cameraRest();
   assert.ok(close.k > v.k * 1.9, `closer in: ${close.k} from ${v.k}`);
   const fight = await page.evaluate(() => { const d = window.__game.strategy.flatDebug().aiWar; return { x: (d.a.x + d.d.x) / 2, y: (d.a.y + d.d.y) / 2 }; }), [fx, fy] = toScreen(close, fight.x, fight.y);
   assert.ok(Math.abs(fx - 720) < 60 && Math.abs(fy - 450) < 80, `on the fight: ${fx}, ${fy}`);
   await page.evaluate(() => window.__w.dispose());
-  same(await settled(), v, 'back to the whole board');
+  same(await cameraRest(), v, 'back to the whole board');
   await zoomAllOut();
 });
 
@@ -792,16 +804,16 @@ const nearGoal = (a, b, what) => assert.ok(Math.hypot(a.cx - b.cx, a.cy - b.cy) 
 test('a pan in the march is his: the clash still closes in, and he gets that place and his zoom back', async () => {
   await bare();
   await page.evaluate(() => { const s = window.__game.strategy; s.zoom(-99999); s.focusCity(8); });
-  await settled();
+  await cameraRest();
   await page.evaluate((w) => { eval(w); window.__w.march(800); }, WAR_NOW);
-  const before = await settled();
-  await page.evaluate(() => window.__game.strategy.pan(-1.5, 0.8)); const panned = goalOf(await settled());
+  const before = await cameraRest();
+  await page.evaluate(() => window.__game.strategy.pan(-1.5, 0.8)); const panned = goalOf(await cameraRest());
   assert.ok(Math.hypot(panned.cx - goalOf(before).cx, panned.cy - goalOf(before).cy) > 50, 'the pan moved it');
   await page.evaluate(() => window.__w.clash(800));
-  const fight = goalOf(await settled());
+  const fight = goalOf(await cameraRest());
   assert.ok(Math.hypot(fight.cx - panned.cx, fight.cy - panned.cy) > 30, `the clash goes to the fight: ${JSON.stringify([fight, panned])}`);
   await page.evaluate(() => window.__w.dispose());
-  const back = await settled();
+  const back = await cameraRest();
   assert.ok(Math.abs(back.k - before.k) < 1e-3, 'his zoom'); nearGoal(goalOf(back), panned, 'his place');
   await zoomAllOut();
 });

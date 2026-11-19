@@ -604,7 +604,7 @@ body[data-screen="war"] .sysbtns { --sys-top: 64px; right: auto; left: 12px; ali
 .lg.me { background: #ffffff12; } .lg.now { box-shadow: inset 0 0 0 1px #ffd890; }
 .logbox:empty { display: none; }
 .help h4 { margin: 12px 0 4px; font: 20px var(--brush); color: var(--gold); letter-spacing: 2px; } .help p { margin: 4px 0; line-height: 1.8; color: #e8dcc0; }
-.deploybtn { position: fixed; bottom: 76px; right: 12px; padding: 12px 14px; display: flex; gap: 14px; align-items: center; animation: lift .3s ease; }
+.deploybtn { position: fixed; bottom: 88px; right: 12px; padding: 12px 14px; display: flex; gap: 14px; align-items: center; animation: lift .3s ease; }
 @keyframes lift { from { opacity: 0; transform: translateY(10px); } }
 .deploybtn b { font: 22px var(--brush); color: var(--good); letter-spacing: 4px; } .deploybtn p { margin: 2px 0 0; line-height: 1.6; }
 @media (max-width: 1100px) { .legend { display: none; } .deploybtn { bottom: auto; top: 96px; } }
@@ -1068,7 +1068,8 @@ body.flat2d:not(.phone) .wardock .turnpair:not(:has(.war-rosterbtn)) { display: 
 body.cine .unitacts, body.cine .actpanel { display: none; }
 /* The action panel (app.js actPanel, D32): the 计略, its targets and the confirmation, at the left edge. 3D: a column from under
    系统 to the cards (its height set by placePanel), the foot at its bottom; flat: rising from the strip of cards. */
-.actpanel { position: fixed; z-index: 4; left: 12px; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 10px; animation: apIn .14s ease-out both; }
+.actpanel { position: fixed; z-index: 4; left: 12px; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 10px; }
+.actpanel.entering { animation: apIn .14s ease-out both; }
 @keyframes apIn { from { opacity: 0; transform: translateX(-8px); } }
 .actpanel .ap-head { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 0 10px; border-bottom: 1px solid color-mix(in srgb, var(--rule) 60%, transparent); padding-bottom: 4px; }
 .actpanel .ap-head > b { font: 22px var(--brush); color: var(--atk); letter-spacing: 2px; white-space: nowrap; }
@@ -1106,6 +1107,12 @@ body.cine .unitacts, body.cine .actpanel { display: none; }
 /* A short window (1024×600): the targets list keeps room for two rows; the hint under the summary goes (施展's own label and the card say it). */
 @media (max-height: 760px) { .actpanel .ap-sum .hint { display: none; } .actpanel.strike .ap-sum .ap-who { display: none; } /* the step line above says it */ .actpanel .ap-sum p { line-height: 1.35; } .actpanel .ap-btns .btn { padding-top: 3px; padding-bottom: 3px; } .actpanel .ap-foot { gap: 4px; padding-top: 4px; } }
 @media (max-width: 1200px) { .actpanel { padding: 6px 8px 8px; gap: 4px; } .actpanel .ap-body .btn { font-size: 14px; padding: 4px 8px; } .actpanel .ap-sum p { font-size: 12.5px; line-height: 1.4; } .actpanel .ap-sum .ap-does { display: none; } }
+@media (max-height: 760px) {
+  body:not(.phone) .actpanel:not(.flat) .ap-body.targets .btn { padding-block: 3px; line-height: 1.25; }
+  body:not(.phone) .actpanel:not(.flat) .runtimes { margin: 2px 0 0; }
+  body:not(.phone) .actpanel:not(.flat) .runtimes b { font-size: 16px; }
+  body:not(.phone) .actpanel:not(.flat) .runtimes .btn { line-height: 1.2; }
+}
 /* The log sits above the dock (its width, the last few lines) wherever there is no 300px gap between the foe's card and the dock; with that gap it stands beside the cards. */
 body.flat2d .logbox { top: auto; bottom: 64px; left: auto; right: 12px; width: 372px; height: 64px; max-height: none; font-size: 12px; padding: 3px 10px; line-height: 1.4; }
 @media (max-width: 1663px) { body.flat2d:not(.phone) .logbox { right: 90px; width: 300px; } }

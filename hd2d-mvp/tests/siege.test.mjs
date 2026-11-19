@@ -55,6 +55,32 @@ test('城门消耗、突破和中断恢复一致，计策只能穿过对应已�
   const bad=f.snapshot(); bad.siegeGates[0].x=999; assert.throws(()=>Field.restore(g,war(),bad));
 });
 
+test('智将从护城桥策应外城门，消耗机动力并保留内城与守军保护', () => {
+  const g = game(), f = new Field(g, war(), 'att'), [a] = f.side('att'), [d] = f.side('def');
+  const { cx, cy, gates } = f.siege, outer = gates.find(p => p.x === cx - 3 && p.y === cy);
+  const inner = gates.find(p => p.x === cx - 1 && p.y === cy), o = f.O(a.id);
+  Object.assign(a, { x: cx - 4, y: cy }); Object.assign(d, { x: outer.x, y: outer.y });
+  f.turn = 'att'; f.pool.att = 20; f.units = [a, d];
+  Object.assign(o, { int: 85, soldiers: 100 });
+  assert.equal(f.supportBreach(a), false, '驻守的门必须先交战');
+  Object.assign(d, { x: cx, y: cy });
+  o.int = 84; assert.equal(f.supportBreach(a), false); o.int = 85;
+  a.stop = 1; assert.equal(f.supportBreach(a), false); a.stop = 0;
+  f.pool.att = 6; assert.equal(f.supportBreach(a), false); assert.equal(f.pool.att, 6);
+  f.pool.att = 20;
+  const before = { ...f.O(d.id) };
+  assert.equal(f.supportBreach(a), true);
+  assert.equal(f.pool.att, 13);
+  assert.equal(outer.open, true); assert.equal(inner.open, false);
+  assert.deepEqual(f.O(d.id), before);
+  assert.equal(blockedStrategy(f.siege, a, d), true);
+  assert.equal(f.supportBreach(a), false, '已开的门不能重复扣费');
+  Object.assign(a, { x: cx - 2, y: cy }); assert.equal(f.supportBreach(a), false);
+  const resumed = Field.restore(g, war(), f.snapshot());
+  assert.deepEqual(resumed.siege.gates, gates);
+  assert.equal(resumed.pool.att, 13);
+});
+
 test('斜向计策阻隔与施放方向无关，门、墙和拐角均遵循同一规则',()=>{
   const f=new Field(game(),war(),'att'), s=f.siege, {cx,cy}=s;
   const a={x:cx-2,y:cy-6}, b={x:cx-4,y:cy-2};

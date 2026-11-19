@@ -42,7 +42,7 @@ export function createWarView(ctx, field) {
     update(dt) {
       time += dt;
       wv.updateCamera(dt);
-      if (field.siege && !wv.flat) for (const obj of wv.scene.children) if (obj.userData.siegeGate) obj.scale.y = obj.userData.siegeGate.open ? 0.12 : 1;
+      for (const { door, gate } of wv.fortification?.gates ?? []) door.scale.y = gate.open ? 0.1 : 1;
       for (const b of wv.billboards) b.rotation.y = wv.view.yaw;
       if (wv.woods) { wv.woods.userData.aim.yaw.value = wv.view.yaw; wv.woods.userData.aim.tilt.value = wv.view.pitch / 2; } // each crown turns on its own foot to face the eye
       // Sprites turn with the camera and recline by half its pitch (top away, face up toward the eye), so a figure seen from above
@@ -111,7 +111,7 @@ export function createWarView(ctx, field) {
     setThreatView(on) { wv.threatOn = !!on; },
     screenOf: wv.screenOf, screenAxes: wv.screenAxes, pan: wv.pan,
     centreOn: wv.centreOn, viewQuad: wv.viewQuad, // the minimap, the edge markers and a double click (src/warnav.js, src/app.js)
-    undo: wv.undo, endTurn: wv.endTurn, retreat: wv.retreat, hold: wv.hold, service: wv.service, shop: wv.shop, clickCell: wv.clickCell, chooseStrategy: wv.chooseStrategy,
+    undo: wv.undo, endTurn: wv.endTurn, retreat: wv.retreat, hold: wv.hold, service: wv.service, shop: wv.shop, clickCell: wv.clickCell, chooseStrategy: wv.chooseStrategy, supportBreach: wv.supportBreach,
     openStrategies: wv.openStrategies, commitCast: wv.commitCast, setCastCount: wv.setCastCount, openAttacks: wv.openAttacks, commitAttack: wv.commitAttack, attack: wv.commitAttack, locate: wv.locate,
     keepInView: wv.keepInView, recast: wv.recast, finishDeploy: wv.finishDeploy, cancel: wv.cancel, st: wv.st,
     playStrategy: wv.playStrategy, playAttack: wv.playAttack, // also driven by tests/war.test.mjs and tests/levelup.test.mjs

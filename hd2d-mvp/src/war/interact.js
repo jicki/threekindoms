@@ -311,6 +311,13 @@ export function makeInteract(wv) {
   }
   // Lock or release every field action (selection, moves, undo, end of day) while a dialog runs.
   function hold(on) { st.busy = on; if (on) clearPreview(); }
+  function supportBreach(u) {
+    if (st.busy || st.deploying || st.sel !== u || field.turn !== human || !field.supportBreach(u)) return false;
+    st.last = null;
+    ui.log(`${name(u.id)}策应攻门，外城门已突破`);
+    audio.sfx('sfx-clash'); hud(); showOptions();
+    return true;
+  }
   // `held`: called from the shop dialog, which holds the field itself while it is open.
   function shop(u, eq, { held = false } = {}) {
     if (!u || u.gone || u.side !== human || (st.busy && !held) || field.over || field.turn !== human) return;
@@ -330,5 +337,5 @@ export function makeInteract(wv) {
 
   wv.done = undefined;
   const finished = new Promise((res) => (wv.done = res));
-  return { st, hud, sideLabel, syncCompare, compareTarget, showOptions, select, attackTargets, attackRows, strikeInfo, confirmInfo, castTargets, hot, attackable, castable, recastOf, lastCast, inRect, showDeploy, deployClick, finishDeploy, clickCell, openAttacks, askAttack, commitAttack, setCastCount, cancel, openStrategies, chooseStrategy, recast, refuse, askCast, commitCast, undo, retreat, hold, shop, service, finished };
+  return { st, hud, sideLabel, syncCompare, compareTarget, showOptions, select, attackTargets, attackRows, strikeInfo, confirmInfo, castTargets, hot, attackable, castable, recastOf, lastCast, inRect, showDeploy, deployClick, finishDeploy, clickCell, openAttacks, askAttack, commitAttack, setCastCount, cancel, openStrategies, chooseStrategy, recast, refuse, askCast, commitCast, undo, retreat, hold, shop, service, supportBreach, finished };
 }

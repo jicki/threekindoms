@@ -6,7 +6,7 @@
 // random number. The 3D camera keeps the targets right of the panel and moves only when it must or is asked to.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startGame, newCampaign, closeMessages, CARD_ACTS } from './game.mjs';
+import { startGame, newCampaign, closeMessages, warRest, CARD_ACTS } from './game.mjs';
 
 let game;
 before(async () => { game = await startGame({ width: 1280, height: 720 }); });
@@ -266,14 +266,19 @@ test('U01 / U02 / U07: the panel keeps one place through the steps and the camer
     const b = await box(); assert.deepEqual([b.l, b.t, b.r, b.b, b.go], [t0.l, t0.t, t0.r, t0.b, t0.go], 'the camera does not move the panel');
   }
   await page.locator('.actpanel [data-target]').first().click(); await page.waitForTimeout(200);
+  assert.equal(await page.locator('.actpanel').evaluate(el => getComputedStyle(el).animationName), 'none', '确认步骤沿用面板位置');
   const c0 = await box();
   assert.deepEqual([c0.l, c0.t, c0.r, c0.b, c0.go], [t0.l, t0.t, t0.r, t0.b, t0.go], '施展 stands where it stood, greyed, before the target was picked');
   for (const size of [{ width: 1024, height: 600 }, { width: 1440, height: 900 }, { width: 1920, height: 1080 }, { width: 1280, height: 720 }]) {
     await page.setViewportSize(size); await page.waitForTimeout(600);
     const b = await box();
     assert.ok(b.whole && b.l === 12 && b.r <= size.width && b.b <= size.height, `${size.width}×${size.height}: ${JSON.stringify(b)}`);
-    const rows = await page.evaluate(() => { const body = document.querySelector('.actpanel .ap-body').getBoundingClientRect(); return [...document.querySelectorAll('.actpanel [data-target]')].map((e) => e.getBoundingClientRect()).filter((r) => r.top >= body.top - 1 && r.bottom <= body.bottom + 1).length; });
-    assert.ok(rows >= 2, `${size.width}×${size.height}: at least two targets show without scrolling (${rows})`);
+    const list = await page.evaluate(() => {
+      const el = document.querySelector('.actpanel .ap-body'), body = el.getBoundingClientRect();
+      const rows = [...el.querySelectorAll('[data-target]')].map((e) => e.getBoundingClientRect());
+      return { visible: rows.filter((r) => r.top >= body.top - 1 && r.bottom <= body.bottom + 1).length, height: body.height, scroll: el.scrollTop, rowHeights: rows.map((r) => r.height) };
+    });
+    assert.ok(list.visible >= 2, `${size.width}×${size.height}: at least two targets show without scrolling (${JSON.stringify(list)})`);
   }
   assert.deepEqual(page.errors, []);
   await page.context().close();
@@ -285,6 +290,15 @@ test('camera: a pointer sweeping the list does not move it; a row walked to with
   await page.waitForTimeout(1200);
   const pose = () => page.evaluate(() => { const v = window.__game.war.probe().view; return { t: v.target.map((x) => +x.toFixed(2)), dist: +v.dist.toFixed(2) }; });
   const clear = (i) => page.evaluate((i) => { const w = window.__game.war, e = window.__k.foes[i], c = w.screenOf(e.x, e.y), l = document.querySelector('.actpanel').getBoundingClientRect().right; return c.x - c.cw / 2 > l && c.x < innerWidth - 10 && c.y > 60 && c.y < innerHeight - 10; }, i);
+  const frameAway = async () => {
+    await page.evaluate(async () => {
+      const { W, H } = await import('./src/core/field.js');
+      const t = window.__k.foes[0];
+      window.__game.war.frame(t.x < W / 2 ? W - 1 : 0, t.y < H / 2 ? H - 1 : 0);
+    });
+    await warRest(page);
+    assert.ok(!(await clear(0)), 'the first target is off the screen');
+  };
   for (let i = 0; i < 3; i++) assert.ok(await clear(i), `target ${i} is in the clear right of the panel`);
   // The mouse sweeps the rows: the camera stays.
   const p0 = await pose();
@@ -293,15 +307,14 @@ test('camera: a pointer sweeping the list does not move it; a row walked to with
   await page.waitForTimeout(800);
   assert.deepEqual(await pose(), p0, 'the camera did not follow the pointer down the list');
   // Slide the targets off the screen; walking to one with the keys brings it back into the clear.
-  await page.evaluate(() => { const w = window.__game.war, y = w.viewState().yaw; w.pan(Math.cos(y) * 25, Math.sin(y) * 25); }); await page.waitForTimeout(1400);
-  assert.ok(!(await clear(0)), 'the first target is off the screen');
+  await frameAway();
   await page.evaluate(() => { document.body.dataset.input = 'key'; document.querySelector('.actpanel [data-target]').blur(); });
   const id0 = await page.evaluate(() => window.__k.foes[0].id);
-  await page.locator(`.actpanel [data-target="${id0}"]`).focus(); await page.waitForTimeout(1600);
+  await page.locator(`.actpanel [data-target="${id0}"]`).focus(); await warRest(page);
   assert.ok(await clear(0), 'walked to with the keys, he is in the clear again');
   // 定位目标 (L) centres him at 中.
-  await page.evaluate(() => { const w = window.__game.war, y = w.viewState().yaw; w.pan(Math.cos(y) * -25, Math.sin(y) * -25); }); await page.waitForTimeout(1200);
-  await page.keyboard.press('l'); await page.waitForTimeout(1600);
+  await frameAway();
+  await page.keyboard.press('l'); await warRest(page);
   const mid = await page.evaluate((id) => { const w = window.__game.war, e = w.field.alive.find((u) => u.id === id), c = w.screenOf(e.x, e.y), l = document.querySelector('.actpanel').getBoundingClientRect().right; return { dx: Math.abs(c.x - (l + innerWidth) / 2), zoom: w.viewState().zoom }; }, id0);
   assert.ok(mid.dx < 90 && ['mid', 'near'].includes(mid.zoom), `定位目标 centred him: ${JSON.stringify(mid)}`);
   // Leaving the choice gives the view back.

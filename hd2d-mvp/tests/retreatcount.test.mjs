@@ -9,11 +9,13 @@ let game, page, setup;
 const CITY = '豫州', OTHER = '兖州';
 
 before(async () => {
-  game = await startGame({ width: 1600, height: 900 });
-  page = await game.open();
+  // 原版的洛阳同时直连豫州和兖州。君主列传从洛阳到兖州需经过虎牢关。
+  game = await startGame({ width: 1600, height: 900, scenario: 'original' });
+  page = await game.open('&fixedseed');
   await newCampaign(page, '曹操');
   setup = await page.evaluate(() => {
     const { g, G, debug } = window.__game, c = g.cities[14], to = g.cities[12]; // 豫州 sends everyone against 洛阳, next to 兖州 too
+    if (![11, 14].every((id) => G.roads(to.id).includes(id))) throw new Error('回归场景需要洛阳直连兖州和豫州');
     for (const id of [...c.officers, ...to.officers]) g.officers[id].soldiers ||= 500;
     const ids = c.officers.slice(0, 4);
     debug.fieldWar(debug.setupWar(g, { from: 14, to: 12, ids, commander: ids[0], gold: 100, rice: 400 }), 'att');

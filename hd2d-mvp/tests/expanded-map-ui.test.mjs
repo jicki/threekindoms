@@ -1,6 +1,6 @@
 import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startGame, skipIntro, closeMessages, cmd } from './game.mjs';
+import { startGame, skipIntro, closeMessages, cmd, tapFakePad } from './game.mjs';
 
 let game;
 before(async () => { game = await startGame({ width: 812, height: 375 }); });
@@ -342,12 +342,8 @@ test('手柄在己方城市和关隘之间循环选择', async () => {
     await page.reload(); await skipIntro(page); await page.getByText('继续记录').click();
     await page.waitForFunction(() => document.body.dataset.screen === 'strategy' && window.__game.g?.current === window.__game.g.player);
     await page.waitForTimeout(1200);
-    const tap = async (i) => {
-      await page.evaluate((n) => window.__fakePad.set(n, true), i); await page.waitForTimeout(70);
-      await page.evaluate((n) => window.__fakePad.set(n, false), i); await page.waitForTimeout(350);
-    };
-    await tap(1); // 关闭城市面板，再以 RB 循环到下一个己方据点。
-    await tap(5);
+    await tapFakePad(page, 1, 350); // 关闭城市面板，再以 RB 循环到下一个己方据点。
+    await tapFakePad(page, 5, 350);
     assert.equal(await page.evaluate(() => window.__game.pad.state.cur.cid), 35);
     assert.match(await page.locator('.citypanel header').innerText(), /武关/);
     assert.deepEqual(page.errors, []);

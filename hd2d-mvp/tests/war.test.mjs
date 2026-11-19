@@ -18,13 +18,12 @@ async function toWar(page, { stopAtDeploy = false } = {}) {
     const w = debug.setupWar(g, { from: home, to: to.id, ids, commander: ids[0], gold: 100, rice: 400 });
     debug.fieldWar(w, 'att');
   });
-  await page.waitForFunction(() => window.__game.war?.finishDeploy && document.body.dataset.screen === 'war', null, { timeout: 30000 });
   const stop = closeMessages(page);
   try {
-    await page.waitForTimeout(2500);
+    await page.waitForFunction(() => window.__game.war?.st.deploying && document.body.dataset.screen === 'war' && !document.querySelector('.banner, .panel.msg, #fade.on'), null, { timeout: 60000 });
     if (stopAtDeploy) return;
     await page.evaluate(() => window.__game.war.finishDeploy());
-    await page.waitForFunction(() => { const f = window.__game.war.field; return f.turn === f.human && !document.querySelector('.banner, .panel.msg'); }, null, { timeout: 30000 });
+    await page.waitForFunction(() => { const w = window.__game.war, f = w.field; return f.turn === f.human && !w.st.busy && !document.querySelector('.banner, .panel.msg'); }, null, { timeout: 30000 });
   } finally { stop(); }
 }
 // Both views: the shared page is the flat map (&flat); the 3D default has its own page, opened on first use.
@@ -516,7 +515,7 @@ const card = (page) => page.evaluate(() => {
 for (const v of VIEWS) test(`the unit card lists every field, the equipment with its bonus, and the status chips (${v})`, async () => {
   const page = await pageOf(v);
   const want = await page.evaluate(async () => {
-    const w = window.__game.war, f = w.field, { g, G } = window.__game, D = await fetch('./data/game-data.json').then((r) => r.json());
+    const w = window.__game.war, f = w.field, { g, G } = window.__game, D = G.data();
     w.cancel(); w.cancel(); w.hoverCell(null);
     const u = f.side(f.human)[0], o = g.officers[u.id], wp = D.equipment[o.weapon], ar = D.equipment[24 + o.armor];
     u.qimen = 3; w.clickCell(u.x, u.y);
@@ -1405,11 +1404,25 @@ test('a tag that was bumped aside or up goes back to its own place over the head
     const rebuilt = await shape();
     for (const n of aside) { const t = rebuilt.find((x) => x.name === n); if (t && !t.dot) assert.ok(t.leader, `${n} keeps his leader line after the tags are rebuilt: ${JSON.stringify(rebuilt)}`); }
     assert.ok(rebuilt.some((t) => aside.includes(t.name) && t.leader), `at least one leader survived the rebuild: ${JSON.stringify(rebuilt)}`);
-    await p.evaluate(() => { window.__game.war.field.alive.forEach((u, i) => window.__put(u, 12 + 4 * (i % 3), 4 + 4 * ((i / 3) | 0))); window.__game.war.frame(16, 8, 18); }); // spread out
-    await p.waitForTimeout(1600);
-    const apart = await shape();
-    assert.ok(apart.filter((x) => !x.held).length >= 3, 'tags on screen, off the village signs');
-    for (const t of apart.filter((x) => !x.held)) { assert.ok(!t.dot, `${t.name} is no dot`); assert.ok(!t.leader && Math.abs(t.ml) <= 1 && Math.abs(t.mt) <= 1, `${t.name} is back over his head: ${JSON.stringify(apart)}`); }
+    const followed = rebuilt.find(t => aside.includes(t.name) && t.leader).name;
+    await p.evaluate((followed) => {
+      const { war: w, G } = window.__game;
+      const u = w.field.alive.find(u => (u.commander ? '★' : '') + G.name(u.id) === followed);
+      const others = w.field.alive.filter(v => v !== u);
+      // 留出一整个镜头的间隔，让名牌恢复测试与其他武将、店铺的投影分离。
+      others.forEach((v, i) => window.__put(v, i < 4 ? i : 31 - i % 4, i < 4 ? 1 : 17));
+      window.__put(u, 16, 9);
+      w.frame(16, 9, 14);
+    }, followed);
+    await warRest(p, { jump: true });
+    await p.waitForFunction((followed) => {
+      const tag = [...document.querySelectorAll('.tag')].find(e => e.querySelector('b')?.textContent === followed);
+      if (!tag || !tag.checkVisibility() || tag.classList.contains('dot')) return false;
+      const r = tag.getBoundingClientRect();
+      return r.x >= 0 && r.right <= innerWidth && r.y >= 0 && r.bottom <= innerHeight
+        && Math.abs(parseFloat(tag.style.marginLeft)) <= 1 && Math.abs(parseFloat(tag.style.marginTop)) <= 1
+        && getComputedStyle(tag.querySelector('s')).display === 'none';
+    }, followed);
   } finally { await p.evaluate(() => { const w = window.__game.war; w.cancel(); w.hoverCell(null); w.overview(); }); await p.waitForTimeout(500); }
   assert.deepEqual(p.errors, []);
 });

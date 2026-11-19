@@ -111,7 +111,11 @@ test('the attack confirmation stays up among move cells', { timeout: 180000 }, a
     const p = await field(game, '&flat');
     const ok = await p.evaluate(() => {
       const v = window.__game.war, f = v.field, u = f.side(f.human)[0], t = f.alive.find((a) => a.side !== f.human);
-      for (const [x, y] of [[15, 9], [14, 9], [16, 9]]) if (!f.unitAt(x, y)) { t.x = x; t.y = y; break; }
+      const spots = f.map.flatMap((row, y) => row.map((_, x) => [x, y]));
+      const pair = spots.find(([x, y]) => [y, y + 1].every((row) => f.inside(x, row)
+        && !f.unitAt(x, row) && f.deployable(x, row) && f.terr(x, row) === 2));
+      if (!pair) throw new Error('缺少两个相邻的空地格');
+      [t.x, t.y] = pair;
       u.x = t.x; u.y = t.y + 1; f.pool[f.human] = 30;
       v.clickCell(u.x, u.y); v.clickCell(t.x, t.y);
       return !!document.querySelector('.actpanel.strike');

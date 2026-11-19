@@ -7,8 +7,13 @@ before(async () => { game = await startGame({ scenario: 'builtin-sovereigns-expa
 after(async () => { await game?.close(); });
 
 for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵并显示对应场景`, { timeout: 120000 }, async () => {
-  const p = await game.open(mode === 'phone' ? '&phone&flat' : '');
+  const spriteRequests = [];
+  const p = await game.open(mode === 'phone' ? '&phone&flat' : '', { setup: (ctx) => ctx.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === 'GET' && /\/assets\/.*\/sprites\/.*\.(png|webp)$/.test(path)) spriteRequests.push(path);
+  }) });
   try {
+    assert.deepEqual(spriteRequests, [], '标题页按需加载战斗精灵图');
     if (mode === 'phone') await p.setViewportSize({ width: 812, height: 375 });
     await newCampaign(p, '刘备');
     await p.evaluate(() => {
@@ -21,17 +26,27 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
     const stop = closeMessages(p);
     try {
       await p.waitForFunction(() => { if (window.__battleError) throw new Error(window.__battleError); return window.__game.war?.st?.deploying && document.body.dataset.screen === 'war'; }, null, { timeout: 60000 });
+      assert.ok(spriteRequests.some(path => /\/march\/(attacker|defender)\.png$/.test(path)), '进入战场后加载行军素材');
       const state = await p.evaluate(() => {
-        const w = window.__game.war, pass = [], gates = [];
-        w.scene.traverse((o) => { if (o.userData.landmark === 'pass') pass.push(o.rotation.y); if (o.userData.siegeGate) gates.push(o.type); });
+        const w = window.__game.war, pass = [], doors = [], masonry = [];
+        const fort = w.scene.getObjectByName('siege-fortification');
+        fort?.traverse(o => {
+          if (o.name === 'siege-door') doors.push(o.scale.y);
+          if (o.isMesh && o.parent === fort) masonry.push(o.geometry.attributes.position.count);
+        });
+        w.scene.traverse(o => { if (o.userData.landmark === 'pass') pass.push(o.rotation.y); });
         return { profile: w.field.sceneProfile, castle: w.field.castle(), start: [w.field.side('att')[0].x, w.field.side('att')[0].y],
-          flat: !!w.flat, pass, gates, siegeGates: w.field.siege.gates.length, dayTitle: document.querySelector('.warbar .day')?.title };
+          flat: !!w.flat, pass, doors, masonry, siegeGates: w.field.siege.gates.length, dayTitle: document.querySelector('.warbar .day')?.title };
       });
       assert.equal(state.profile.label, '函谷关道'); assert.deepEqual(state.castle, [15, 9]); assert.deepEqual(state.start, [1, 9]);
       assert.match(state.dayTitle, /函谷关道/);
       assert.equal(state.siegeGates, 8);
       if (mode === 'phone') { assert.equal(state.flat, true); assert.equal(await p.locator('.flatwar canvas').isVisible(), true); }
-      else { assert.equal(state.flat, false); assert.equal(state.pass.length, 1); assert.equal(state.pass[0], -Math.PI/2); assert.equal(state.gates.length, 8); }
+      else {
+        assert.equal(state.flat, false); assert.equal(state.pass.length, 1); assert.equal(state.pass[0], -Math.PI/2);
+        assert.deepEqual(state.doors, Array(8).fill(1));
+        assert.ok(state.masonry.length <= 6 && state.masonry.reduce((sum, n) => sum + n, 0) > 3000);
+      }
       await p.locator('.deploybtn .btn', { hasText: '布阵完成' }).click();
       await p.waitForFunction(() => !window.__game.war.st.deploying);
       if (mode === 'phone') {
@@ -56,6 +71,24 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
         await tapCell(); await p.waitForFunction(({x,y})=>window.__game.war.st.moveAsk?.x===x && window.__game.war.st.moveAsk?.y===y,gate);
         await tapCell(); await p.waitForFunction(({x,y})=>{const w=window.__game.war; return !w.st.busy && w.field.siege.gates.find(g=>g.x===x&&g.y===y)?.open;},gate);
         assert.equal(await p.evaluate(()=>window.__game.war.st.last),null,'突破城门后不能撤销');
+        await p.evaluate(() => {
+          const w = window.__game.war, f = w.field, u = f.side('att')[0], { cx, cy } = f.siege;
+          f.O(u.id).int = 85; f.pool.att = 20;
+          Object.assign(u, { x: cx + 4, y: cy }); w.cancel(); w.clickCell(u.x, u.y);
+        });
+        const support = p.getByRole('button', { name: '策应攻门', exact: true });
+        await tap(support);
+        const dialog = p.getByRole('dialog', { name: '策应攻门' });
+        await dialog.waitFor();
+        await tap(dialog.getByRole('button', { name: '取消', exact: true }));
+        await dialog.waitFor({ state: 'hidden' });
+        assert.equal(await p.evaluate(() => window.__game.war.field.pool.att), 20);
+        await tap(support);
+        await tap(dialog.getByRole('button', { name: '确定', exact: true }));
+        await p.waitForFunction(() => {
+          const f = window.__game.war.field, { cx, cy, gates } = f.siege;
+          return f.pool.att === 13 && gates.find(g => g.x === cx + 3 && g.y === cy)?.open;
+        });
         const castChoices=await p.evaluate(()=>{
           const w=window.__game.war, f=w.field, u=f.side('att')[0], [enemy,...others]=f.side('def');
           others.forEach(v=>{v.gone=true;}); f.O(u.id).int=99; f.pool.att=100;

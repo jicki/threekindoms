@@ -190,9 +190,12 @@ for (const [query, label, phone] of [['', '3D', false], ['&flat', '平面', fals
   });
   const stop = closeMessages(p);
   try {
-    await p.waitForFunction(() => window.__game.war?.finishDeploy && document.body.dataset.screen === 'war', null, { timeout: 60000 });
+    await p.waitForFunction(() => window.__game.war?.st.deploying && document.body.dataset.screen === 'war', null, { timeout: 60000 });
     await p.evaluate(() => window.__game.war.finishDeploy());
-    await p.waitForFunction(() => { const f = window.__game.war.field; return f.turn === f.human && f.day === 1; }, null, { timeout: 30000 });
+    await p.waitForFunction(() => {
+      const { field, st } = window.__game.war;
+      return field.turn === field.human && field.day === 1 && !st.deploying && !st.busy && !document.querySelector('.banner, .panel.msg');
+    }, null, { timeout: 30000 });
     await p.evaluate(async () => {
       const a = window.__game.audio; a.unlock(); await a.ctx.resume();
       const sample = await a.preload('sfx-war-march');

@@ -116,6 +116,7 @@ let extraStrips = null;
 // standing and walking (tools/slice_march_frames.py); star officers ride in their own, built from their
 // 单挑 strips (tools/build_officer_march.py) and loaded when they take the field.
 const loadMarch = async (key) => {
+  if (sprites[`march-${key}`]) return;
   try { sprites[`march-${key}`] = { meta: await (await fetch(`assets/ai/sprites/march/${key}.json`, { cache: 'no-store' })).json(), tex: await loadPixelTexture(`assets/ai/sprites/march/${key}.png`) }; } catch {}
 };
 const marchStrips = Array.isArray(marchList) ? marchList : [];
@@ -165,7 +166,7 @@ const loadOfficerMarch = async (ids) => {
   await Promise.all(ids.map(loadConfiguredMotion));
   await Promise.all(ids.filter((id) => marchStrips.includes(String(id)) && !sprites[`march-${id}`]).map(loadMarch));
 };
-// 普通兵队随标题加载；特色兵队在实际参战前按需加载，失败时保留普通素材回退。
+// 兵队只在进入白兵前加载，特色兵队失败时保留普通素材回退。
 const specialKeys = new Set(Object.values(SPECIAL_TROOPS).map((troop) => troop.sprite)), troopLoads = new Map();
 const troopStrip = async (key) => ({ meta: await (await fetch(`assets/ai/sprites/troops/${key}.json`)).json(), tex: await loadPixelTexture(`assets/ai/sprites/troops/${key}.png`) });
 async function loadTroop(key) {
@@ -192,13 +193,23 @@ async function loadTroop(key) {
 }
 const loadTroops = () => Promise.all((Array.isArray(troopList) ? troopList : []).filter((key) => !specialKeys.has(key)).map(loadTroop));
 const loadSpecialTroops = (ids, game) => Promise.all([...new Set(ids.map((id) => officerSpecialty(D, game, id)?.sprite).filter(Boolean))].map(loadTroop));
-// The generic generals and troops, the two sides' march strips and the 白兵 strips, all at once; a generic sprite that will not load
-// still stops the boot, as before.
-await Promise.all([
-  ...['attacker', 'defender'].flatMap((side) => [[side, `${side}-general`], ...['soldier', 'archer', 'cavalry'].map((k) => [`${side}-${k}`, `${side}-${k}`])])
-    .filter(([, f]) => files.sprites[f]).map(async ([key, f]) => { sprites[key] = await loadPixelTexture(files.sprites[f]); }),
-  ...['attacker', 'defender'].map(loadMarch), loadTroops(),
-]);
+const battleSides = ['attacker', 'defender'];
+const loadSharedSprites = (entries) => Promise.all(entries.map(async ([key, file]) => {
+  if (!files.sprites[file] || sprites[key]) return;
+  try { sprites[key] = await loadPixelTexture(files.sprites[file]); }
+  catch (error) { console.warn(`战斗素材无法读取，使用备用素材：${file}`, error); }
+}));
+let fieldSprites, tacticalSprites;
+const loadFieldSprites = () => fieldSprites ??= Promise.all([
+  loadSharedSprites(battleSides.map(side => [side, `${side}-general`])), ...battleSides.map(loadMarch),
+]).finally(() => { fieldSprites = null; });
+const loadTacticalSprites = () => tacticalSprites ??= Promise.all([
+  loadFieldSprites(), loadTroops(),
+  loadSharedSprites(battleSides.flatMap(side => ['soldier', 'archer', 'cavalry'].map(kind => {
+    const key = `${side}-${kind}`;
+    return [key, key];
+  }))),
+]).finally(() => { tacticalSprites = null; });
 const weaponMotionLoads = new Map();
 async function loadBattleWeapon(style) {
   if (!weaponMotionLoads.has(style)) {
@@ -213,7 +224,7 @@ async function loadBattleWeapon(style) {
   await weaponMotionLoads.get(style);
 }
 async function loadOfficerSprites(ids, game = g) {
-  await Promise.all([...ids.map(loadConfiguredMotion), loadSpecialTroops(ids, game)]);
+  await Promise.all([loadTacticalSprites(), ...ids.map(loadConfiguredMotion), loadSpecialTroops(ids, game)]);
   for (const id of ids) if (officerSprites.includes(id) && !sprites[`officer-${id}`]) sprites[`officer-${id}`] = await loadPixelTexture(`assets/ai/sprites/officers/${id}.png`);
   await Promise.all([...ids, 'attacker', 'defender'].map(loadDuelStrip));
   const weapons = new Set(ids.map((id) => replacementWeaponMotion(game, id, G.weaponGroup(game?.officers[id]?.weapon), sprites[`duel-${id}`])).filter(Boolean));
@@ -313,7 +324,11 @@ let fitPixels = () => {}; // quality.fit, once the presets are up: the 3D canvas
 function resize() {
   const w = innerWidth, hh = innerHeight;
   fitPixels();
-  renderer.setSize(w, hh); labels.setSize(w, hh); post.setSize(w * renderer.getPixelRatio(), hh * renderer.getPixelRatio());
+  renderer.setSize(w, hh); labels.setSize(w, hh);
+  // 平面地图用独立 Canvas，释放上一个 3D 场景的全尺寸后处理缓冲。
+  const ratio = renderer.getPixelRatio();
+  if (mode?.flat) post.setSize(1, 1);
+  else post.setSize(w * ratio, hh * ratio);
   for (const m of [strategy, tview, dview, war]) if (m) { m.camera.aspect = w / hh; m.camera.updateProjectionMatrix(); }
 }
 addEventListener('resize', resize);
@@ -976,14 +991,15 @@ const coveredFrameDue = () => {
   warmedUnder = key; return true;
 };
 renderer.setAnimationLoop((t) => {
-  if (!mode || !due(t, document.hidden ? 30 : undefined)) return;
+  const titleOn = document.body.dataset.screen === 'title';
+  if (!mode || !due(t, document.hidden || titleOn ? 30 : undefined)) return;
   const dt = Math.min(0.05, clock.getDelta());
   if (held.size) { const v = dt * 14, k = (c) => (held.has(c) ? 1 : 0); mode.pan?.((k('d') - k('a')) * v, (k('s') - k('w')) * v); }
   mode.update(dt); setProfile();
   if (mode === war) warNav?.update(dt, { blocked: blocking() || dialogOpen() });
   if (mode === war && ++insetTick % 15 === 0) frameWar();
   if (mode === war && !war.flat) for (const el of $$('.unitacts')) el.place?.(false); // the 3D camera moves: the commands follow their general
-  if (mode === strategy && document.body.dataset.screen === 'title') strategy.orbit(-dt * 18, 0);
+  if (mode === strategy && titleOn) strategy.orbit(-dt * 18, 0);
   if (scenic && !scenicStillFits()) setScenic(false);
   if (mode.flat || document.hidden) return; // the flat war map draws itself on its own canvas (src/warmap2d.js): no 3D frame at all
   if (warming) return; // a scene's shaders compiling (prewarm): a frame now would wait for them on the main thread
@@ -2726,8 +2742,10 @@ async function fieldWar(w, humanSide, { after = { kind: humanSide === 'att' ? 'a
   warCtx = { w, side: humanSide, start, after, field };
   strategy.setSeason(g.month, true); // the shared season uniforms on this month before the battle scenes read them
   const ui = warUi(field);
-  await loadOfficerMarch(field.units.map((u) => u.id));
-  await loadWarGround(g.month, w.city).catch((e) => console.warn('war ground', e)); // painted materials (src/warplate.js)
+  await Promise.all([
+    loadFieldSprites(), loadOfficerMarch(field.units.map((u) => u.id)),
+    loadWarGround(g.month, w.city).catch((e) => console.warn('war ground', e)), // painted materials (src/warplate.js)
+  ]);
   warFlat = nextWarFlat();
   war = createWarView({ T, audio, ui, sprites, flat: warFlat, yaw, onSkirmish: (a, d, res, terrain) => cutIn(field, a, d, res, terrain) }, field);
   warNav?.dispose(); warNav = war.flat ? null : createWarNav(war, document.body); // on <body>: a HUD redraw clears #ui
@@ -2890,6 +2908,7 @@ function warUi(field) {
       if (!info) { panelKey = null; $('.actpanel')?.remove(); return cardBoxTidy(); }
       const { u, o, mine, village, canRetreat, canUndoHim, strategies, recast, deploying, busy, flash, asking, targets, stage, confirm, canAttack } = info;
       const ours = mine && field.turn === human && !deploying;
+      const siegeSupport = stage === 'cmds' && ours ? field.gateSupport(u) : null;
       // His commands stand in his card, the same place whoever he is and wherever he stands, flat or 3D (D32: they used to stand
       // beside him and dock into the card when no spot was clear). While the field plays a move, attack or 计略 out they stay in
       // place but greyed, so the card does not reflow on every action and a list cannot open on a pool that is about to change.
@@ -2902,6 +2921,16 @@ function warUi(field) {
         // 攻击: the enemies beside him in the panel (one alone is asked about at once); a click on a red cell asks the same.
         canAttack ? h('button', { class: 'btn', disabled: !!busy, title: '攻击相邻的敌将（机动力 2），在左侧确认后进入白兵战', onclick: () => war.openAttacks() }, '攻击') : null,
         strategies.length ? h('button', { class: 'btn', disabled: !!busy, 'aria-haspopup': 'menu', 'data-key': 'f', title: '计略（F）', onclick: () => war.openStrategies() }, '计略', h('kbd', { class: 'keycap', 'data-label': 'F' })) : null,
+        siegeSupport ? h('button', { class: 'btn', disabled: !!busy || field.pool[human] < siegeSupport.cost,
+          title: `突破前方无人驻守的外城门，消耗 ${siegeSupport.cost} 机动力`, onclick: async () => {
+            const view = war;
+            if (!view || view.st.busy) return;
+            view.hold(true);
+            let confirmed;
+            try { confirmed = await confirmBox('策应攻门', `消耗 ${siegeSupport.cost} 机动力，突破前方外城门？`); }
+            finally { view.hold(false); }
+            if (confirmed && war === view) view.supportBreach(u);
+          } }, '策应攻门') : null,
         // 再施: the 计略 he cast last, straight to its targets (the one he cast it on first); greyed, with the reason, when it cannot be cast now.
         recast ? h('button', { class: 'btn recast', disabled: !!busy || !recast.usable, 'data-key': 'x', title: recast.usable ? `再施${recast.name}：机动力 ${recast.cost}，目标照常选择并确认（X）` : `现在不能再施${recast.name}：${recast.why || '无法施展'}`,
           onclick: () => war.recast() }, '再施', h('small', {}, recast.name), h('kbd', { class: 'keycap', 'data-label': 'X' })) : null,
@@ -3094,7 +3123,8 @@ function actPanel(info, was) {
       h('div', { class: 'ap-step' }, ...step.flatMap((x, i) => (i ? [h('i', {}, '›'), h('span', {}, x)] : [h('span', {}, x)])))),
     body, foot);
   const old = $('.actpanel'), scroll = old?.querySelector('.ap-body')?.scrollTop ?? 0;
-  if (old) old.replaceWith(el); else root().append(el);
+  if (old) old.replaceWith(el);
+  else { el.classList.add('entering'); root().append(el); }
   placePanel(el);
   if (!fresh) el.querySelector('.ap-body').scrollTop = scroll;
   // The keys go to the list as it comes up, never to 施展 (D32 §9.2): the 计略 he cast last, the target he was on (or cast on

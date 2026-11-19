@@ -397,9 +397,12 @@ async function brokenOffAndResumed(before, then) {
       const ids = g.cities[home].officers.slice(0, 3);
       debug.fieldWar(debug.setupWar(g, { from: home, to: to.id, ids, commander: ids[0], gold: 100, rice: 400 }), 'att');
     });
-    await p.waitForFunction(() => window.__game.war?.finishDeploy && document.body.dataset.screen === 'war', null, { timeout: 30000 });
     let stop = closeMessages(p);
-    try { await p.waitForTimeout(2500); await p.evaluate(() => window.__game.war.st.deploying && window.__game.war.finishDeploy()); await idle(); } finally { stop(); }
+    try {
+      await p.waitForFunction(() => window.__game.war?.st.deploying && document.body.dataset.screen === 'war' && !document.querySelector('.banner, .panel.msg, #fade.on'), null, { timeout: 60000 });
+      await p.locator('.deploybtn .btn', { hasText: '布阵完成' }).click();
+      await idle();
+    } finally { stop(); }
     const left = await before(p);
     await p.click('.sysmenu-btn'); await p.locator('.sysmenu-list button', { hasText: '中断战斗' }).click();
     await p.locator('.shade .btn', { hasText: '中断并回到标题' }).click();

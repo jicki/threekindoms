@@ -75,6 +75,18 @@ function fastClock() {
 }
 export const timeScale = (page, k) => page.evaluate((k) => window.__timeScale(k), k);
 
+// 让浏览器的手柄轮询实际读到按下和松开。WebGL 忙时，两次轮询的间隔可能超过固定的按键延时。
+export async function tapFakePad(page, index, wait = 120) {
+  await page.evaluate(async (index) => {
+    const frames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    window.__fakePad.set(index, true);
+    await frames();
+    window.__fakePad.set(index, false);
+    await frames();
+  }, index);
+  if (wait) await page.waitForTimeout(wait);
+}
+
 // Until the war map's camera has come to rest (warview viewState().still), two frames on so a move asked for this frame has begun:
 // a fixed wait was longer than the ease, or on a loaded machine too short. With `jump` (a page opened with { clock: true }) the
 // view's own update runs on in 50 ms steps, the clock moved on with each, with no frame drawn between (the step the frame loop caps

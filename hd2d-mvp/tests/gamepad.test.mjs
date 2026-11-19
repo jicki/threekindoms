@@ -3,7 +3,7 @@
 // few frames, as a player would.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startGame, closeMessages, skipIntro, newCampaign, timeScale } from './game.mjs';
+import { startGame, closeMessages, skipIntro, newCampaign, timeScale, tapFakePad } from './game.mjs';
 
 let game;
 before(async () => { game = await startGame({ width: 1280, height: 800 }); });
@@ -20,7 +20,7 @@ const XBOX = fakePad('Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Pr
 const NINTENDO = fakePad('Pro Controller (STANDARD GAMEPAD Vendor: 057e Product: 2009)');
 const btn = (page, k, on) => page.evaluate(([i, on]) => window.__fakePad.set(i, on), [STD.indexOf(k), on]);
 // A press of a few frames.
-export async function padTap(page, k, { wait = 120 } = {}) { await btn(page, k, true); await page.waitForTimeout(70); await btn(page, k, false); await page.waitForTimeout(wait); }
+export const padTap = (page, k, { wait = 120 } = {}) => tapFakePad(page, STD.indexOf(k), wait);
 export async function padHold(page, k, ms = 800) { await btn(page, k, true); await page.waitForTimeout(ms); await btn(page, k, false); await page.waitForTimeout(150); }
 const state = (page) => page.evaluate(() => window.__game.pad.state);
 const focused = (page) => page.evaluate(() => { const a = document.activeElement; return a && a !== document.body ? a.textContent.trim() : null; });

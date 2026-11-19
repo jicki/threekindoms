@@ -246,6 +246,23 @@ export class Field {
   // What a cell is to the player: a village (moved and judged as 平地) or its terrain's name.
   ground(x, y) { const gate = gateAt(this.siege,x,y); if (gate) return `${gate.ring === 3 ? '外' : '内'}城门（${gate.open ? '已突破' : '封闭，攻方突破消耗＋2'}）`; if (wallAt(this.siege,x,y)) return '城墙（不可通行）'; const v = this.villages.find((q) => q.x === x && q.y === y); return v ? `村落（${v.kind}）` : TERRAIN_NAME[this.terr(x, y)]; }
   deployable(x,y) { return !wallAt(this.siege,x,y); }
+  // 军师可以从护城桥支援攻门。守军驻门时仍须先交战，内城只能由部队亲自突破。
+  gateSupport(u) {
+    if (!this.siege || this.g.siegeTactics !== true || this.over || u?.gone || u?.side !== 'att' || this.turn !== 'att') return null;
+    const o = this.O(u.id);
+    if (o.int < 85 || o.soldiers < 100 || u.stop || u.qimen) return null;
+    const { cx, cy, gates } = this.siege;
+    if (Math.max(Math.abs(u.x - cx), Math.abs(u.y - cy)) !== 4) return null;
+    const gate = gates.find(p => p.ring === 3 && !p.open && this.adjacent(u, p) && !this.unitAt(p.x, p.y));
+    return gate ? { gate, cost: 7 } : null;
+  }
+  supportBreach(u) {
+    const action = this.gateSupport(u);
+    if (!action || this.pool.att < action.cost) return false;
+    this.pool.att -= action.cost;
+    action.gate.open = true;
+    return true;
+  }
 
   // 沿预计算路径移动；返回值表示本次是否突破了城门。
   move(u, x, y, spent, path = [[x,y]]) {

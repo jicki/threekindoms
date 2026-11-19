@@ -135,9 +135,12 @@ test('新角色在白兵移动时实际播放侧面和正面行军帧', async ()
       let group; view.scene.traverse((o) => { if (o.isCSS2DObject && o.element === label) group = o.parent; });
       const maps = [];
       group.traverse((o) => { const t = o.material?.map; if (t?.image?.width === 2048 && !maps.includes(t)) maps.push(t); });
-      const side = maps.find((t) => t.image.height === 256), turn = maps.find((t) => t.image.height === 128);
+      const side = maps.find((t) => t.repeat.y < 1), turn = maps.find((t) => t.image.height === 128);
       if (!side || !turn) throw new Error('未找到人物白兵动作图');
-      const seen = { side: new Set(), front: new Set() }, index = (t) => Math.round(t.offset.x * 16) + (t.offset.y < 0.25 && t.image.height === 256 ? 16 : 0);
+      const seen = { side: new Set(), front: new Set() }, index = (t) => {
+        const cols = Math.round(1 / t.repeat.x), rows = Math.round(1 / t.repeat.y);
+        return Math.round(t.offset.x * cols) + (rows - 1 - Math.round(t.offset.y * rows)) * cols;
+      };
       const timer = setInterval(() => { seen.side.add(index(side)); seen.front.add(index(turn)); }, 20);
       view.setSpeed(0.25); const [x, y] = [unit.x, unit.y];
       try {
@@ -289,7 +292,7 @@ test('女性角色动作可进入白兵与单挑，并完成一次攻击演出',
       window.__game.tview.scene.traverse((o) => { const image = o.material?.map?.image; if (image) dimensions.push([image.width, image.height]); });
       return dimensions;
     });
-    assert.ok(maps.some(([w, h]) => w === 2048 && h === 256), '白兵载入多行角色动作');
+    assert.ok(maps.some(([w, h]) => w === 2048 && h === 384), '白兵载入含弓动作的三行图集');
     const pose = await page.evaluate(async () => {
       const { debug } = window.__game, duel = debug.duelView;
       debug.show('dview'); await duel.enter(window.__tq, { a: 'attacker', d: 'defender' });
@@ -341,15 +344,19 @@ test('持弓女性将领的白兵远射显示箭矢并播放落点音效', async
       battle.map = Array.from({ length: 10 }, () => Array(16).fill(0));
       Object.assign(a, { x: 5, y: 4 }); Object.assign(d, { x: 7, y: 4 });
       const event = battle.act(a); let arrow = false;
-      const timer = setInterval(() => view.scene.traverse((object) => {
-        const p = object.geometry?.parameters; if (p?.width === 0.016 && p?.height === 0.016 && p?.depth === 0.28) arrow = true;
-      }), 10);
+      let start;
+      const timer = setInterval(() => {
+        const projectile = view.scene.getObjectByName('weapon-arrow');
+        if (!projectile?.visible || projectile.children.length < 2) return;
+        start ??= projectile.position.clone();
+        if (start.distanceTo(projectile.position) > 0.05) arrow = true;
+      }, 10);
       try { await view.play(event, { sfx: (name) => sounds.push(name) }); }
       finally { clearInterval(timer); }
       return { type: event.type, ranged: event.ranged, arrow, sounds };
     });
     assert.equal(result.type, 'attack'); assert.equal(result.ranged, true); assert.equal(result.arrow, true);
-    assert.ok(result.sounds.includes('sfx-volley-land'));
+    assert.deepEqual(result.sounds.filter(n => n === 'sfx-tactic-xbow' || n === 'sfx-volley-land'), ['sfx-tactic-xbow', 'sfx-volley-land']);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });

@@ -371,9 +371,10 @@ test('an AI war ends with its city flashing the outcome, 7.09 s in all', async (
       most = Math.max(most, scene.children.length - objs);
     }, 30);
     await io.event({ type: 'autobattle', war: { attacker: fs[0].id, defender: fs[1].id, city, from, att: { ids: [fs[0].ruler] } }, res: { attWins: false } });
+    const total = performance.now() - t0;
     clearInterval(watch);
     await new Promise((r) => setTimeout(r, 1200)); // the last dust settles, the rings fade
-    return { total: performance.now() - t0 - 1200, seen: [...seen], words, most, left: scene.children.length - objs, att: window.__game.G.factionName(window.__game.g, fs[0].id), def: window.__game.G.factionName(window.__game.g, fs[1].id), plaques: document.querySelectorAll('.aiwar').length };
+    return { total, seen: [...seen], words, most, left: scene.children.length - objs, att: window.__game.G.factionName(window.__game.g, fs[0].id), def: window.__game.G.factionName(window.__game.g, fs[1].id), plaques: document.querySelectorAll('.aiwar').length };
   });
   assert.ok(near(r.total, 7090, 0.1), `took ${Math.round(r.total)} ms`);
   assert.equal(r.seen.length, 1); assert.match(r.seen[0], /守住$/, 'the defender held it');
@@ -433,9 +434,12 @@ test('no ground sinks under the sea plane away from the sea, and 交州\'s river
 
 for (const kind of ['drought', 'flood']) test(`someone else's ${kind} shows its picture over the struck cities, 4.76 s`, async () => {
   const r = await page.evaluate(async (kind) => {
-    const { g, io } = window.__game, list = g.cities.filter((c) => c.faction !== g.player).slice(0, 2).map((c) => [c.id, 0]), t0 = performance.now();
+    const { g, io, strategy } = window.__game, list = g.cities.filter((c) => c.faction !== g.player).slice(0, 2).map((c) => [c.id, 0]), t0 = performance.now();
     let scene = null, flashed = 0;
-    const watch = setInterval(() => { scene ??= document.querySelector('.vig')?.dataset.scene; flashed = Math.max(flashed, document.querySelectorAll('.ctag.news').length); }, 30);
+    const watch = setInterval(() => {
+      scene ??= document.querySelector('.vig')?.dataset.scene;
+      flashed = Math.max(flashed, list.filter(([id]) => strategy.tagOf(id)?.classList.contains('news')).length);
+    }, 30);
     await io.event({ type: 'disaster', kind, list });
     clearInterval(watch);
     return { total: performance.now() - t0, scene, flashed };

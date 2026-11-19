@@ -43,11 +43,13 @@ export function createStrategyCities({ scene, data, sand, world, sites, onCity, 
     data.cities.forEach((c, i) => {
       const color = colorOf(c.faction), g = new THREE.Group(), roof = seasonalRoof(M(tileTex, { side: THREE.DoubleSide, roughness: 0.8 }));
       roof.color.copy(NEUTRAL);
-      const st = sand && world.cities.find((w) => w.id === c.id);
+      const site = sand && world.cities.find((w) => w.id === c.id);
+      const model = site ? world.cityModel(site.tier) : [];
+      const st = model.length ? site : null;
       // Sand table: the Tripo model of the city's tier as baked (its banner pole at the model's north-east corner);
       // the owner's colour flies on the banner and tints the land.
       const half = st ? world.size[{ capital: 'city-capital', major: 'city-major', county: 'city-county', pass: 'pass' }[st.tier]] / 2 * st.ms : 0;
-      if (st) for (const { geo, mat } of world.cityModel(st.tier)) { const m = new THREE.Mesh(geo, mat); m.scale.setScalar(st.ms); m.position.y = -0.03; g.add(m); }
+      if (st) for (const { geo, mat } of model) { const m = new THREE.Mesh(geo, mat); m.scale.setScalar(st.ms); m.position.y = -0.03; g.add(m); }
       else if (CAPITAL.has(c.id)) { const f = buildFortress(g, { x: 0, h: 0, z: 0 }, null, { roofMat: roof, lights: false }); f.group.scale.setScalar(0.95); flags.push(...f.flags); }
       else if (PASS.has(c.id) || c.kind === 'pass') buildPass(g, roof);
       else buildTown(g, roof, c.id * 7 + 3);

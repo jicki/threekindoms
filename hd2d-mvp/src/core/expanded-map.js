@@ -159,8 +159,9 @@ export function expandedSandMeta(meta, frontier = false) {
   const copy = { ...meta, cities: [...meta.cities], roads: [...meta.roads] };
   splitMapRoads(copy.roads, 3, (n, point) => {
     const [x, y, z] = point.map((value, i) => value + (n.sandOffset?.[i] ?? 0));
-    copy.cities.push({ id: n.id, name: n.name, tier: n.kind === 'pass' ? 'pass' : 'county',
-      x, y, z, mx: x, mz: z, ms: n.kind === 'pass' ? 0.55 : 0.7, outpost: n.kind === 'pass' });
+    const tier = n.kind === 'pass' ? 'pass' : n.id === 30 ? 'major' : 'county';
+    const ms = tier === 'pass' ? 0.55 : tier === 'major' ? 0.7 * Math.min(1, (meta.size?.['city-county'] || 1) / (meta.size?.['city-major'] || 1)) : 0.7;
+    copy.cities.push({ id: n.id, name: n.name, tier, x, y, z, mx: x, mz: z, ms, outpost: n.kind === 'pass' });
     return [x, y, z];
   }, frontier);
   if (frontier) {
