@@ -78,6 +78,7 @@ export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random(
   if (D.safeAiLure) g.safeAiLure = true;
   if (D.balancedTroops) g.balancedTroops = true;
   if (D.campaignRules) { g.campaignRules = true; g.safeStrategyChance = true; }
+  if (scenarioId === EXPANDED_MAP_ID && D.expandedMap === true) g.battlefields = 2;
   if (D.expandedMap && D.frontierMap) g.frontierMap = true;
   const r = rng(g);
   g.order = r(5); // 新游戏随机0–4 (5.2)
@@ -897,6 +898,7 @@ export function upgrade(g) {
   if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return null;
   try { g.version ??= 1; while (g.version < SAVE_VERSION) MIGRATIONS[g.version++](g); } catch { return null; }
   if (g.frontierMap !== undefined && typeof g.frontierMap !== 'boolean') return null;
+  if (g.battlefields !== undefined && (![1, 2].includes(g.battlefields) || scenarioId !== EXPANDED_MAP_ID || D.expandedMap !== true)) return null;
   // 旧扩展地图记录只补充无主的新据点，已有城市、武将及战斗状态不重置。
   const legacyCount = 30 + EXPANDED_NODES.length;
   if (D.expandedMap && D.frontierMap && Array.isArray(g.cities) && g.cities.length === legacyCount && g.frontierMap !== true) {

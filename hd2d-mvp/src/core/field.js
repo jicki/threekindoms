@@ -7,6 +7,8 @@ import { Tactical } from './tactical.js';
 import { roll100, realChance } from './origrng.js';
 import { relationshipAffinity, recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
 import { passiveRiceUse } from './ruler-passives.js';
+import { battlefieldLayout, battlefieldProfile } from './battlefields.js';
+import { siegeLayout, wallAt, gateAt, blockedStrategy, restoreGates } from './siege.js';
 
 const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0]]; // 上下左右
 export const W = 32, H = 19, FOREST = 0, SAND = 1, PLAIN = 2, RIVER = 3, MOUNT = 4, CASTLE = 5;
@@ -80,11 +82,15 @@ export class Field {
     configureStrategies(g);
     this.g = g; this.war = war; this.human = humanSide; // 'att' | 'def' | null
     takeLevelUps(g); // level-ups from fights the player did not see (AI wars, a test 白兵) are not told in this one
-    this.map = D.maps[war.city];
+    const layout = battlefieldLayout(D, g, war.city, war.from);
+    this.sceneProfile = battlefieldProfile(g, war.city);
+    this.entryDirection = layout?.direction ?? null;
     this.r = rng(g);
-    const dep = D.deploy[war.city][war.from] || Object.values(D.deploy[war.city])[0];
-    this.dep = dep;
-    this.villages = D.villages[war.city] || [];
+    const baseDep = layout?.dep ?? (D.deploy[war.city][war.from] || Object.values(D.deploy[war.city])[0]);
+    const baseMap = layout?.map ?? D.maps[war.city], baseVillages = layout?.villages ?? D.villages[war.city] ?? [];
+    const siege = g.battlefields === 2 ? siegeLayout(baseMap, baseDep, baseVillages, layout?.direction, [30,31].includes(war.city)) : null;
+    this.map = siege?.map ?? baseMap; this.dep = siege?.dep ?? baseDep; this.villages = siege?.villages ?? baseVillages; this.siege = siege?.siege ?? null;
+    const dep = this.dep;
     this.units = [];
     for (const side of ['def', 'att']) {
       const ids = war[side].ids, block = side === 'def' ? dep.defender : dep.attacker;
@@ -107,7 +113,7 @@ export class Field {
   snapshot() {
     const ambush = this.ambush && Object.fromEntries(Object.entries(this.ambush).map(([s, a]) => [s, a && { ...a, u: this.units.indexOf(a.u) }]));
     return structuredClone({ human: this.human, units: this.units, pool: this.pool, day: this.day, turn: this.turn, over: this.over, log: this.log,
-      commanderRetreat: this.commanderRetreat ?? null, ambush: ambush ?? null });
+      commanderRetreat: this.commanderRetreat ?? null, ambush: ambush ?? null, ...(this.siege ? { siegeGates: this.siege.gates } : {}) });
   }
   // The field again from a snapshot, on the game and war it was taken with (both restored from the same record). Nothing is
   // drawn and no role is reassigned, so the battle goes on exactly where it stood. `resumed` tells the war view to skip 布阵.
@@ -115,9 +121,14 @@ export class Field {
     const D = data(), f = Object.create(Field.prototype), s = structuredClone(snap);
     configureStrategies(g);
     f.g = g; f.war = war; f.human = s.human;
-    f.map = D.maps[war.city]; f.r = rng(g);
-    f.dep = D.deploy[war.city][war.from] || Object.values(D.deploy[war.city])[0];
-    f.villages = D.villages[war.city] || [];
+    const layout = battlefieldLayout(D, g, war.city, war.from);
+    f.sceneProfile = battlefieldProfile(g, war.city);
+    f.entryDirection = layout?.direction ?? null;
+    const baseDep = layout?.dep ?? (D.deploy[war.city][war.from] || Object.values(D.deploy[war.city])[0]);
+    const baseMap = layout?.map ?? D.maps[war.city], baseVillages = layout?.villages ?? D.villages[war.city] ?? [];
+    const siege = g.battlefields === 2 ? siegeLayout(baseMap, baseDep, baseVillages, layout?.direction, [30,31].includes(war.city)) : null;
+    f.map = siege?.map ?? baseMap; f.dep = siege?.dep ?? baseDep; f.villages = siege?.villages ?? baseVillages; f.siege = siege?.siege ?? null; f.r = rng(g);
+    if (f.siege && !restoreGates(f.siege, s.siegeGates)) throw new Error('无效的城门中断记录');
     Object.assign(f, { units: s.units, pool: s.pool, day: s.day, turn: s.turn, over: s.over, log: s.log ?? [], lastAmbush: null, resumed: true });
     if (s.commanderRetreat) f.commanderRetreat = s.commanderRetreat;
     if (s.ambush) f.ambush = Object.fromEntries(Object.entries(s.ambush).map(([k, a]) => [k, a && { ...a, u: f.units[a.u] }]));
@@ -177,9 +188,11 @@ export class Field {
     }
   }
   cost(u, x, y) {
+    if (wallAt(this.siege, x, y)) return Infinity;
     const o = this.O(u.id), D = data();
     const t = this.villages.some((v) => v.x === x && v.y === y) ? PLAIN : this.terr(x, y);
-    return D.rules.move_cost[o.soldiers >= 600 ? 'large' : 'small'][o.army][t];
+    const gate = gateAt(this.siege, x, y);
+    return D.rules.move_cost[o.soldiers >= 600 ? 'large' : 'small'][o.army][t] + (u.side === 'att' && gate && !gate.open ? 2 : 0);
   }
   reach(u, budget = this.pool[u.side]) {
     const dist = new Map([[u.x + ',' + u.y, 0]]), prev = new Map(), open = u.stop || u.qimen ? [] : [[0, u.x, u.y]];
@@ -229,14 +242,18 @@ export class Field {
   }
   village(u) { return this.villages.find((v) => v.x === u.x && v.y === u.y); }
   // What a cell is to the player: a village (moved and judged as 平地) or its terrain's name.
-  ground(x, y) { const v = this.villages.find((q) => q.x === x && q.y === y); return v ? `村落（${v.kind}）` : TERRAIN_NAME[this.terr(x, y)]; }
+  ground(x, y) { const gate = gateAt(this.siege,x,y); if (gate) return `${gate.ring === 3 ? '外' : '内'}城门（${gate.open ? '已突破' : '封闭，攻方突破消耗＋2'}）`; if (wallAt(this.siege,x,y)) return '城墙（不可通行）'; const v = this.villages.find((q) => q.x === x && q.y === y); return v ? `村落（${v.kind}）` : TERRAIN_NAME[this.terr(x, y)]; }
+  deployable(x,y) { return !wallAt(this.siege,x,y); }
 
-  // Move along a precomputed path; returns false if the move ends the war (castle).
-  move(u, x, y, spent) {
+  // 沿预计算路径移动；返回值表示本次是否突破了城门。
+  move(u, x, y, spent, path = [[x,y]]) {
+    let breached = false;
+    if (u.side === 'att') for (const [px,py] of path) { const gate = gateAt(this.siege,px,py); if (gate && !gate.open) { gate.open = true; breached = true; } }
     this.pool[u.side] -= spent; u.x = x; u.y = y;
     this.lastAmbush = this.ambushCheck(u);
     const [cx, cy] = this.castle();
     if (u.side === 'att' && x === cx && y === cy) this.end('def', 'castle');
+    return breached;
   }
 
   // A duel involving the human side comes back pending; the renderer runs it and calls settle().
@@ -245,7 +262,7 @@ export class Field {
   attack(a, d) {
     this.pool[a.side] -= ATTACK_COST;
     const humanIn = this.human && (a.side === this.human || d.side === this.human);
-    const battle = new Tactical(this.g, a.id, d.id, this.terr(d.x, d.y), this.r, { human: humanIn ? (a.side === this.human ? 'a' : 'd') : null,
+    const battle = new Tactical(this.g, a.id, d.id, this.terr(d.x, d.y), this.r, { human: humanIn ? (a.side === this.human ? 'a' : 'd') : null, sceneProfile: this.sceneProfile,
       bonuses: { a: this.combatPassive(a.side), d: this.combatPassive(d.side) } });
     const res = { battle };
     res.settle = () => { Object.assign(res, battle.result()); delete res.pending; this.applySkirmish(a, d, res); return res; };
@@ -372,6 +389,7 @@ export class Field {
     const T = (v) => this.terr(v.x, v.y);
     if (id === 11) return T(u) === FOREST && this.O(u.id).soldiers >= 100 && !this.ambush?.[u.side];
     if (!t || t.gone || t.side === u.side || this.dist(u, t) >= 6) return false;
+    if (blockedStrategy(this.siege, u, t)) return false;
     if (STRATS[id]?.custom) return true;
     switch (id) {
       case 0: return T(t) === FOREST || T(t) === PLAIN;
@@ -400,6 +418,7 @@ export class Field {
     if (id === 9 && T !== MOUNT && T !== CASTLE) return '需自己位于山地或城中';
     if (id === 13 && T !== CASTLE) return '需自己位于城中';
     if (this.side(u.side === 'att' ? 'def' : 'att').some((e) => this.legal(u, id, e))) return null;
+    if (this.side(u.side === 'att' ? 'def' : 'att').some((e) => this.dist(u,e) < 6 && blockedStrategy(this.siege,u,e))) return '城墙阻隔计策，需先突破相应城门';
     return `${S.custom ? 5 : 6}格内没有符合条件的敌军（${STRAT_INFO[id].where.replace(/^自己在[^，]*，/, '')}）`;
   }
   hitChance(u, t) {
@@ -464,6 +483,7 @@ export class Field {
   }
   cast(u, id, t, ai = false) {
     const S = STRATS[id], r = this.r, a = this.O(u.id), U = (n) => r(n), lines = [], hits = [];
+    if (t && blockedStrategy(this.siege,u,t)) return { ok:false, hit:false, name:S.name, lines:['城墙阻隔计策'], hits };
     if (S.custom && S.maxUses && (u.skillUses?.[id] ?? 0) >= S.maxUses) return { ok: false, hit: false, name: S.name, lines: ['本场使用次数已用完'], hits };
     if (!ai && !this.canCast(u, id, t)) return { ok: false, hit: false, name: S.name, lines: [this.pool[u.side] < S.cost ? '机动力不足' : `无法施展${S.name}`], hits };
     this.pool[u.side] = Math.max(0, this.pool[u.side] - (ai ? S.ai : S.cost));
@@ -516,7 +536,7 @@ export class Field {
       case 3: loss(t, Math.floor((a.war * (14 + U(7))) / 10)); break;
       case 4: loss(t, Math.floor((a.int * (20 + U(7))) / 10) + L() + 7); break;
       case 5: { const ch = this.chest(t.side), d = Math.min(ch.rice, Math.floor((ch.rice * (10 + U(5))) / 100) + Math.floor(a.int / 5)); ch.rice -= d; hits.push({ u: t, rice: -d }); lines.push(`烧毁敌军米 ${d}`); break; }
-      case 7: fire(t); for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) { const n = this.unitAt(t.x + dx, t.y + dy); if (n && n.side === t.side) fire(n); } break;
+      case 7: fire(t); for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) { const n = this.unitAt(t.x + dx, t.y + dy); if (n && n.side === t.side && !blockedStrategy(this.siege,u,n)) fire(n); } break;
       case 8: {
         t.side = u.side; t.role = 4; t.commander = false;
         const o = this.O(t.id), faction = this.faction(u.side), ruler = this.g.factions[faction].ruler;
@@ -524,10 +544,10 @@ export class Field {
         lines.push(`${nm(t)} 倒戈投向我军`); break;
       }
       case 9: hp(t, Math.floor((L() + Math.floor(((a.war + a.int) & 255) / 10)) * (5 + U(3)) / 10)); if (!t.gone) loss(t, Math.floor((a.war * (14 + U(7))) / 10)); break;
-      case 10: for (const v of this.component(t)) if (this.terr(v.x, v.y) === RIVER) { v.stop = 3 + U(2) + (u.side === 'att' ? 1 : 0); v.stopBy = '连环'; delete v.stopSkipTick; lines.push(`${nm(v)} 被连环锁住`); } break;
-      case 12: for (const v of this.component(t)) if (this.terr(v.x, v.y) === RIVER) loss(v, Math.floor((a.int * (20 + U(7))) / 10) + L() + 7); break;
+      case 10: for (const v of this.component(t)) if (!blockedStrategy(this.siege,u,v) && this.terr(v.x, v.y) === RIVER) { v.stop = 3 + U(2) + (u.side === 'att' ? 1 : 0); v.stopBy = '连环'; delete v.stopSkipTick; lines.push(`${nm(v)} 被连环锁住`); } break;
+      case 12: for (const v of this.component(t)) if (!blockedStrategy(this.siege,u,v) && this.terr(v.x, v.y) === RIVER) loss(v, Math.floor((a.int * (20 + U(7))) / 10) + L() + 7); break;
       case 13: loss(t, 150 + U(200) + Math.floor(((a.war + a.int) & 255) / 2)); break;
-      case 14: for (const v of this.component(t)) loss(v, Math.floor((a.int * (30 + U(6))) / 10)); break;
+      case 14: for (const v of this.component(t)) if (!blockedStrategy(this.siege,u,v)) loss(v, Math.floor((a.int * (30 + U(6))) / 10)); break;
       case 15: t.qimen = 5 + (r(256) & 3) + (u.side === 'att' ? 1 : 0); lines.push(`${nm(t)} 陷入奇门遁甲`); break;
     }
     this.checkCommanders();
@@ -701,12 +721,19 @@ export class Field {
       if (s === 'def') return this.aiStrategy(u, false);
       if (this.pool[s] >= ATTACK_COST && adj.length) return this.doAttack(u, adj);
       const n = this.aiStrategy(u, false); if (n) return n;
+      // 攻城时总大将跟随先锋，避免独自闯入城门后被守军集火。
+      if (this.siege) {
+        const [cx,cy]=this.castle(), distance=(v)=>Math.abs(v.x-cx)+Math.abs(v.y-cy);
+        const vanguard=this.side(s).filter(v=>v!==u && (v.role===1 || v.role===2) && this.O(v.id).soldiers>0);
+        if (vanguard.length && distance(u)>3 && !vanguard.some(v=>distance(v)<distance(u))) return null;
+      }
       if ((this.r(256) & 3) === 0) return null;
       return this.approach(u, commanderFoe);
     }
     if (u.role === 1) {
       const c = adj.find((e) => e.commander);
       if (c && this.pool[s] >= ATTACK_COST) return this.doAttack(u, [c]);
+      if (this.siege && adj.length && this.pool[s] >= ATTACK_COST) return this.doAttack(u, adj);
       if (s === 'def') return this.approach(u, commanderFoe);
       const [cx, cy] = this.castle(); return this.approach(u, { x: cx, y: cy });
     }
@@ -767,6 +794,7 @@ export class Field {
   // original quirk), first affordable free cell wins and the estimate is what gets paid. Role 1 units
   // attack an enemy blocking that first affordable step. One cell per decision; the dispatcher comes back.
   aiEstimate(u, x, y) {
+    if (this.siege) return this.cost(u,x,y);
     const o = this.O(u.id), t = this.villages.some((v) => v.x === x && v.y === y) ? PLAIN : this.terr(x, y);
     const big = [[3, 5, 5], [4, 4, 4], [2, 3, 3], [5, 6, 3], [5, 3, 6], [6, 6, 6]], small = [[2, 3, 3], [3, 3, 3], [1, 2, 2], [3, 5, 2], [3, 2, 4], [4, 4, 4]];
     return ((o.soldiers & 255) <= 2 ? small : big)[t][ARMY_IDX[o.army]];
@@ -789,8 +817,34 @@ export class Field {
     this.move(u, ...step, cost);
     return { type: 'move', u, path: [step], cost };
   }
+  // 城墙需要允许暂时远离目标的绕行；逐格行动，移动消耗与玩家一致。
+  siegeApproach(u, target) {
+    const start = `${u.x},${u.y}`, occupied = this.unitAt(target.x,target.y);
+    const dist = new Map([[start,0]]), prev = new Map(), open = [[0,u.x,u.y]];
+    let end = null, best = start, bestDistance = Math.abs(u.x-target.x)+Math.abs(u.y-target.y), bestCost = 0;
+    while (open.length) {
+      open.sort((a,b) => a[0]-b[0]); const [d,x,y] = open.shift(), k = `${x},${y}`;
+      if (d !== dist.get(k)) continue;
+      const remaining=Math.abs(x-target.x)+Math.abs(y-target.y);
+      if (remaining<bestDistance || (remaining===bestDistance && d<bestCost)) { best=k; bestDistance=remaining; bestCost=d; }
+      if (occupied ? Math.abs(x-target.x)+Math.abs(y-target.y)===1 : x===target.x && y===target.y) { end=k; break; }
+      for (const [dx,dy] of DIRS) {
+        const nx=x+dx, ny=y+dy, nk=`${nx},${ny}`;
+        if (!this.inside(nx,ny) || this.unitAt(nx,ny)) continue;
+        const nd=d+this.cost(u,nx,ny); if (!Number.isFinite(nd) || nd >= (dist.get(nk) ?? Infinity)) continue;
+        dist.set(nk,nd); prev.set(nk,k); open.push([nd,nx,ny]);
+      }
+    }
+    end ||= best;
+    if (end===start) return null;
+    while (prev.get(end)!==start) end=prev.get(end);
+    const step=end.split(',').map(Number), cost=this.cost(u,...step);
+    if (cost>this.pool[u.side]) return null;
+    this.move(u,...step,cost); return { type:'move',u,path:[step],cost };
+  }
   approach(u, target) {
     if (!target || this.pool[u.side] <= 0 || u.stop || u.qimen) return null;
+    if (this.siege && target.side !== u.side) return this.siegeApproach(u,target);
     // 贴身护卫不抢占主将另一侧；两名护卫堵住前路时，挡路的一人侧移让行。
     if (u.role === 3 && target.commander && target.side === u.side && this.adjacent(u, target)) {
       const guards = this.side(u.side).filter((v) => v.role === 3 && this.adjacent(v, target));

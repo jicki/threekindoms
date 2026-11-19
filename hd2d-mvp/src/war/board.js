@@ -39,6 +39,10 @@ export function makeBoard(wv) {
   // the grey light and the month's rain level (where.weather, which the range fill reads) still say it is raining.
   const env = seasonEnv(scene, { sun, back, hemi, sunK: 0.95, hemiK: 1.15, snowH: 0.9, patch: 0.3, calm: 1, bloom: 0, ring: [90, 4], weather: WAR_RAIN });
   const where = env.set({ month: field.g.month, city: field.war.city });
+  // 场景色只作用于远景雾色，不改变地格或天气规则。
+  const sceneTint = { 北境: '#c5d1d9', 边塞: '#d8c5a3', 山地: '#bac9be', 水乡: '#b9ced1', 海滨: '#aecbd1', 平原: '#d4ceae', 都城: '#d3c6ae', 关隘: '#c7bda6', 峡谷: '#b9b8aa' };
+  const tint = sceneTint[field.sceneProfile?.region];
+  if (tint) scene.fog.color.lerp(new THREE.Color(tint), 0.25);
   // The key light: a warm, pale low sun on a clear day, the month's own grey light in a rainy, stormy or snowing one (keySun).
   { const k = keySun(field.g.month); sun.color.copy(k.color); sun.intensity = k.intensity; }
   // The painted materials (src/warplate.js), loaded by app.js before the battle; without them (a test that
@@ -173,8 +177,25 @@ export function makeBoard(wv) {
       const dx = def.reduce((a, u) => a + wx(u.x), 0) / def.length - S.castle.x, dz = def.reduce((a, u) => a + wz(u.y), 0) / def.length - S.castle.z;
       S.castle.facing = Math.abs(dx) > Math.abs(dz) ? (dx > 0 ? Math.PI / 2 : -Math.PI / 2) : dz > 0 ? 0 : Math.PI;
     }
+    const direction=field.siege?.direction ?? field.entryDirection;
+    if (direction) S.castle.facing = { n: Math.PI, s: 0, w: -Math.PI / 2, e: Math.PI / 2 }[direction];
+  }
+  // 低矮城墙与城门按照可通行格绘制，避免遮住棋子；城门突破后同步降低门板。
+  if (field.siege && !flat) {
+    S.outskirts.length = 0;
+    const wallGeo=new THREE.BoxGeometry(0.96,0.55,0.96), gateGeo=new THREE.BoxGeometry(0.78,0.55,0.78);
+    const outer=new THREE.MeshStandardMaterial({color:'#887d68',roughness:0.9}), inner=new THREE.MeshStandardMaterial({color:'#b09a73',roughness:0.9});
+    const gateMat=new THREE.MeshStandardMaterial({color:'#835b35',roughness:0.85});
+    for (const ring of [3,1]) {
+      const walls=field.siege.walls.filter(p=>p.ring===ring), mesh=new THREE.InstancedMesh(wallGeo,ring===3?outer:inner,walls.length);
+      walls.forEach((p,i)=>mesh.setMatrixAt(i,new THREE.Matrix4().makeTranslation(wx(p.x),topY(p.x,p.y)+0.275,wz(p.y))));
+      mesh.instanceMatrix.needsUpdate=true; scene.add(mesh);
+    }
+    for (const p of field.siege.gates) { const m=new THREE.Mesh(gateGeo,gateMat); m.position.set(wx(p.x),topY(p.x,p.y)+0.275,wz(p.y)); m.userData.siegeGate=p; scene.add(m); }
   }
   S.castleColor = FACTION_COLORS[field.faction('def')] ?? '#5a5a66'; // roofs glazed in the holder's colour, as on the strategy map
+  S.siteKind = field.sceneProfile?.kind;
+  if (S.siteKind === 'pass') S.outskirts.length = 0;
   const before = new Set(scene.children);
   const dressing = flat ? { billboards: [], lights: [], labels: [], update() {} } : dressBoard(scene, S, field.war.city * 31 + 5, { calm: true, painted: !!G });
   const woods = G && !flat && plantWoods(scene, G, woodsOf(S, rng(field.war.city * 53 + 1)), PITCH, field.war.city);

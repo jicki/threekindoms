@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { canvasTex, rng } from './pixel.js';
 import { skyLit } from './fx.js';
-import { plantTrees, buildFortress, buildVillage, buildCottage } from './structures.js';
+import { plantTrees, buildFortress, buildBattlePass, buildVillage, buildCottage } from './structures.js';
 
 // ---------- Pixel painting ----------
 // Textures are painted texel by texel into ImageData. Every coordinate wraps, so each texture tiles
@@ -553,7 +553,7 @@ export function dressBoard(scene, s, seed = 7, { calm = false, painted = false }
   }
 
   // The castle, villages and a few cottages on the castle's outskirts.
-  const fort = s.castle ? buildFortress(scene, s.castle, s.castleColor, { facing: s.castle.facing ?? 0 }) : { lights: [], flags: [] };
+  const fort = s.castle ? (s.siteKind === 'pass' ? buildBattlePass : buildFortress)(scene, s.castle, s.castleColor, { facing: s.castle.facing ?? 0 }) : { lights: [], flags: [] };
   const labels = s.villages.map((v, i) => buildVillage(scene, v, seed + i * 7, v.kind));
   // Outskirts: two cottages per open cell around the castle, in the corners facing away from it.
   for (const c of s.outskirts) {

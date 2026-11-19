@@ -28,7 +28,7 @@ export function makePick(wv) {
     return a.d[(py * a.w + px) * 4 + 3] >= 128;
   }
   // A cell the current mode would act on as an empty cell (a move destination or a deployment square).
-  const freeTarget = (c) => c && !field.unitAt(c.x, c.y) && (wv.st.deploying ? !!wv.st.sel && wv.inRect(c.x, c.y)
+  const freeTarget = (c) => c && !field.unitAt(c.x, c.y) && (wv.st.deploying ? !!wv.st.sel && wv.inRect(c.x, c.y) && field.deployable(c.x,c.y)
     : wv.st.cast == null && wv.st.sel?.side === human && !!wv.st.reach?.dist.has(c.x + ',' + c.y));
   // A figure the current mode would act on: a legal 计略 target, or an enemy the selected unit can attack.
   const unitTarget = (u) => wv.st.sel && (wv.st.cast != null ? field.legal(wv.st.sel, wv.st.cast, u)

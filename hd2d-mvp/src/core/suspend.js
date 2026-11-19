@@ -5,8 +5,10 @@
 //
 // The record: { version, savedAt, g, war, side, start, after, yaw, field } (yaw: which way the war map faced). `after` says what follows the settled war: the
 // player's own turn ({ kind: 'att' }), or the rest of the attacking AI's turn ({ kind: 'def', faction, pts }: ai.js aiDomestic).
-import { upgrade, registerClones, SAVE_VERSION, scenarioKey } from './game.js';
+import { upgrade, registerClones, SAVE_VERSION, scenarioKey, data } from './game.js';
 import { validRaidRecord, registerRaidTemplates } from './raids.js';
+import { battlefieldLayout } from './battlefields.js';
+import { siegeLayout, restoreGates } from './siege.js';
 
 export const SUSPEND_KEY = 'haou-hd2d-suspend';
 export const SUSPEND_VERSION = 1;
@@ -64,7 +66,16 @@ function valid(rec) {
   if (!rec || typeof rec !== 'object' || rec.version !== SUSPEND_VERSION) return null;
   if (!rec.war || !rec.field || !Array.isArray(rec.field.units) || !['att', 'def'].includes(rec.side) || !rec.after) return null;
   if (rec.war.raid ? !validRaidRecord(rec.g, rec.war) || rec.side !== 'def' || rec.after.kind !== 'raid' : !!rec.g?.raidBattle) return null;
-  return upgrade(rec.g) ? rec : null;
+  if (!upgrade(rec.g)) return null;
+  if (rec.g.battlefields === 2) {
+    try {
+      const D=data(), w=rec.war, layout=battlefieldLayout(D,rec.g,w.city,w.from);
+      const dep=layout?.dep ?? (D.deploy[w.city][w.from] || Object.values(D.deploy[w.city])[0]);
+      const siege=siegeLayout(layout?.map ?? D.maps[w.city],dep,layout?.villages ?? D.villages[w.city] ?? [],layout?.direction,[30,31].includes(w.city)).siege;
+      if (!restoreGates(siege,rec.field.siegeGates)) return null;
+    } catch { return null; }
+  }
+  return rec;
 }
 
 // Write the suspension (true when it is stored). The parts are copied as JSON, so the running game is not touched.

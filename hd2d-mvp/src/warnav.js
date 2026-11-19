@@ -47,6 +47,10 @@ export function createWarNav(war, host) {
   function drawMini() {
     const g = cv.getContext('2d'), k = CELL * 2;
     g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(ground, 0, 0);
+    if (field.siege) {
+      for (const p of field.siege.walls) { g.fillStyle = p.ring === 3 ? '#756650' : '#c5ab7b'; g.fillRect(p.x*k,p.y*k,k,k); }
+      for (const p of field.siege.gates) { g.fillStyle = p.open ? '#e9d69e' : '#914b29'; g.fillRect(p.x*k,p.y*k,k,k); }
+    }
     for (const u of field.units) {
       if (u.gone) continue;
       const cx = (u.x + 0.5) * k, cy = (u.y + 0.5) * k, r = u.commander ? k * 0.62 : k * 0.46;

@@ -42,6 +42,7 @@ export function createWarView(ctx, field) {
     update(dt) {
       time += dt;
       wv.updateCamera(dt);
+      if (field.siege && !wv.flat) for (const obj of wv.scene.children) if (obj.userData.siegeGate) obj.scale.y = obj.userData.siegeGate.open ? 0.12 : 1;
       for (const b of wv.billboards) b.rotation.y = wv.view.yaw;
       if (wv.woods) { wv.woods.userData.aim.yaw.value = wv.view.yaw; wv.woods.userData.aim.tilt.value = wv.view.pitch / 2; } // each crown turns on its own foot to face the eye
       // Sprites turn with the camera and recline by half its pitch (top away, face up toward the eye), so a figure seen from above

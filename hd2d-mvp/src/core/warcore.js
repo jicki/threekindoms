@@ -6,6 +6,8 @@ import { makeSquads, officerSpecialty, officerSquadLimit } from './troop-special
 import { passiveRiceUse } from './ruler-passives.js';
 import { relationshipAffinity } from './relationships.js';
 import { CROSSING_ROADS } from './expanded-map.js';
+import { battlefieldLayout } from './battlefields.js';
+import { siegeLayout } from './siege.js';
 
 // 旧版已中断的战斗仍可沿当时的出阵路线撤回，不恢复这条路线的出阵资格。
 const legacyCrossing = (a, b) => data().expandedMap && CROSSING_ROADS.some(({ road: [x, y] }) => (a === x && b === y) || (a === y && b === x));
@@ -261,6 +263,15 @@ export function fight(g, war) {
     att: equipment(war.att.ids, war.def.ids, baseA), def: equipment(war.def.ids, war.att.ids, baseD),
   };
   const gate = !war.phantom && g.campaignRules === true && war.def.ids.length && isPass(war.city) ? Math.min(3, Math.floor(baseD / 50)) : 0;
+  let riverMap;
+  const hasRiver = () => {
+    if (!riverMap) {
+      const D=data(), layout=battlefieldLayout(D,g,war.city,war.from);
+      const dep=g.battlefields===2 ? layout?.dep ?? (D.deploy[war.city]?.[war.from] || Object.values(D.deploy[war.city] ?? {})[0]) : null;
+      riverMap=dep ? siegeLayout(layout?.map ?? D.maps[war.city],dep,layout?.villages ?? D.villages[war.city] ?? [],layout?.direction,[30,31].includes(war.city)).map : layout?.map ?? D.maps[war.city];
+    }
+    return riverMap?.some(row => row.includes(3));
+  };
   // 自动结算没有逐格地形与白兵行动，用有上限的近似值体现可判断的专属战斗效果。
   const lordBonus = (ids, enemies, faction, side, base) => {
     if (g.campaignRules !== true || !enemies.length || !ids.some((id) => O(id)?.soldiers > 0)) return 0;
@@ -275,7 +286,7 @@ export function fight(g, war) {
     };
     const applies = unique === 'assault' && side === 'att'
       || unique === 'muster' && active.length >= 4
-      || unique === 'river' && D.maps[war.city]?.some((row) => row.includes(3))
+      || unique === 'river' && hasRiver()
       || unique === 'tactics' && active.some((id) => O(id).int >= 50)
       || unique === 'bonds' && active.filter((id) => id !== ruler && relationshipAffinity(D, g, ruler, id) > 0).length >= 2
       || unique === 'fortify' && side === 'def'

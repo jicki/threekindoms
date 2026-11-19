@@ -120,13 +120,13 @@ export function makeInteract(wv) {
   const inRect = (x, y) => wv.rect && x >= wv.rect[0] && x <= wv.rect[1] && y >= wv.rect[2] && y <= wv.rect[3];
   function showDeploy() {
     clearMarks();
-    for (let y = wv.rect[2]; y <= wv.rect[3]; y++) for (let x = wv.rect[0]; x <= wv.rect[1]; x++) if (inside(x, y) && !field.unitAt(x, y)) mark(x, y, 'deploy');
+    for (let y = wv.rect[2]; y <= wv.rect[3]; y++) for (let x = wv.rect[0]; x <= wv.rect[1]; x++) if (inside(x, y) && field.deployable(x,y) && !field.unitAt(x, y)) mark(x, y, 'deploy');
     ui.warUnit(st.sel ? { u: st.sel, o: field.O(st.sel.id), mine: true, deploying: true, strategies: [] } : null);
   }
   function deployClick(x, y) {
     const u = field.unitAt(x, y);
     if (u && u.side === human) { st.sel = u; return showDeploy(); }
-    if (!u && st.sel && inRect(x, y)) { const s = st.sel; s.x = x; s.y = y; showDeploy(); wv.moveAlong(s, [[x, y]], { perCell: 240, follow: false }); }
+    if (!u && st.sel && inRect(x, y) && field.deployable(x,y)) { const s = st.sel; s.x = x; s.y = y; showDeploy(); wv.moveAlong(s, [[x, y]], { perCell: 240, follow: false }); }
   }
   wv.endDeploy = undefined;
   function finishDeploy() { if (!st.deploying) return; st.deploying = false; clearMarks(); st.sel = null; wv.endDeploy?.(); }
@@ -196,7 +196,7 @@ export function makeInteract(wv) {
     if (PHONE && !(asked && asked.x === x && asked.y === y)) { st.moveAsk = { x, y, spent }; st.hoverCell = { x, y }; st.through = null; hot(st.hoverCell); showOptions(); return; }
     wv.lock(); for (const [px, py] of path) mark(px, py, 'path');
     st.last = { u: s, x: s.x, y: s.y, spent, path };
-    field.move(s, x, y, spent); hud();
+    if (field.move(s, x, y, spent, path)) st.last = null; hud();
     await wv.moveAlong(s, path);
     if (field.lastAmbush) { const amb = field.lastAmbush; ui.log(`<em>中了${name(amb.by.id)}的十面埋伏！损兵 ${amb.damage}</em>`); audio.sfx('sfx-clash'); STRATEGY_FX.encircle(scene, views.get(s).g.position.clone().setY(1)); wv.tag(s); field.lastAmbush = null; await ui.stratResult?.('十面埋伏', `遭到敌方伏兵奇袭，士兵减少了 ${amb.damage} 人。`, s.id, 'grief'); await wv.tellLevelUps(); }
     st.busy = false; showOptions(); wv.check();

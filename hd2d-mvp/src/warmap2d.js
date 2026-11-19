@@ -120,7 +120,14 @@ export function paintFlatMap(G, field, { px = 80 } = {}) {
     g.fillStyle = 'rgba(10, 10, 4, 0.35)'; g.beginPath(); g.ellipse((cx + 0.1) * px, (cy + footDown - 0.08) * px, w * 0.48, w * 0.16, 0, 0, Math.PI * 2); g.fill();
     g.drawImage(img, cx * px - w / 2, (cy + footDown) * px - h, w, h);
   };
-  if (castle) prop(G.img.castle, castle[0] + 0.5, castle[1] + 0.5, 2.8, 0.8);
+  if (castle && field.sceneProfile?.kind === 'pass') {
+    const x = (castle[0] + 0.5) * px, y = (castle[1] + 0.7) * px;
+    g.fillStyle = '#4b3b2b'; g.fillRect(x - px * 0.8, y - px * 0.32, px * 1.6, px * 0.42);
+    g.fillStyle = '#a79570'; g.fillRect(x - px * 0.75, y - px * 0.4, px * 1.5, px * 0.3);
+    g.fillStyle = '#2e261e'; g.fillRect(x - px * 0.12, y - px * 0.27, px * 0.24, px * 0.35);
+    g.fillStyle = '#5c4430'; g.fillRect(x - px * 0.34, y - px * 0.62, px * 0.68, px * 0.21);
+    g.fillStyle = '#b3935b'; g.fillRect(x - px * 0.4, y - px * 0.66, px * 0.8, px * 0.06);
+  } else if (castle) prop(G.img.castle, castle[0] + 0.5, castle[1] + 0.5, 2.8, 0.8);
   for (const v of field.villages) prop(G.img.village, v.x + 0.5, v.y + 0.5, 1.45, 0.4);
   return P.canvas;
 }
@@ -144,8 +151,9 @@ export function flatten(war, G, blankScene) {
   // A painted battlefield (tools/gen_warmap_codex.sh) when there is one for this field and month: one picture with
   // its countryside round the board, cells a little shorter than wide (seen from about 50°). Otherwise the
   // composed map, square cells, nothing round it.
-  const mapImg = G.painted ? null : paintFlatMap(G, field);
-  const pic = G.painted ? { img: G.painted.img, board: G.painted.board, country: true }
+  const usePainted = G.painted && !field.siege;
+  const mapImg = usePainted ? null : paintFlatMap(G, field);
+  const pic = usePainted ? { img: G.painted.img, board: G.painted.board, country: true }
     : { img: mapImg, board: { x: 0, y: 0, w: mapImg.width, h: mapImg.height }, country: false };
   // The last battle's layer stays up through its settlement (the final board under the dialogs; app.js setMode
   // hides it once the screen leaves the war) and goes when the next battle's comes.
@@ -295,6 +303,10 @@ export function flatten(war, G, blankScene) {
     g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; g.drawImage(base, 0, 0);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    if (field.siege) {
+      for (const p of field.siege.walls) { g.fillStyle=p.ring===3?'#746a58':'#aa9673'; g.fillRect(ox+p.x*c,oy+p.y*ch,c,ch); g.strokeStyle='#423a2b'; g.strokeRect(ox+p.x*c,oy+p.y*ch,c,ch); }
+      for (const p of field.siege.gates) { g.fillStyle=p.open?'#d6c495':'#7b4226'; g.fillRect(ox+p.x*c+c*0.12,oy+p.y*ch+ch*0.12,c*0.76,ch*0.76); g.strokeStyle='#e5c16c'; g.strokeRect(ox+p.x*c+c*0.12,oy+p.y*ch+ch*0.12,c*0.76,ch*0.76); }
+    }
     // The range, as the 3D board draws it (src/war/overlay.js, 2026-11-13): the reach is one region, a faint fill the painted ground
     // reads through, hairlines between its cells and a bright contour round the outside only; a target is corner brackets over a
     // wash of its colour; the route is an arrow, with what it costs over where it ends.

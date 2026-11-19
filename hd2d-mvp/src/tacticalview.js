@@ -135,7 +135,7 @@ export function createTacticalView(T, sprites) {
     return tex;
   }
   function painted(b, G) {
-    const t = b.terrain, seed = t * 31 + 7;
+    const t = b.terrain, seed = t * 31 + 7 + (b.sceneProfile ? b.sceneProfile.id * 97 : 0);
     let tp = performance.now();
     const F = fieldOf({ map: b.map, terrain: t, GW, GH, apron: APRON, seed });
     const woods = woodsOf(F);
@@ -156,7 +156,7 @@ export function createTacticalView(T, sprites) {
   function ground(b) {
     const G = tacticalGround(where.month, where.city);
     if (G) return painted(b, G);
-    const t = b.terrain, map = b.map, inside = (x, y) => x >= 0 && y >= 0 && x < GW && y < GH, seed = t * 31 + 7;
+    const t = b.terrain, map = b.map, inside = (x, y) => x >= 0 && y >= 0 && x < GW && y < GH, seed = t * 31 + 7 + (b.sceneProfile ? b.sceneProfile.id * 97 : 0);
     const floor = t === 1 ? ['sand', 'dirt'] : t === 5 ? ['stone', 'plinth'] : ['grass', 'earth'];
     const hAt = (x, y) => [H0, H0, H0 + 0.75 + ((x * 7 + y * 13) % 3) * 0.08, 0.1, 0.18, H0 + 0.95][map[y][x]];
     const board = (x, y) => {

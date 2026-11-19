@@ -40,9 +40,9 @@ export function duelLoot(g, winner, dead, r) {
 }
 
 export class Tactical {
-  constructor(g, aId, dId, terrain, r, { human = null, bonuses = null } = {}) {
+  constructor(g, aId, dId, terrain, r, { human = null, bonuses = null, sceneProfile = null } = {}) {
     const D = data();
-    this.g = g; this.r = r; this.terrain = terrain; this.human = human; this.round = 1;
+    this.g = g; this.r = r; this.terrain = terrain; this.human = human; this.round = 1; this.sceneProfile = sceneProfile;
     this.map = D.skirmish_maps[terrain] || D.skirmish_maps[2];
     this.units = []; this.queue = []; this.log = []; this.over = null; this.duel = null;
     const mk = (id, key) => {

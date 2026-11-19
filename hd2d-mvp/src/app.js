@@ -2653,7 +2653,7 @@ async function fieldWar(w, humanSide, { after = { kind: humanSide === 'att' ? 'a
   threatHeld = false; threatView();
   setMode(war); audio.playBgm('bgm-battle');
   await fade(false);
-  const battleName = w.raid ? `${cityName(w.city)}守卫战` : `${cityName(w.city)}之战`;
+  const battleName = `${w.raid ? `${cityName(w.city)}守卫战` : `${cityName(w.city)}之战`}${field.sceneProfile ? ` · ${field.sceneProfile.label}` : ''}`;
   const sideName = (side) => w.raid && side === 'att' ? (w.raid.kind === 'pirate' ? '海贼' : '山贼') : `${factionName(side === 'att' ? w.attacker : w.defender)}军`;
   await banner(snap ? `${battleName}　第${field.day}日` : battleName, colorOf(w.attacker));
   // The first war of this browser says where the controls are told (feedback R11, 2026-11-02).
@@ -2757,7 +2757,7 @@ function warUi(field) {
     warHud(s) {
       $('.warbar')?.remove();
       root().prepend(h('div', { class: 'panel warbar' },
-        h('span', { class: 'day' }, `${s.city}之战　第${s.day}日/${s.max}`),
+        h('span', { class: 'day', title: field.sceneProfile ? `战场：${field.sceneProfile.label}` : '' }, `${s.city}之战　第${s.day}日/${s.max}`),
         h('span', { class: `turn ${s.deploying ? 'deploy' : s.myTurn ? 'mine' : 'theirs'}` }, s.deploying ? '布阵中' : s.myTurn ? '我军行动' : '敌军行动'),
         h('span', { class: 'side me' }, `${s.me.name}(${s.me.role})`, '机动力', h('b', {}, s.me.pool), `兵${s.me.troops} 米${s.me.rice} 金${s.me.gold}`),
         h('span', { class: 'side foe' }, `${s.foe.name}`, '机动力', h('b', {}, s.foe.pool), `兵${s.foe.troops} 米${s.foe.rice}`),

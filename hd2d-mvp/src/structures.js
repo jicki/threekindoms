@@ -141,6 +141,22 @@ function glazed(hex) {
 // opts.roofMat replaces the glazed roof (the strategy map tints one material per owner); opts.lights: false
 // leaves out the point lights (thirty castles on one map).
 // opts.facing: the quarter turn (radians about the vertical) that sends the gate from +z to where the defenders deploy.
+// 关隘使用横向关墙和门楼；仍只占一个逻辑城格，模型不改变通行规则。
+export function buildBattlePass(scene, c, color = '#5a5a66', { facing = 0 } = {}) {
+  const g = new THREE.Group(); g.position.set(c.x, c.h, c.z); g.rotation.y = facing;
+  g.userData.landmark = 'pass'; scene.add(g);
+  const roofM = glazed(color), height = 0.32;
+  for (const side of [-1, 1]) {
+    piece(g, new THREE.BoxGeometry(0.53, height, 0.22), MAT.stone, side * 0.35, height / 2, 0);
+    piece(g, new THREE.BoxGeometry(0.16, 0.42, 0.3), MAT.stone, side * 0.63, 0.21, 0);
+    roof(g, 0.13, 0.2, 0.08, 0.42, roofM);
+  }
+  piece(g, new THREE.BoxGeometry(0.22, 0.25, 0.12), MAT.gate, 0, 0.125, 0);
+  piece(g, new THREE.BoxGeometry(0.42, 0.14, 0.28), MAT.hall, 0, 0.39, 0);
+  roof(g, 0.28, 0.2, 0.1, 0.46, roofM);
+  return { lights: [], flags: [], group: g };
+}
+
 export function buildFortress(scene, c, color = '#5a5a66', { roofMat = null, lights: withLights = true, facing = 0 } = {}) {
   const g = new THREE.Group(); g.position.set(c.x, c.h, c.z); g.rotation.y = facing; g.scale.setScalar(1.1); g.userData.landmark = 'castle'; scene.add(g);
   const roofM = roofMat ?? glazed(color), gold = new THREE.MeshStandardMaterial({ color: '#c8a050', roughness: 0.4, metalness: 0.6 });
