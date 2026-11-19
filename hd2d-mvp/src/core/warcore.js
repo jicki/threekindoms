@@ -2,7 +2,7 @@
 // 出阵 (5.9 §7), 战后 (6.10 §3–6), AI 自动战 (6.5 第五/六批).
 import { data, rng, NONE, DEAD, SERVING, RONIN, roads, officerCity, capturedLoyalty, recruitLoyalty, addExp, citiesOf, holdingsOf, kill, isRuler, isPass, sparedHp, rulerPassive } from './game.js';
 import { abilityDuel, abilityStrategyIds, strategySpecs } from './famous-skills.js';
-import { officerSquads } from './troop-specialties.js';
+import { officerSquads, SPECIAL_TROOPS } from './troop-specialties.js';
 import { passiveRiceUse } from './ruler-passives.js';
 import { relationshipAffinity } from './relationships.js';
 import { CROSSING_ROADS } from './expanded-map.js';
@@ -305,7 +305,8 @@ export function fight(g, war) {
   const squads = (id, side) => officerSquads(data(), g, id, g.campaignRevision >= 4 && side === 'def' && war.city != null);
   const troopStrength = (ids, enemies, base, side) => {
     if (!enemies.length || g.eliteTroops !== true) return 0;
-    const able = ids.filter(id => O(id)?.hp > 0 && O(id)?.soldiers > 0 && squads(id, side).some(squad => squad.special));
+    const hasSpecialty = ({ special }) => special && (!(g.campaignRevision >= 5) || special !== SPECIAL_TROOPS.infantry.sprite);
+    const able = ids.filter(id => O(id)?.hp > 0 && O(id)?.soldiers > 0 && squads(id, side).some(hasSpecialty));
     return Math.min(Math.floor(base / 30), able.length);
   };
   const troops = war.phantom ? { att: 0, def: 0 } : {

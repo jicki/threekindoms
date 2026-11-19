@@ -88,28 +88,26 @@ if (!process.argv.includes('--generated-music')) for (const [slot, list] of Obje
 }
 writeFileSync(join(out, 'assets/manifest.json'), JSON.stringify(manifest, null, 1) + '\n');
 
-// 单挑 strips: ~6000 px wide RGBA PNGs, a third of the size as lossless WebP (same pixels, -exact keeps the
-// colour under transparent ones); the snapshot's app.js asks for .webp. Encoded copies are cached by content hash.
-const WEBP = [{ dir: 'assets/ai/sprites/duel', ref: ['assets/ai/sprites/duel/${k}.png', 'assets/ai/sprites/duel/${k}.webp'], in: 'src/app.js' }];
+// 单挑动作在桌面包内使用无损 WebP，保留透明像素的颜色。按源文件内容缓存编码结果。
+const duelDir = join(out, 'assets/ai/sprites/duel');
 const cache = join(here, '.webp-cache');
 mkdirSync(cache, { recursive: true });
 let webpSaved = 0;
-for (const { dir, ref: [from, to], in: file } of WEBP) {
-  const pngs = readdirSync(join(out, dir)).filter((f) => f.endsWith('.png'));
-  await Promise.all(Array.from({ length: 8 }, async (_, lane) => {
-    for (let i = lane; i < pngs.length; i += 8) {
-      const png = join(out, dir, pngs[i]), webp = png.replace(/\.png$/, '.webp');
-      const hit = join(cache, createHash('sha1').update(readFileSync(png)).digest('hex') + '.webp');
-      if (!existsSync(hit)) await run('cwebp', ['-quiet', '-lossless', '-exact', '-z', '9', png, '-o', hit + '.tmp']).then(() => renameSync(hit + '.tmp', hit));
-      cpSync(hit, webp);
-      webpSaved += statSync(png).size - statSync(webp).size;
-      rmSync(png);
-    }
-  })).catch((e) => { throw new Error(`cwebp failed (brew install webp): ${e.message}`); });
-  const src = readFileSync(join(out, file), 'utf8');
-  if (!src.includes(from)) throw new Error(`${file}: ${from} not found — update WEBP in build-app.mjs`);
-  writeFileSync(join(out, file), src.replaceAll(from, to));
-}
+const pngs = readdirSync(duelDir).filter(f => f.endsWith('.png'));
+await Promise.all(Array.from({ length: 8 }, async (_, lane) => {
+  for (let i = lane; i < pngs.length; i += 8) {
+    const png = join(duelDir, pngs[i]), webp = png.replace(/\.png$/, '.webp');
+    const hit = join(cache, createHash('sha1').update(readFileSync(png)).digest('hex') + '.webp');
+    if (!existsSync(hit)) await run('cwebp', ['-quiet', '-lossless', '-exact', '-z', '9', png, '-o', hit + '.tmp']).then(() => renameSync(hit + '.tmp', hit));
+    cpSync(hit, webp);
+    webpSaved += statSync(png).size - statSync(webp).size;
+    rmSync(png);
+  }
+})).catch((e) => { throw new Error(`cwebp failed (brew install webp): ${e.message}`); });
+const duelIndex = join(duelDir, 'index.json');
+const keys = JSON.parse(readFileSync(duelIndex, 'utf8'));
+if (!Array.isArray(keys)) throw new Error('单挑素材索引格式无效');
+writeFileSync(duelIndex, JSON.stringify({ keys, format: 'webp' }) + '\n');
 
 // three.js: the build plus the addons the game imports and what they import in turn (found by following
 // the import statements), so a newly used addon is picked up by the next snapshot.

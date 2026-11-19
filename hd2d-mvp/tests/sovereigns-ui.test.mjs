@@ -132,14 +132,25 @@ test('手机版人物资料和白兵布阵标记主兵种与实际队数', { tim
   try {
     await page.setViewportSize({ width: 812, height: 375 });
     await (await chooseRuler(page, '刘备')).click(); await waitPlayer(page);
-    const hero = await page.evaluate(() => {
-      const { g, G, debug } = window.__game, id = G.data().officers.find(o => o.name === '关羽').id;
-      Object.assign(g.officers[id], { level: 6, soldiers: 1000 });
-      debug.hud(); return id;
+    const [hero, regular, spear] = await page.evaluate(() => {
+      const { g, G, debug } = window.__game;
+      const [hero, regular, spear] = ['关羽', '吕范', '苏飞'].map(name => G.data().officers.find(o => o.name === name).id);
+      Object.assign(g.officers[hero], { level: 6, soldiers: 1000 });
+      const home = g.cities[g.factions[g.player].city];
+      for (const city of g.cities) city.officers = city.officers.filter(id => id !== regular && id !== spear);
+      home.officers.push(regular, spear);
+      g.officers[regular].soldiers = g.officers[spear].soldiers = 0;
+      debug.hud(); return [hero, regular, spear];
     });
-    const row = page.locator(`.roster .off[data-id="${hero}"]`);
-    assert.match(await row.innerText(), /枪兵/);
-    await row.click();
+    const row = id => page.locator(`.roster .off[data-id="${id}"]`);
+    assert.match(await row(regular).innerText(), /步兵/);
+    assert.match(await row(spear).innerText(), /枪兵/);
+    await row(regular).click();
+    assert.equal(await page.locator('.ocard .main-troop').innerText(), '主兵种 · 步兵');
+    assert.match(await page.locator('.ocard').innerText(), /可编入普通步兵/);
+    await page.locator('.shade').getByRole('button', { name: '关闭', exact: true }).click();
+    assert.match(await row(hero).innerText(), /枪兵/);
+    await row(hero).click();
     assert.equal(await page.locator('.ocard .main-troop').innerText(), '主兵种 · 枪兵');
     await page.locator('.shade').getByRole('button', { name: '关闭', exact: true }).click();
     await page.evaluate(id => { void window.__game.debug.quickTactical(id, 1, 2); }, hero);

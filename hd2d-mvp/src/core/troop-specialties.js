@@ -1,3 +1,5 @@
+import { EXPANDED_MAP_ID } from './expanded-map.js';
+
 // 特色队复用原有步、弓、骑的命令和行动节奏；射程与倍率为固定规则，不执行版本代码。
 export const SPECIAL_TROOPS = {
   infantry: { name: '普通步兵', kind: 'inf', sprite: 'unit-soldier-infantry', level: 1, max: 3, text: '攻防均衡' },
@@ -59,11 +61,29 @@ export function famousAssignments(officers) {
   return officers.flatMap((o) => byName.has(o.name) ? [{ officer: o.id, type: byName.get(o.name), maxSquads: LEADERS.has(o.name) ? 3 : 2 }] : []);
 }
 
+// 为君主列传补充主兵种。按已有武将定位作游戏分配，其他人物使用普通步兵。
+const ADDITIONAL_TROOPS = new Map(Object.entries({
+  spear: ['苏飞', '张绣', '陈武', '鄂焕', '邓艾'],
+  lightshield: ['郝昭', '曹洪', '兀突骨'],
+  bow: ['严颜', '潘璋', '刘琦'],
+  lightcav: ['马岱', '华雄', '公孙康'],
+  hammer: ['武安国'], heavyinfantry: ['邢道荣'],
+}).flatMap(([type, names]) => names.map(name => [name, type])));
+
+export function officerTroopType(data, game, id) {
+  const officer = data.officers[id];
+  if (game?.eliteTroops !== true || !officer || officer.raidTemp) return null;
+  if (Object.hasOwn(SPECIAL_TROOPS, officer.troopType)) return officer.troopType;
+  if (game.campaignRevision >= 5 && game.scenarioId === EXPANDED_MAP_ID) {
+    return (!officer.clone && ADDITIONAL_TROOPS.get(officer.name)) || 'infantry';
+  }
+  return null;
+}
+
 // 低级武将使用该兵种的下一级；升级后在下一场白兵重新计算。
 export function officerSpecialty(data, game, id) {
-  if (game.eliteTroops !== true) return null;
-  const type = data.officers[id]?.troopType;
-  let troop = typeof type === 'string' && Object.hasOwn(SPECIAL_TROOPS, type) ? SPECIAL_TROOPS[type] : null;
+  const type = officerTroopType(data, game, id);
+  let troop = SPECIAL_TROOPS[type] ?? null;
   const level = game.officers[id]?.level ?? 0;
   while (troop && level < troop.level) troop = SPECIAL_TROOPS[troop.fallback] ?? null;
   return troop;
@@ -72,7 +92,7 @@ export function officerSpecialty(data, game, id) {
 export function officerSquadLimit(data, game, id, troop = officerSpecialty(data, game, id)) {
   if (!troop) return 0;
   const level = game.officers[id]?.level ?? 0, rankLimit = level >= 6 ? 3 : level >= 3 ? 2 : 1;
-  const target = SPECIAL_TROOPS[data.officers[id]?.troopType];
+  const target = SPECIAL_TROOPS[officerTroopType(data, game, id)];
   return Math.min(troop.max, target?.max ?? troop.max, data.officers[id]?.troopLimit ?? 2, rankLimit);
 }
 
@@ -85,6 +105,12 @@ export function officerMainTroop(data, game, id) {
   while (basic.fallback) basic = SPECIAL_TROOPS[basic.fallback];
   const group = troopGroup({ kind: basic.kind, special: basic.sprite });
   return { name: MAIN_NAMES[group], current, basic };
+}
+
+export function officerTroopLabel(data, game, id, main = officerMainTroop(data, game, id)) {
+  const officer = data.officers[id];
+  if (!(game?.campaignRevision >= 4) || !officer || officer.raidTemp) return null;
+  return main?.name ?? '混编';
 }
 
 // 布阵、战斗和电脑自动结算共用编队规则。旧修订仍沿用少量特色队的替换规则。

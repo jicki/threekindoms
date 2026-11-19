@@ -7,7 +7,7 @@ import { fight } from '../src/core/warcore.js';
 import { applyScenario, validateScenario } from '../src/core/scenario.js';
 import { loadScenario } from '../src/core/scenario-store.js';
 import { EXPANDED_MAP_ID, expandMap } from '../src/core/expanded-map.js';
-import { FAMOUS_TROOPS, SPECIAL_TROOPS, officerMainTroop, officerSpecialty, officerSquadLimit, officerSquads } from '../src/core/troop-specialties.js';
+import { FAMOUS_TROOPS, SPECIAL_TROOPS, officerMainTroop, officerSpecialty, officerSquadLimit, officerSquads, officerTroopLabel, officerTroopType } from '../src/core/troop-specialties.js';
 
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
 const scenario = await loadScenario('builtin-sovereigns', base);
@@ -48,13 +48,14 @@ test('主兵种从修订 4 启用，显式升级可保留兵力、等级及已�
   const scenarioData = expandMap(structuredClone(expanded)), hero = id('关羽'), regular = id('韦康');
   G.setData(scenarioData, EXPANDED_MAP_ID);
   try {
-    const game = G.newGame(4, 1, 7), legacy = { ...structuredClone(game), campaignRevision: 3 };
-    for (const state of [game, legacy]) Object.assign(state.officers[hero], { level: 6, soldiers: 1000 });
+    const game = G.newGame(4, 1, 7);
+    Object.assign(game.officers[hero], { level: 6, soldiers: 1000 });
+    const rev4 = { ...structuredClone(game), campaignRevision: 4 }, legacy = { ...structuredClone(game), campaignRevision: 3 };
     assert.deepEqual(G.upgrade(structuredClone(legacy)), legacy);
     assert.equal(officerMainTroop(scenarioData, legacy, hero), null);
-    assert.equal(officerMainTroop(scenarioData, game, regular), null);
-    assert.equal(officerMainTroop(scenarioData, game, hero).name, '枪兵');
-    assert.deepEqual(officerSquads(scenarioData, game, regular, true), officerSquads(scenarioData, legacy, regular, true));
+    assert.equal(officerMainTroop(scenarioData, rev4, regular), null);
+    assert.equal(officerMainTroop(scenarioData, rev4, hero).name, '枪兵');
+    assert.deepEqual(officerSquads(scenarioData, rev4, regular, true), officerSquads(scenarioData, legacy, regular, true));
     assert.equal(officerSquads(scenarioData, legacy, hero, true).filter(u => u.special).length, 0);
     const squads = officerSquads(scenarioData, game, hero, true);
     assert.equal(squads.filter(u => u.primary).length, 4);
@@ -64,6 +65,32 @@ test('主兵种从修订 4 启用，显式升级可保留兵力、等级及已�
     delete legacy.eliteTroops;
     assert.equal(officerMainTroop(scenarioData, legacy, hero), null);
     assert.ok(officerSquads(scenarioData, legacy, hero, true).every(u => !u.primary));
+  } finally { G.setData(base); }
+});
+
+test('君主列传修订 5 为全体在籍人物配置兵种，修订 4 混编记录显式升级后才改编', () => {
+  const scenarioData = expandMap(structuredClone(expanded));
+  G.setData(scenarioData, EXPANDED_MAP_ID);
+  try {
+    const game = G.newGame(4, 1, 8), regular = id('吕范'), spear = id('苏飞');
+    const previous = { ...structuredClone(game), campaignRevision: 4 };
+    assert.equal(officerTroopLabel(scenarioData, game, regular), '步兵');
+    assert.equal(officerTroopType(scenarioData, game, regular), 'infantry');
+    assert.equal(officerSpecialty(scenarioData, game, regular).name, '普通步兵');
+    assert.equal(officerTroopLabel(scenarioData, game, spear), '枪兵');
+    assert.equal(officerTroopType(scenarioData, game, spear), 'spear');
+    assert.equal(officerTroopType(scenarioData, game, id('关羽')), 'heavyspear');
+    assert.ok(game.officers.every(o => officerMainTroop(scenarioData, game, o.id)), '全部内置角色包括未登场人物');
+    assert.equal(officerTroopLabel(scenarioData, G.upgrade(previous), regular), '混编');
+    for (const state of [game, previous]) Object.assign(state.officers[regular], { soldiers: 1000, hp: 80, exp: 8192 });
+    assert.ok(officerSquads(scenarioData, previous, regular, false).every(u => !u.primary));
+    const squads = officerSquads(scenarioData, game, regular, false);
+    assert.equal(squads.filter(u => u.primary && u.special === SPECIAL_TROOPS.infantry.sprite).length, 6);
+    assert.equal(officerMainTroop(scenarioData, { ...game, scenarioId: 'v-custom' }, regular), null);
+    const war = { attacker: 4, defender: 2, att: { ids: [regular], rice: 9999 }, def: { ids: [spear], rice: 9999 } };
+    assert.equal(fight(structuredClone(game), war).autoTroopBonus?.att ?? 0, 0, '普通步兵不计入特色队战力');
+    assert.ok(G.upgradeCampaign(previous));
+    assert.deepEqual(previous, game);
   } finally { G.setData(base); }
 });
 

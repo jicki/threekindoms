@@ -10,7 +10,7 @@ import { loadManifest, loadPixelTexture, equipIcon, packSpriteStrip, loadGridMot
 import { readResource } from './resource.js';
 import { authoredGridWeapon, replacementWeaponMotion } from './weapon-motion.js';
 import { Audio } from './audio.js';
-import { SPECIAL_TROOPS, officerMainTroop, officerSpecialty, officerSquadLimit } from './core/troop-specialties.js';
+import { SPECIAL_TROOPS, officerMainTroop, officerSpecialty, officerSquadLimit, officerTroopLabel, officerTroopType } from './core/troop-specialties.js';
 import { playVignette, sceneFor, cueFor, sceneFrame, vignettesOn, setVignettes, recordText } from './vignette.js';
 import { playUnification, playFall } from './ending.js';
 import { createStrategy, colorOf } from './strategy.js';
@@ -103,11 +103,13 @@ const sprites = {};
 // Star officers' own battle sprites (tools/gen_sprites_codex.sh); loaded when they take the field.
 const officerSprites = Array.isArray(officerList) ? officerList : [];
 // 单挑 action strips (tools/slice_duel_frames.py): star officers' own, plus the two generic generals'.
-const duelStrips = Array.isArray(duelList) ? duelList : [];
+const duelKeys = Array.isArray(duelList) ? duelList : duelList?.keys;
+const duelStrips = Array.isArray(duelKeys) ? duelKeys : [];
 const duelLoads = new Map(), duelExtras = new WeakMap(), duelNativeKeys = new WeakMap();
 const stripSource = async (dir, key) => {
   const root = `assets/ai/sprites/${dir}/${key}`;
-  const [meta, tex] = await Promise.allSettled([readResource(`${root}.json`, r => r.json(), { timeout: 3500 }), loadPixelTexture(`${root}.png`)]);
+  const extension = dir === 'duel' && duelList?.format === 'webp' ? 'webp' : 'png';
+  const [meta, tex] = await Promise.allSettled([readResource(`${root}.json`, r => r.json(), { timeout: 3500 }), loadPixelTexture(`${root}.${extension}`)]);
   if (tex.status === 'rejected') throw tex.reason;
   if (meta.status === 'rejected') { tex.value.dispose(); throw meta.reason; }
   return { meta: meta.value, tex: tex.value };
@@ -1265,7 +1267,7 @@ const saveCity = () => (sel != null && mineCity(sel) ? sel : g.factions[g.player
 async function upgradeCampaignRules() {
   if (!mapCalm()) return toast('请在己方战略回合完成当前操作后升级', 3500);
   const campaign = g;
-  const mechanics = fullStrategyWeather(g) ? '主辅兵种编队' : advancedBattle(g) ? '计策天气及主辅兵种编队' : '新版战场、计策天气、同盟援军、人物被动及主辅兵种编队';
+  const mechanics = g.campaignRevision === 4 ? '新版兵种配置' : fullStrategyWeather(g) ? '主辅兵种编队' : advancedBattle(g) ? '计策天气及主辅兵种编队' : '新版战场、计策天气、同盟援军、人物被动及主辅兵种编队';
   const confirmed = await confirmBox('升级当前战役',
     `启用${mechanics}。保留进度、兵力、装备及已有设置。升级后可另存一格，保留原记录。`);
   if (!confirmed) return;
@@ -1962,7 +1964,7 @@ function cityPanel(cid) {
     // With the pad, the way from the menu to these rows is not to be guessed (feedback D62, 2026-11-14): told above them.
     own && !PHONE && c.officers.length ? h('p', { class: 'roster-tip hint' }, ...padText((k) => `命令分组上推 ← 选武将，${k('a')} 看资料`)) : null,
     h('div', { class: 'roster' }, ...(showDetail ? c.officers : []).map((id, i) => officerRow(g, id, {
-      extra: [id === ruler ? '君主' : i === 0 ? '太守' : '', officerMainTroop(D, g, id)?.name].filter(Boolean).join(' · '),
+      extra: [id === ruler ? '君主' : i === 0 ? '太守' : '', officerTroopLabel(D, g, id)].filter(Boolean).join(' · '),
       onclick: () => officerCard(id),
     }))),
   );
@@ -1990,7 +1992,7 @@ function officerSheet(id, { live = null, foot = null } = {}) {
   const passive = rulerFaction == null ? null : G.rulerPassive(g, rulerFaction);
   const personal = officerPassive(D, g, id);
   const mainTroop = officerMainTroop(D, g, id), specialty = mainTroop?.current ?? officerSpecialty(D, g, id);
-  const targetTroop = Object.hasOwn(SPECIAL_TROOPS, d.troopType) ? SPECIAL_TROOPS[d.troopType] : null;
+  const troopLabel = officerTroopLabel(D, g, id, mainTroop), targetTroop = SPECIAL_TROOPS[officerTroopType(D, g, id)];
   const nextTroop = targetTroop && targetTroop !== specialty ? `；${targetTroop.level}级可用${targetTroop.name}` : '';
   const meter = (k, v, max = 100, cls = '') => h('div', { class: `meter ${cls}` }, h('span', {}, k), h('div', { class: 'track' }, h('i', { style: { width: `${Math.max(0, Math.min(100, (100 * v) / max))}%` } })), h('b', {}, max === 100 ? v : `${v}/${max}`));
   return h('div', { class: 'ocard' },
@@ -2001,7 +2003,7 @@ function officerSheet(id, { live = null, foot = null } = {}) {
         live?.side ? h('span', { class: `tagc ocard-side ${live.mine ? 'me' : 'foe'}` }, `${live.mine ? '我军' : '敌军'} · ${live.side === 'a' ? '攻方' : '守方'}`) : null,
         o.status === G.SERVING ? h('span', { class: 'owner', style: { background: colorOf(f) } }, o.raidEnemy ? (g.raidBattle?.kind === 'pirate' ? '海贼' : '山贼') : factionName(f)) : h('span', { class: 'owner' }, { [G.RONIN]: '在野', [G.UNAPPEARED]: '未登场', [G.DEAD]: '已故' }[o.status]),
         G.isRuler(g, id) ? h('span', { class: 'tagc' }, '君主') : null, famous ? h('span', { class: 'tagc' }, famous) : null,
-        mainTroop ? h('span', { class: 'tagc main-troop' }, `主兵种 · ${mainTroop.name}`) : null,
+        troopLabel ? h('span', { class: 'tagc main-troop' }, `${mainTroop ? '主兵种' : '兵种'} · ${troopLabel}`) : null,
         h('span', { class: 'tagc' }, `${o.army}军`), h('span', { class: 'tagc' }, `等级 ${o.level}`)),
       meter('体力', hp, G.maxHp(o, id), hp < G.maxHp(o, id) / 2 ? 'low' : ''), meter('武力', o.war, 100, 'war'), meter('智力', o.int, 100, 'int'), meter('人德', o.virtue, 100, 'vir'), meter('忠诚', o.loyalty, 100, o.loyalty < 60 ? 'low' : 'loy'),
       h('div', { class: 'stats ocard-gear' },

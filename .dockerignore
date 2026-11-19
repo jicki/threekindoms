@@ -18,8 +18,8 @@
 !hd2d-mvp/tools/serve.py
 !hd2d-mvp/tools/assets_pack.py
 !hd2d-mvp/tools/scenario_store.py
-!hd2d-mvp/desktop/
-!hd2d-mvp/desktop/package.json
-!hd2d-mvp/desktop/package-lock.json
+!docker/
+!docker/package.json
+!docker/package-lock.json
 .env*
 **/.env*
