@@ -75,4 +75,5 @@ export const STRAT_FX_SOUND = {
   chain: 'sfx-tactic-bind', encircle: 'sfx-clash', flood: 'sfx-strategy-water', bolts: 'sfx-tactic-xbow',
   firestorm: 'sfx-tactic-fire', qimen: 'sfx-tactic-bind', northGuard: 'sfx-tactic-xbow', riverGuard: 'sfx-strategy-water',
   cunning: 'sfx-tactic-bind', border: 'sfx-clash', ingenuity: 'sfx-strategy-lure',
+  rationOrders: 'sfx-tactic-bind', riverRoutes: 'sfx-strategy-lure',
 };

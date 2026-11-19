@@ -17,13 +17,13 @@ const ROSTER_V2 = {
   47:['甘宁','吴·名将',null,'锦帆突袭',5,115],141:['太史慈','吴·名将',null,'神亭奋击',0,115],139:['孙翊','吴·名将',null,'骁勇奋击',-5,115],
   235:['鲁肃','吴·名臣',42],262:['张昭','吴·名臣',43],263:['张纮','吴·名臣',44],107:['诸葛瑾','吴·名臣',45],199:['步骘','吴·名臣',46],
   218:['吕布','群雄·名将',null,'飞将破阵',-10,120],51:['颜良','群雄·名将',null,'河北锐击',-5,120],191:['文丑','群雄·名将',null,'河北猛击',-5,120],
-  37:['华雄','群雄·名将',null,'汜水猛击',-5,115],264:['张绣','群雄·名将',null,'宛城突袭',5,110],242:['陈宫','群雄·名臣',18],206:['杨修','群雄·名臣',47],
+  37:['华雄','群雄·名将',null,'汜水猛击',-5,115],264:['张绣','群雄·名将',null,'宛城突袭',5,110,'zhangxiu'],242:['陈宫','群雄·名臣',18],206:['杨修','群雄·名臣',47],
 };
 export const ROSTER_V2_STRATEGIES = [
   ['凤雏连策',10,100,0,1,0],['祁山筹谋',10,100,0,1,0],['汉中奇谋',10,110,1,0,0],['王佐筹策',9,60,0,1,30],
   ['文和奇谋',11,90,2,1,0],['持重定乱',10,90,0,1,20],['伐蜀筹谋',10,100,0,1,0],['江东盟谋',9,60,0,1,30],
-  ['子布辅政',9,60,0,1,20],['子纲筹略',9,70,0,1,20],['江表谏策',9,60,1,1,0],['南土安边',9,65,0,1,15],['德祖识机',9,70,1,1,0],
-].map(([name,cost,soldiers,hp,stop,rice],i)=>({id:35+i,name,cost,soldiers,hp,stop,rice,maxUses:2}));
+  ['子布辅政',9,60,0,1,20,'zhangzhao'],['子纲筹略',9,70,0,1,20,'zhanghong'],['江表谏策',9,60,1,1,0],['南土安边',9,65,0,1,15],['德祖识机',9,70,1,1,0],
+].map(([name,cost,soldiers,hp,stop,rice,visualEffect],i)=>({id:35+i,name,cost,soldiers,hp,stop,rice,maxUses:2,...(visualEffect ? {visualEffect} : {})}));
 export const strategySpecs = (D,g) => g?.famousSkills===2 ? [...(D?.customSkills ?? []),...ROSTER_V2_STRATEGIES] : D?.customSkills ?? [];
 const entryV2 = (D,g,id) => { const e=ROSTER_V2[id],o=D?.officers?.[id]; return g?.famousSkills===2 && e && o && !o.clone && o.name===e[0] ? e : null; };
 
@@ -59,7 +59,10 @@ export function abilityStrategy(D,g,skill) {
   return name ? { ...skill, name, legacyName:skill.name } : skill;
 }
 export function abilityDuel(D,g,id) {
-  if (g?.famousSkills===2) { const e=entryV2(D,g,id); return e?.[3] ? {name:e[3],hit:e[4],damage:e[5]} : null; }
+  if (g?.famousSkills===2) {
+    const e=entryV2(D,g,id);
+    return e?.[3] ? {name:e[3],hit:e[4],damage:e[5],...(e[6] ? {visualEffect:e[6]} : {})} : null;
+  }
   const key=D?.officers?.[id]?.duelSkill;
   if (typeof key !== 'string' || !Object.hasOwn(DUEL_SKILLS,key)) return null;
   if (g?.famousSkills !== true) return DUEL_SKILLS[key];

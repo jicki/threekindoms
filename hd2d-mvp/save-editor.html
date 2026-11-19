@@ -242,9 +242,9 @@
 import * as G from './src/core/game.js';
 import { selectScenario } from './src/core/scenario-store.js';
 import { ORIGINAL_SCENARIO } from './src/core/scenario.js';
-import { recordPortraitOfficer } from './src/core/famous-roster.js';
+import { recordOfficerVisual } from './src/core/famous-roster.js';
 import { equipmentIconUrl } from './src/core/equipment.js';
-import { h, modal, toast, avatar, figure, setPortraits, setFaces, setHalfbody } from './src/ui.js';
+import { h, modal, toast, avatar, figure, setPortraits, setFaces, setHalfbody, visualAvatar } from './src/ui.js';
 import { OFFICER_FIELDS, CITY_FIELDS, ALLIANCE_MAX, hpText, setOfficer, setCity, setAlliance, checkRecord, setBug, setPhantomOwner } from './src/core/saveedit.js';
 import { PHANTOM_ROADS } from './src/core/ahuinan.js';
 
@@ -306,9 +306,9 @@ function refreshDock() {
 
 // ---------- Slots ----------
 function recordAvatar(record, id) {
-  const image = avatar(recordPortraitOfficer(record, id));
-  image.alt = G.recordOfficerName(record, id);
-  return image;
+  const visual = recordOfficerVisual(record, id);
+  if (visual) return visualAvatar(visual, G.recordOfficerName(record, id));
+  return avatar(record.clones?.includes(id) ? 0 : id);
 }
 function renderSlots() {
   const rows = [{ s: G.loadQuick({ preview: true }), n: 'quick' }, ...G.saves().map((s, i) => ({ s, n: i + 1 }))];

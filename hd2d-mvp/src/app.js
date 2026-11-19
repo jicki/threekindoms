@@ -7,6 +7,7 @@ import { createPost } from './post.js';
 import { createQuality, savedQuality, warView } from './quality.js';
 import { frameCap, pacer } from './framecap.js';
 import { loadManifest, loadPixelTexture, equipIcon, packSpriteStrip, loadGridMotion } from './assets.js';
+import { authoredGridWeapon, replacementWeaponMotion } from './weapon-motion.js';
 import { Audio } from './audio.js';
 import { SPECIAL_TROOPS, officerSpecialty, officerSquadLimit } from './core/troop-specialties.js';
 import { playVignette, sceneFor, cueFor, sceneFrame, vignettesOn, setVignettes, recordText } from './vignette.js';
@@ -119,26 +120,42 @@ const loadMarch = async (key) => {
 };
 const marchStrips = Array.isArray(marchList) ? marchList : [];
 const configuredMotion = new Map();
+const motionBindings = new Map();
+const officerMotion = (id) => {
+  const officer = G.data().officers[id];
+  return officer?.clone ? null : officer?.visual?.motion ?? null;
+};
 async function loadConfiguredMotion(id) {
-  const officer = G.data().officers[id], ref = officer?.clone ? null : officer?.visual?.motion;
+  const ref = officerMotion(id);
+  // 新人物和旧记录的动态武将可能共用编号，动作缓存按素材来源切换。
+  if (motionBindings.has(id) && motionBindings.get(id) !== ref) {
+    delete sprites[`march-${id}`];
+    delete sprites[`duel-${id}`];
+    motionBindings.delete(id);
+  }
   if (!ref) return;
   const existing = /^o-(\d+)$/.exec(ref);
   if (existing) {
     const key = existing[1];
     if (marchStrips.includes(key) && !sprites[`march-${key}`]) await loadMarch(key);
     await loadDuelStrip(key);
+    if (officerMotion(id) !== ref) return;
     if (sprites[`march-${key}`]) sprites[`march-${id}`] = sprites[`march-${key}`];
     if (sprites[`duel-${key}`]) sprites[`duel-${id}`] = sprites[`duel-${key}`];
+    motionBindings.set(id, ref);
     return;
   }
   const url = visualUrl(ref); if (!url) return;
   if (!configuredMotion.has(ref)) configuredMotion.set(ref, loadGridMotion(url, {
     builtinSize: /^b-(?:gongsun|yuanshu|liubiao)-motion$/.test(ref),
     mirrorSide: /^b-(?:tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong)-motion$/.test(ref),
+    weapon: authoredGridWeapon(ref) ?? 'blade',
   }));
   try {
     const { march, duel } = await configuredMotion.get(ref);
+    if (officerMotion(id) !== ref) return;
     sprites[`march-${id}`] = march; sprites[`duel-${id}`] = duel;
+    motionBindings.set(id, ref);
   } catch (error) {
     configuredMotion.delete(ref);
     console.warn('动作素材无法读取，使用默认动作', error);
@@ -182,10 +199,25 @@ await Promise.all([
     .filter(([, f]) => files.sprites[f]).map(async ([key, f]) => { sprites[key] = await loadPixelTexture(files.sprites[f]); }),
   ...['attacker', 'defender'].map(loadMarch), loadTroops(),
 ]);
+const weaponMotionLoads = new Map();
+async function loadBattleWeapon(style) {
+  if (!weaponMotionLoads.has(style)) {
+    const pending = loadGridMotion(`assets/characters/action-${style}/motion.png`, { weapon: style })
+      .then(({ march, duel }) => { march.tex.dispose(); sprites[`weapon-${style}`] = duel; })
+      .catch((error) => {
+        weaponMotionLoads.delete(style);
+        console.warn('武器动作素材无法读取，使用普通动作', error);
+      });
+    weaponMotionLoads.set(style, pending);
+  }
+  await weaponMotionLoads.get(style);
+}
 async function loadOfficerSprites(ids, game = g) {
   await Promise.all([...ids.map(loadConfiguredMotion), loadSpecialTroops(ids, game)]);
   for (const id of ids) if (officerSprites.includes(id) && !sprites[`officer-${id}`]) sprites[`officer-${id}`] = await loadPixelTexture(`assets/ai/sprites/officers/${id}.png`);
   await Promise.all([...ids, 'attacker', 'defender'].map(loadDuelStrip));
+  const weapons = new Set(ids.map((id) => replacementWeaponMotion(game, id, G.weaponGroup(game?.officers[id]?.weapon), sprites[`duel-${id}`])).filter(Boolean));
+  await Promise.all([...weapons].map(loadBattleWeapon));
 }
 
 // ---------- Renderer ----------

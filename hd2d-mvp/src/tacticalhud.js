@@ -402,7 +402,7 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
       const shown = { ...before };
       const reveal = (id, dmg) => { const s = sideOf(id); shown[s] = Math.max(after[s], shown[s] - dmg); cards[s].show(shown[s]); if (dmg > 0) cards[s].hit(); };
       if (act.cmd === 'special') {
-        const skill = data().officers[act.by]?.duelSkill;
+        const skill = duel.special(t)?.visualEffect ?? data().officers[act.by]?.duelSkill;
         if (typeof skill === 'string' && Object.hasOwn(DUEL_VISUALS, skill)) await playVignette({ scene: DUEL_VISUALS[skill], caption: `${name(act.by)}的${act.name}……`, duration: paced(ORIGINAL.strategyShow), part: act.hit ? undefined : 'attempt' });
       }
       await stage.view.act(act.cmd === 'special' ? { ...act, cmd: 'attack' } : act, { hp: { [duel.side[hs].id]: after[hs], [duel.side[es].id]: after[es] }, onHit: reveal, onSelf: reveal });

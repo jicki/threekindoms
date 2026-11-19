@@ -186,6 +186,58 @@ export function thrust(scene, at, flip, len = 1.6, anim = animate) {
   return anim(200, (k) => { m.material.opacity = 1 - k; }, () => drop(scene, m));
 }
 
+const arrowShaft = new THREE.BoxGeometry(0.025, 0.025, 0.46);
+const arrowHead = new THREE.ConeGeometry(0.042, 0.15, 5).rotateX(Math.PI / 2);
+const arrowWood = new THREE.MeshBasicMaterial({ color: '#e8d1a1' });
+const arrowSteel = new THREE.MeshBasicMaterial({ color: '#fff2d0' });
+
+export function bowArrow(scene, from, to, anim = animate, duration = 260) {
+  const arrow = new THREE.Group(), head = new THREE.Mesh(arrowHead, arrowSteel);
+  arrow.name = 'weapon-arrow';
+  head.position.z = 0.25;
+  arrow.add(new THREE.Mesh(arrowShaft, arrowWood), head);
+  scene.add(arrow);
+  const tangent = to.clone().sub(from), rise = Math.min(0.7, tangent.length() * 0.13);
+  const ahead = new THREE.Vector3();
+  return anim(duration, (k) => {
+    arrow.position.lerpVectors(from, to, k);
+    arrow.position.y += Math.sin(k * Math.PI) * rise;
+    ahead.copy(arrow.position).add(tangent);
+    ahead.y += Math.PI * Math.cos(k * Math.PI) * rise;
+    arrow.lookAt(ahead);
+  }, () => scene.remove(arrow));
+}
+
+const fanTex = canvasTex(96, 96, (ctx) => {
+  const shade = ctx.createLinearGradient(12, 0, 92, 0);
+  shade.addColorStop(0, 'rgba(124,224,201,0)');
+  shade.addColorStop(0.7, 'rgba(170,243,221,0.9)');
+  shade.addColorStop(1, 'rgba(230,255,240,0)');
+  ctx.strokeStyle = shade;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 3; i++) {
+    ctx.lineWidth = 2 + i;
+    ctx.beginPath();
+    ctx.moveTo(9, 70 - 9 * i);
+    ctx.quadraticCurveTo(58, 78 - 12 * i, 91 - 4 * i, 21 + 7 * i);
+    ctx.stroke();
+  }
+});
+
+export function fanSweep(scene, from, toward, scale = 1.6, anim = animate) {
+  const wind = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: fanTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+  }));
+  const dir = toward.clone().sub(from).setY(0).normalize();
+  wind.name = 'weapon-fan-sweep';
+  scene.add(wind);
+  return anim(300, (k) => {
+    wind.position.copy(from).addScaledVector(dir, 0.22 + k * 0.66);
+    wind.material.opacity = (1 - k) * 0.95;
+    wind.scale.set((dir.x < 0 ? -1 : 1) * scale * (1 + k * 0.4), scale * (0.78 + k * 0.25), 1);
+  }, () => drop(scene, wind));
+}
+
 const dustTex = canvasTex(16, 16, (g) => {
   for (let i = 0; i < 6; i++) { g.fillStyle = `rgba(220,200,160,${0.25 + i * 0.1})`; g.beginPath(); g.arc(8, 8, 7 - i, 0, Math.PI * 2); g.fill(); }
 });
@@ -318,6 +370,16 @@ export function levelUp(scene, at, anim = animate) {
 const later = (ms, f) => setTimeout(f, ms);
 const burst = (s, at, n, c) => sparkBurst(s, at, n, c, animate, 0.5, glowTex);
 export const STRATEGY_FX = {
+  rationOrders: (s, at) => {
+    ring(s, at, '#e2aa60', { r: 1.8, shrink: true, ms: 650 });
+    later(180, () => streaks(s, at, 6, '#ffcc85', { from: 'above', ms: 430 }));
+    later(440, () => flare(s, at, '#ffe8b6', { size: 1.65 }));
+  },
+  riverRoutes: (s, at) => {
+    ring(s, at, '#91ccff', { r: 1.7, ms: 760 });
+    later(160, () => streaks(s, at, 8, '#d1f3ff', { from: 'side', ms: 460 }));
+    later(390, () => ring(s, at, '#b7e4f4', { r: 0.9, shrink: true, ms: 560 }));
+  },
   northGuard: (s, at) => { ring(s, at, '#95dbe9', { r: 1.8, shrink: true, ms: 700 }); later(220, () => streaks(s, at, 7, '#d7f4ff', { from: 'side', ms: 430 })); later(500, () => flare(s, at, '#9cd5ea', { size: 1.8 })); },
   riverGuard: (s, at) => { ring(s, at, '#76c9ff', { r: 2, ms: 850 }); burst(s, at, 40, '#8bdcff'); later(250, () => { ring(s, at, '#d6f3ff', { r: 1.2, ms: 600 }); flare(s, at, '#8ddaff', { size: 1.9 }); }); },
   cunning: (s, at) => { ring(s, at, '#d9b2ff', { r: 2, shrink: true, ms: 800 }); later(180, () => ring(s, at, '#ffe2a4', { r: 1.2, ms: 600 })); later(420, () => { flare(s, at, '#dcc5ff', { size: 2 }); embers(s, at, 25, '#eed8ff'); }); },

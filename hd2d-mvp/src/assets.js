@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { data } from './core/game.js';
 import { equipmentIconUrl } from './core/equipment.js';
+import { BOW_CLIP, BOW_POSES, FAN_CLIP, FAN_POSES } from './weapon-motion.js';
 
 // One HEAD per URL: the music sets below ask again for the BGM and phrases the audio list already looked for.
 const seen = new Map();
@@ -72,7 +73,7 @@ export function spriteFrame(tex, meta, index) {
 }
 
 // 上传动作使用固定 4×4 帧表，转成游戏已有的命名帧；无第三张特写图时沿用现有简化落马演出。
-export async function loadGridMotion(url, { builtinSize = false, mirrorSide = false } = {}) {
+export async function loadGridMotion(url, { builtinSize = false, mirrorSide = false, weapon = 'blade' } = {}) {
   const source = await loadPixelTexture(url), image = source.image;
   const standard = image.width === 512 && image.height === 512;
   const built = builtinSize && image.width >= 512 && image.height >= 512 && image.width <= 2048 && image.height <= 2048
@@ -113,8 +114,17 @@ export async function loadGridMotion(url, { builtinSize = false, mirrorSide = fa
     const march = make(['side_stand', 'side_walk_1', 'side_walk_2', 'side_walk_3', 'side_walk_4', 'front_stand', 'front_walk_1', 'front_walk_2', 'front_walk_3', 'front_walk_4', 'back_stand', 'back_walk_1', 'back_walk_2', 'back_walk_3', 'back_walk_4'],
       [0, 1, 2, 3, 2, 4, 4, 5, 4, 5, 6, 6, 7, 6, 7], { standHeight: height });
     const names = ['idle_a', 'idle_b', 'gallop_1', 'gallop_2', 'gallop_3', 'gallop_4', 'windup', 'strike', 'follow', 'hurt', 'taunt', 'fall', 'dodge', 'downed', 'loose_1', 'loose_2', 'walk_1', 'walk_2', 'walk_3', 'walk_4', 'swing_mid', 'swing_late', 'recover', 'feint_ready', 'feint_jab', 'feint_back', 'allin_windup', 'allin_strike', 'off_balance', 'hit_light', 'recoil_step'];
-    const duel = make(names, [0, 0, 1, 2, 3, 2, 8, 9, 10, 11, 12, 15, 13, 15, 14, 2, 1, 2, 3, 2, 9, 10, 10, 8, 9, 10, 8, 9, 10, 11, 11], { weapon: 'blade', clips: {
+    const indices = [0, 0, 1, 2, 3, 2, 8, 9, 10, 11, 12, 15, 13, 15, 14, 2, 1, 2, 3, 2, 9, 10, 10, 8, 9, 10, 8, 9, 10, 11, 11];
+    const weaponPoses = weapon === 'bow' ? BOW_POSES : weapon === 'fan' ? FAN_POSES : null;
+    if (weaponPoses) { names.push(...weaponPoses); indices.push(8, 9, 10); }
+    const weaponClips = weapon === 'bow' ? { bow: BOW_CLIP } : weapon === 'fan' ? {
+      attack: FAN_CLIP,
+      feint: [['fan_ready', 90], ['fan_sweep', 70, 'hit'], ['fan_follow', 100]],
+      desperate: [['fan_ready', 330], ['fan_sweep', 155, 'hit'], ['fan_follow', 230]],
+    } : {};
+    const duel = make(names, indices, { weapon, clips: {
       walk: [1, 2, 3, 4].map((n) => [`walk_${n}`, 160]), gallop: [1, 2, 3, 4].map((n) => [`gallop_${n}`, 120]),
+      ...weaponClips,
     } });
     const turnNames = ['front_idle', 'front_walk_1', 'front_walk_2', 'front_walk_3', 'front_walk_4', 'front_windup', 'front_strike', 'front_hurt', 'back_idle', 'back_walk_1', 'back_walk_2', 'back_walk_3', 'back_walk_4', 'back_windup', 'back_strike', 'back_hurt'];
     duel.turn = make(turnNames, [4, 4, 5, 4, 5, 4, 5, 4, 6, 6, 7, 6, 7, 6, 7, 6], { clips: {

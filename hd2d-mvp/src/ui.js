@@ -52,7 +52,7 @@ const customPortrait = (id) => data().officers[id]?.clone ? null : data().office
 const builtInPortrait = (id) => portraitFiles[art(id)] || portraitFiles[0] || FALLBACK;
 const officerVisual = (id) => data().officers[id]?.clone ? null : data().officers[id]?.visual;
 const visualPortrait = (id) => visualUrl(officerVisual(id)?.portrait);
-export const portrait = (id) => visualPortrait(id) || customPortrait(id) || builtInPortrait(id);
+export const portrait = (id) => visualPortrait(id) || customPortrait(id) || (data().officers[id]?.famousExtra ? PLACEHOLDER : builtInPortrait(id));
 // Expressions. The original's selector $00A4 takes 0–4, but 0 and 1 share pixels for every face, so there
 // are four: 0 calm, 2 angry (going to war, enemy attacks, taunted in a duel), 3 joy (good news, the victor),
 // 4 grief (bad news, the loser). Painted busts load from assets/ai/faces/<id>-<mood>.webp.
@@ -79,7 +79,15 @@ function watchImage(image, onVisibility) {
 }
 function unwatchImage(image) { imageObserver?.unobserve(image); imageWatchers.delete(image); }
 function officerImage(id, cls, fallback, visual = null) {
-  const sources = [...new Set([visual, visualPortrait(id), customPortrait(id), fallback, builtInPortrait(id), FALLBACK, PLACEHOLDER].filter(Boolean))];
+  if (data().officers[id]?.famousExtra) return visualOfficerImage(officerVisual(id), cls, name(id), visual);
+  return officerImageFromSources([visual, visualPortrait(id), customPortrait(id), fallback, builtInPortrait(id), FALLBACK], cls, name(id));
+}
+function visualOfficerImage(visual, cls, label, preferred = null) {
+  return officerImageFromSources([preferred, visualUrl(visual?.portrait), visualUrl(visual?.faces?.calm)], cls, label);
+}
+export const visualAvatar = (visual, label) => visualOfficerImage(visual, 'avatar', label, visualUrl(visual.faces?.calm));
+function officerImageFromSources(urls, cls, label) {
+  const sources = [...new Set([...urls.filter(Boolean), PLACEHOLDER])];
   let index = 0, retried = false, visible = false, connected = false, wait = null, retryTimer = null;
   const clearWait = () => { clearTimeout(wait); wait = null; };
   const cleanup = () => { clearWait(); clearTimeout(retryTimer); retryTimer = null; unwatchImage(img); };
@@ -113,7 +121,7 @@ function officerImage(id, cls, fallback, visual = null) {
       retried = false; img.setAttribute('src', sources[++index]); arm();
     } else cleanup();
   };
-  const img = h('img', { class: `${cls} ai`, alt: name(id), decoding: 'async', ...(cls.includes('avatar') ? { loading: 'lazy' } : {}),
+  const img = h('img', { class: `${cls} ai`, alt: label, decoding: 'async', ...(cls.includes('avatar') ? { loading: 'lazy' } : {}),
     onerror: fail, onload: cleanup });
   img.setAttribute('src', sources[0]);
   // 仅对接近视口的图片计时，离屏的懒加载头像不会被误判为超时。

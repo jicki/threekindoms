@@ -19,7 +19,7 @@ MAX_PORTRAIT_BYTES = 64 * 1024
 MAX_PORTRAIT_SIDE = 384
 MAX_ASSET_BYTES = 1024 * 1024
 ASSET_ID = re.compile(r'^a-[a-f0-9]{64}$')
-BUILTIN_VISUAL = re.compile(r'^b-(sun|zhen|diao|cai|wang|chen|gao|gongsun|yuanshu|liubiao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong|v2-(?:sun|zhen|diao|cai|wang|chen|gao|dao|xin|gongsun|yuanshu|liubiao|guanjing|tiankai|yanxiang|zhangxun|caimao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong))-(portrait|calm|joy|angry|grief|motion)$')
+BUILTIN_VISUAL = re.compile(r'^b-(sun|zhen|diao|cai|wang|chen|gao|gongsun|yuanshu|liubiao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong|zhangzhao|zhanghong|zhangxiu|v2-(?:sun|zhen|diao|cai|wang|chen|gao|dao|xin|gongsun|yuanshu|liubiao|guanjing|tiankai|yanxiang|zhangxun|caimao|tianyu|qiaorui|huangzu|liuqi|xunyou|qianzhao|huangshi|zhurong))-(portrait|calm|joy|angry|grief|motion)$')
 MOODS = ('calm', 'joy', 'angry', 'grief')
 
 
@@ -356,7 +356,7 @@ def validate(s, base):
             integer(skill.get(key), label, minimum, maximum)
         if 'maxUses' in skill:
             integer(skill['maxUses'], '每场使用次数', 1, 3)
-        if 'visualEffect' in skill and (not isinstance(skill['visualEffect'], str) or skill['visualEffect'] not in ('tianyu', 'huangzu', 'xunyou', 'qianzhao', 'huangshi')):
+        if 'visualEffect' in skill and (not isinstance(skill['visualEffect'], str) or skill['visualEffect'] not in ('tianyu', 'huangzu', 'xunyou', 'qianzhao', 'huangshi', 'zhangzhao', 'zhanghong')):
             fail('技能演出无效')
         if 'effectProfile' in skill and skill['effectProfile'] not in ('fortress', 'frontier', 'interdict'):
             fail('技能条件效果无效')

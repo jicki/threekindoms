@@ -1082,5 +1082,71 @@
    "blend": 0.12,
    "attempt": 3
   }
+ },
+ "skill-zhangzhao": {
+  "w": 512,
+  "h": 288,
+  "story": {
+   "src": "v2/skill-zhangzhao/story.webp",
+   "cols": 3,
+   "rows": 3,
+   "hold": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1.6
+   ],
+   "blend": 0.12,
+   "attempt": 2
+  }
+ },
+ "skill-zhanghong": {
+  "w": 512,
+  "h": 288,
+  "story": {
+   "src": "v2/skill-zhanghong/story.webp",
+   "cols": 3,
+   "rows": 3,
+   "hold": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1.6
+   ],
+   "blend": 0.12,
+   "attempt": 2
+  }
+ },
+ "skill-zhangxiu": {
+  "w": 512,
+  "h": 288,
+  "story": {
+   "src": "v2/skill-zhangxiu/story.webp",
+   "cols": 3,
+   "rows": 3,
+   "hold": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1.6
+   ],
+   "blend": 0.12,
+   "attempt": 2
+  }
  }
 }

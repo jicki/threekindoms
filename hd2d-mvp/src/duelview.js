@@ -15,10 +15,11 @@
 // Presentation only: core/skirmish.js Duel decides every action; tacticalhud.js drives the turns.
 import * as THREE from 'three';
 import { spriteFrame } from './assets.js';
+import { BOW_CLIP, equippedWeaponStyle, riderStrip } from './weapon-motion.js';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { unitTex, treeTex, canvasTex, rng } from './pixel.js';
-import { edgeOcclusion, scatterTufts, backdrop, lightShafts, slash, thrust, sparkBurst, dustPuff, ring as groundRing, skyLit, release, shakeOffset, shakeLevel } from './fx.js';
+import { edgeOcclusion, scatterTufts, backdrop, lightShafts, slash, thrust, bowArrow, fanSweep, sparkBurst, dustPuff, ring as groundRing, skyLit, release, shakeOffset, shakeLevel } from './fx.js';
 import { seasonalize } from './seasons.js';
 import { seasonEnv } from './seasonenv.js';
 
@@ -73,6 +74,7 @@ const TIER = {
 const LEAN = { windup: -0.07, strike: 0.1, follow: 0.04, hurt: -0.12, dodge: -0.09, taunt: -0.05, fall: -0.4 };
 // A strip cut from the first sheet only lacks the second sheet's poses; each stands in with the nearest one.
 const ALIAS = { walk_1: 'gallop_2', walk_2: 'idle_a', walk_3: 'gallop_3', walk_4: 'idle_b', swing_mid: 'windup', swing_late: 'strike',
+  bow_nock: 'windup', bow_draw: 'strike', bow_release: 'follow',
   recover: 'follow', feint_ready: 'idle_b', feint_jab: 'strike', feint_back: 'follow', allin_windup: 'windup', allin_strike: 'strike',
   off_balance: 'hurt', hit_light: 'hurt', recoil_step: 'gallop_2',
   // The third sheet (<key>-c: 舍身 run, crushing hit, defeat, triumph; tools/slice_duel_extra.py), for riders who do not
@@ -344,9 +346,10 @@ export function createDuelView(T, sprites = {}, audio) {
     body.position.y = (ch * unit) / 2; body.userData.ax = (cw / 2 - meta.anchor) * unit;
     return { body, unit };
   }
-  function rider(id, look, dir) {
+  function rider(battle, side, look, dir) {
     // A star officer without his own strip keeps his own sprite rather than borrowing the generic rider.
-    const g = new THREE.Group(), A = sprites[`duel-${id}`] || (sprites[`officer-${id}`] ? null : sprites[`duel-${look}`]);
+    const g = new THREE.Group(), officer = battle.side[side], { id, eq } = officer;
+    const A = riderStrip(sprites, battle.g, officer, look), weapon = equippedWeaponStyle(battle.g, eq.wgrp);
     let body, unit = 1, meta = null;
     // Cards beside the side strip for the wheel: head-on and from behind (<key>-turn, never mirrored) and the
     // three-quarter views between (<key>-wheel, drawn with his head to the right and mirrored by setCard).
@@ -368,7 +371,7 @@ export function createDuelView(T, sprites = {}, audio) {
     shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.01; shadow.scale.y = 0.4;
     g.add(body, shadow, ring);
     g.position.set(-dir * 9, 0.25, dir > 0 ? 1.0 : 0.82); scene.add(g);
-    const R = { g, body, dir, id, look, meta, unit, cards, shadow, face: dir, home: 0, loop: 'idle', loopT: Math.random() * 600, stride: 0, flash: 0, ring, react: null, hold: 0 };
+    const R = { g, body, dir, id, look, meta, unit, cards, shadow, face: dir, home: 0, loop: 'idle', loopT: Math.random() * 600, stride: 0, flash: 0, ring, react: null, hold: 0, strip: A, weapon };
     setFace(R, dir); show(R, 'idle_a');
     return R;
   }
@@ -510,15 +513,16 @@ export function createDuelView(T, sprites = {}, audio) {
   // Contact: everything the blow causes happens here, once — the struck rider's hurt pose and recoil
   // start on this same event (react: false when the caller stages the reaction itself).
   function impact(me, foe, a, tier, ctx, frame = 'strike', react = true) {
-    const T0 = TIER[tier], w = me.meta?.weapon || 'blade';
+    const T0 = TIER[tier], w = me.weapon ?? me.meta?.weapon ?? 'blade';
     // The hit-stop holds the striker on the blow (swing() waits it out) while the struck rider takes it at once and
     // trembles; only a 舍身 (allIn) and the deathblow stop the whole scene.
     const deathblow = (ctx.hp?.[foe.id] ?? 1) <= 0;
     if (deathblow) { freeze = Math.max(T0.stop, 0.14); if (fx && shakeLevel() > 0) silhouette = 1; }
     foe.trembleT = deathblow ? freeze : T0.stop;
-    const p = tipOf(me, frame); p.x = me.dir > 0 ? Math.min(p.x, foe.g.position.x + 0.2) : Math.max(p.x, foe.g.position.x - 0.2);
+    const p = w === 'bow' ? foe.g.position.clone().add(new THREE.Vector3(0, 1.05, 0)) : tipOf(me, frame);
+    p.x = me.dir > 0 ? Math.min(p.x, foe.g.position.x + 0.2) : Math.max(p.x, foe.g.position.x - 0.2);
     p.y = Math.min(Math.max(p.y, 1.2), 2.1);
-    if (fx && tier !== 'graze') {
+    if (fx && tier !== 'graze' && w !== 'bow' && w !== 'fan') {
       if (w === 'spear') thrust(scene, p, me.dir < 0, tier === 'heavy' ? 2.2 : 1.5, tween);
       else slash(scene, p, me.dir < 0, w === 'sword' ? (tier === 'heavy' ? 1.3 : 0.9) : tier === 'heavy' ? 1.9 : tier === 'light' ? 1.0 : 1.4, tween, w === 'sword' ? 0.9 : 0.55);
     }
@@ -589,6 +593,10 @@ export function createDuelView(T, sprites = {}, audio) {
         await wait(ms);
         if (i === hitAt) {
           await lunge;
+          if (fx && me.weapon === 'fan') {
+            const from = me.g.position.clone().add(new THREE.Vector3(dir * 0.65, 1.03, 0));
+            fanSweep(scene, from, foe.g.position, cmd === 'desperate' ? 1.9 : 1.5, tween);
+          }
           audio?.sfx(CONTACT[cmd]);
           if (tier) { const stop = impact(me, foe, a, tier, ctx, f); if (stop) { me.loop = null; await wait(stop * 1000); } }
           else {
@@ -608,6 +616,43 @@ export function createDuelView(T, sprites = {}, audio) {
     foe.react = null;
     await Promise.all([home, ride(foe, foe.home, WALK)]);
     await wait(120);
+  }
+
+  async function shootDuel(me, foe, action, ctx) {
+    const { cmd, hit, dmg, self } = action;
+    const tier = dmg > 0 ? cmd === 'feint' ? 'light' : cmd === 'desperate' ? 'heavy' : 'normal' : hit ? 'graze' : null;
+    const cadence = cmd === 'feint' ? 0.63 : cmd === 'desperate' ? 1.3 : 1;
+    me.loop = null;
+    foe.react = null;
+    for (const [frame, ms] of BOW_CLIP.slice(0, 2)) {
+      show(me, frame);
+      await wait(ms * cadence);
+    }
+    show(me, 'bow_release');
+    audio?.sfx('sfx-tactic-xbow');
+    const from = me.g.position.clone().add(new THREE.Vector3(me.dir * 0.58, 1.06, 0));
+    const to = foe.g.position.clone().add(new THREE.Vector3(hit ? 0 : me.dir * 1.1, hit ? 1.05 : 1.75, hit ? 0 : -0.48));
+    if (!hit) { foe.loop = null; show(foe, 'dodge'); }
+    if (fx) await bowArrow(scene, from, to, tween, 230);
+    else await wait(230);
+    if (tier) {
+      audio?.sfx('sfx-volley-land');
+      const stop = impact(me, foe, action, tier, ctx, 'bow_release');
+      if (stop) await wait(stop * 1000);
+    } else {
+      popup('落空', head(foe), `${foe.look} miss`);
+      foe.loop = 'idle'; show(foe, 'idle_a');
+      if (self) {
+        show(me, 'off_balance');
+        popup(`反噬 -${self}`, head(me, 2.5), `${me.look} self`);
+        if (fx) me.flash = 0.12;
+        ctx.onSelf?.(me.id, self);
+      }
+    }
+    await wait(170);
+    me.loop = 'idle'; show(me, 'idle_a');
+    await foe.react; foe.react = null;
+    if (tier && foe.g.position.x !== foe.home) await ride(foe, foe.home, WALK);
   }
   // 舍身 (docs/单挑舍身败北与手感方案_2026-11-13.md §2.2): he reins back half a length, charges, leaps level at the
   // foe and comes down on him. The sounds keep the original's order (96 rein back, 96 charge, 97 leap, 104 contact) at
@@ -799,7 +844,7 @@ export function createDuelView(T, sprites = {}, audio) {
   // The general on foot, apart from his horse: a copy of his side strip (DOWNED) and his third card (thrown, landing,
   // struggling, kneeling). lying: drawn over the ground (onTop; see the DOWNED note below).
   function onFoot(R, lying) {
-    const A = sprites[`duel-${R.id}`] || sprites[`duel-${R.look}`], u = unitOf(A.meta);
+    const A = R.strip, u = unitOf(A.meta);
     const { body } = framePlane(A), c = { body: framePlane(A.extra, u).body, meta: A.extra.meta, follows: true };
     c.body.userData.y0 = c.body.position.y; c.body.visible = false;
     // The strip's bottom row is often his dropped weapon lying in front of him: sink the plane so his body
@@ -843,7 +888,7 @@ export function createDuelView(T, sprites = {}, audio) {
   // kneel (taken). His weapon spins away, lands flat and bounces once: where the DOWNED frame draws it
   // under him, so nothing jumps when that frame takes over and the loose one goes; or before him when he kneels.
   async function fallFrom(R, { captured = false } = {}) {
-    const foe = foeOf(R), A = sprites[`duel-${R.id}`] || sprites[`duel-${R.look}`];
+    const foe = foeOf(R), A = R.strip;
     popup(captured ? '落马' : '阵亡', head(R, 3.0), R.look);
     const plain = !R.meta || !A?.extra, landX = R.g.position.x - R.face * 1.2;
     // The close shot holds the winner and the ground the loser is thrown onto.
@@ -898,7 +943,7 @@ export function createDuelView(T, sprites = {}, audio) {
     show(R, 'fall'); if (fx) dustPuff(scene, R.g.position.clone().setY(0.5), 1.0, tween); await wait(420);
     let man = null;
     if (R.meta) {
-      const A = sprites[`duel-${R.id}`] || sprites[`duel-${R.look}`];
+      const A = R.strip;
       const { body } = framePlane(A); man = { ...R, g: new THREE.Group(), body, cards: [], loop: null };
       const shadow = new THREE.Mesh(new THREE.CircleGeometry(1, 24), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.3, depthWrite: false }));
       shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.01; shadow.scale.set(A.meta.cell[0] * unitOf(A.meta) * 0.42, 0.32, 1);
@@ -930,7 +975,7 @@ export function createDuelView(T, sprites = {}, audio) {
   // the riderless horse walks away. A rider without the third sheet bows in the saddle instead.
   async function kneel(R) {
     R.loop = null; show(R, 'slump'); await wait(500);
-    const A = sprites[`duel-${R.id}`] || sprites[`duel-${R.look}`];
+    const A = R.strip;
     if (!R.meta || !A?.extra) { show(R, 'follow'); await tween(500, (k) => { R.body.rotation.z = -R.face * 0.12 * ease(k); }); return; }
     const f = R.face, man = onFoot(R, false), wpn = looseWeapon(R, A, false);
     man.g.position.x += f * 0.45; man.g.position.z += 0.3; // before his horse, toward the winner, clear of it as it turns away
@@ -1015,7 +1060,7 @@ export function createDuelView(T, sprites = {}, audio) {
       for (const R of riders) scene.remove(R.g);
       buildSet(battle.terrain, siegeOf && looks.a === siegeOf.look ? 1 : -1);
       const n = (s) => Math.max(3, Math.min(27, Math.ceil(battle.fielded(s) / 40)));
-      const RA = rider(battle.side.a.id, looks.a, 1), RD = rider(battle.side.d.id, looks.d, -1);
+      const RA = rider(battle, 'a', looks.a, 1), RD = rider(battle, 'd', looks.d, -1);
       riders = [RA, RD];
       cast = [...rank(looks.a, n('a'), 1), ...rank(looks.d, n('d'), -1)];
       release(gone, scene, Object.values(T)); // the last duel's set, riders and ranks
@@ -1036,7 +1081,8 @@ export function createDuelView(T, sprites = {}, audio) {
       if (a.cmd === 'taunt') return taunt(me, foe, a);
       if (a.cmd === 'persuade') return persuade(me, foe, a);
       if (a.cmd === 'surrender') return yieldTo(me);
-      if (a.cmd === 'desperate' && me.meta) return allIn(me, foe, a, ctx);
+      if (me.weapon === 'bow') return shootDuel(me, foe, a, ctx);
+      if (a.cmd === 'desperate' && me.meta && me.weapon !== 'fan') return allIn(me, foe, a, ctx);
       return swing(me, foe, a, ctx);
     },
     // Death (or, under 武将不战死, a capture): see fallFrom().

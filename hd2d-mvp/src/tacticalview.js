@@ -10,7 +10,8 @@ import { spriteFrame } from './assets.js';
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { unitTex, canvasTex, rng } from './pixel.js';
-import { backdrop, lightShafts, slash, sparkBurst, dustPuff, flare, flames, embers, glowTex, animate, skyLit, drop, release, shakeOffset } from './fx.js';
+import { backdrop, lightShafts, slash, thrust, bowArrow, fanSweep, sparkBurst, dustPuff, flare, flames, embers, glowTex, animate, skyLit, drop, release, shakeOffset } from './fx.js';
+import { equippedWeaponStyle, riderStrip } from './weapon-motion.js';
 import { seasonalize } from './seasons.js';
 import { seasonEnv } from './seasonenv.js';
 import { buildTerrain, dressBoard, azureWaterTex, vnoise } from './diorama.js';
@@ -262,7 +263,8 @@ export function createTacticalView(T, sprites) {
   // of his strip, a proxy of the same plane turned to the sun that only casts his shadow, and a contact blob.
   function strips(look, u) {
     if (u.kind === 'gen') {
-      const id = battle.side[u.side].id, A = sprites[`duel-${id}`] || (sprites[`officer-${id}`] ? null : sprites[`duel-${look}`]);
+      const S = battle.side[u.side], A = riderStrip(sprites, battle.g, S, look);
+      const { id } = S;
       return [A || { tex: sprites[`officer-${id}`] || sprites[look] || unitTex(look), meta: null }];
     }
     const special = u.special && sprites[`troop-${u.special}`];
@@ -320,7 +322,13 @@ export function createTacticalView(T, sprites) {
   // Play a clip once; onEvent gets its 'hit' / 'loose' marks. The man goes back to his loop after.
   async function playClip(M, c, onEvent, { hold = false } = {}) {
     M.busy = true;
-    for (const [f, ms, ev] of clipOf(M, c)) { show(M, f); await sleep(d(ms)); if (ev) onEvent?.(ev); }
+    for (const [f, ms, ev] of clipOf(M, c)) {
+      show(M, f);
+      const atStart = c === 'bow' && ev === 'loose';
+      if (atStart) onEvent?.(ev);
+      await sleep(d(ms));
+      if (ev && !atStart) onEvent?.(ev);
+    }
     if (!hold) { M.busy = false; show(M, 'idle_a'); }
   }
   function addUnit(u, look) {
@@ -464,6 +472,8 @@ export function createTacticalView(T, sprites) {
       }
       case 'attack': {
         const a = v.g.position.clone(), tv = units.get(ev.t), b = posOf(ev.t).clone();
+        const style = ev.u.kind === 'gen' ? equippedWeaponStyle(battle.g, battle.side[ev.u.side].eq.wgrp) : null;
+        const firesBow = style === 'bow';
         { const dx = ev.t.x - ev.u.x, dy = ev.t.y - ev.u.y; turn(v, Math.abs(dx) >= Math.abs(dy) ? Math.sign(dx) : 0, Math.abs(dy) > Math.abs(dx) ? Math.sign(dy) : 0); }
         clash(b);
         const land = () => {
@@ -473,17 +483,29 @@ export function createTacticalView(T, sprites) {
           popup(ev.dmg ? `-${ev.dmg}` : '0', b.clone().setY(b.y + 1.0), tv.look);
           reel(ev.t); tag(ev.t); hooks.update?.();
         };
-        if (ev.ranged) {
+        if (ev.ranged || firesBow) {
           // Each archer looses his own arrow at a man of the target squad; the first to land is the hit.
-          hooks.sfx?.('sfx-select');
+          if (!firesBow) hooks.sfx?.('sfx-select');
           let landed = null;
           const targets = tv.alive.length ? tv.alive : [{ holder: tv.g }];
-          await volley(v, v.men[0]?.meta?.clips.volley ? 'volley' : 'attack', (M, mark) => {
+          const bowClip = firesBow && v.men[0]?.meta?.clips.bow;
+          const shoot = (M, mark) => {
             if (ev.u.kind === 'gen' && mark !== 'hit' && mark !== 'loose') return;
             const T2 = targets[Math.floor(Math.random() * targets.length)], to = T2?.holder ? worldOf(T2).add(new THREE.Vector3(0, 0.3, 0)) : b;
-            const fly = arrow(worldOf(M).add(new THREE.Vector3(0.1 * M.face, 0.42, 0)), to, ev.fire);
+            const from = worldOf(M);
+            if (firesBow) {
+              if (landed) return;
+              const dir = to.clone().sub(from).setY(0).normalize();
+              from.addScaledVector(dir, 0.23); from.y += 0.8;
+              hooks.sfx?.('sfx-tactic-xbow');
+              landed = bowArrow(set, from, to, animate, d(280));
+              return;
+            }
+            const fly = arrow(from.add(new THREE.Vector3(0.1 * M.face, 0.42, 0)), to, ev.fire);
             landed ??= fly;
-          });
+          };
+          await volley(v, bowClip ? 'bow' : v.men[0]?.meta?.clips.volley ? 'volley' : 'attack', shoot);
+          if (firesBow && !landed && v.men[0]) shoot(v.men[0], 'loose');
           await landed; land(); hooks.sfx?.('sfx-volley-land'); // the original's 93 as the arrows reach them (bank14 $A744, D44)
         } else {
           // The squad charges a third of the way in (the men trail it), strikes, then falls back to its cell.
@@ -492,7 +514,10 @@ export function createTacticalView(T, sprites) {
           const lunge = animate(d(200), (k) => v.g.position.lerpVectors(a, mid, ease(k)));
           await volley(v, 'attack');
           await lunge; v.moving = false;
-          slash(scene, b.clone().setY(b.y + 0.55), ev.u.side === 'd', ev.u.kind === 'gen' ? 1.5 : 0.9);
+          const contact = b.clone().setY(b.y + 0.55), flip = b.x === a.x ? ev.u.side === 'd' : b.x < a.x;
+          if (style === 'fan') fanSweep(scene, mid.clone().setY(mid.y + 0.82), b, 1.3);
+          else if (style === 'spear') thrust(scene, contact, flip);
+          else slash(scene, contact, style ? flip : ev.u.side === 'd', ev.u.kind === 'gen' ? 1.5 : 0.9);
           hooks.sfx?.('sfx-clash');
           land();
           // The fall back runs on while the blow's result plays, and counts as a step of this squad: whatever it does next

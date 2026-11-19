@@ -224,7 +224,7 @@ for (const [mode, label] of [['&flat', '平面'], ['', '3D']]) test(`专属计�
   } finally { await page.context().close(); }
 });
 
-for (const [id, name, scene, phone] of [[255, '淮军奋击', 'skill-qiaorui', false], [261, '南中飞刀', 'skill-zhurong', true]]) {
+for (const [id, name, scene, phone] of [[255, '淮军奋击', 'skill-qiaorui', false], [261, '南中飞刀', 'skill-zhurong', true], [264, '宛城突袭', 'skill-zhangxiu', true]]) {
   test(`${name}在${phone ? '手机' : '桌面'}单挑中播放专属演出，仍然只能使用一次`, { timeout: 120000 }, async () => {
     const page = await game.open(phone ? '&phone' : '', { setup });
     try {
@@ -234,7 +234,7 @@ for (const [id, name, scene, phone] of [[255, '淮军奋击', 'skill-qiaorui', f
       await page.waitForSelector('.tq-form', { timeout: 60000 });
       await page.evaluate((officer) => {
         if (officer === 255) delete window.__game.g.famousSkills;
-        else window.__game.g.famousSkills = true;
+        else if (officer === 261) window.__game.g.famousSkills = true;
       }, id); // 旧存档继续使用乔蕤、祝融夫人的演出
       await page.locator('.tq-form').first().click(); await page.locator('.tq-deploy:not(.arming)').click();
       await page.waitForSelector('.tq-start button', { timeout: 30000 });

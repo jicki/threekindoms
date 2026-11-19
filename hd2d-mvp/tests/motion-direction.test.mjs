@@ -28,7 +28,7 @@ test('内置朝左素材在单挑两侧均面向对手，其他动作与正背�
       };
       const keys = ['tianyu', 'qiaorui', 'huangzu', 'liuqi', 'xunyou', 'qianzhao', 'huangshi', 'zhurong'];
       const cases = [];
-      const right = ['sun', 'zhen', 'diao', 'cai', 'wang', 'chen', 'gao', 'gongsun', 'yuanshu', 'liubiao'];
+      const right = ['sun', 'zhen', 'diao', 'cai', 'wang', 'chen', 'gao', 'gongsun', 'yuanshu', 'liubiao', 'zhangzhao', 'zhanghong', 'zhangxiu'];
       for (const key of [...keys, ...right]) {
         const url = `assets/characters/${key}/motion.png`, img = await createImageBitmap(await (await fetch(url)).blob());
         const source = document.createElement('canvas'); source.width = source.height = 512;
@@ -66,6 +66,71 @@ test('内置朝左素材在单挑两侧均面向对手，其他动作与正背�
       assert.ok(item.side < item.opposite, `${item.key} 侧面朝向错误`);
     }
     for (const item of results.placements) { assert.equal(item.pixels, 0, '实战应加载修正后的动作'); assert.equal(Math.sign(item.scale), item.left ? 1 : -1); assert.equal(Math.sign(item.x), item.left ? -1 : 1); }
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
+test('三位新人物的单挑动作在左右两侧正确翻转，旧记录不会沿用新动作', { timeout: 120000 }, async () => {
+  const page = await game.open('&flat', { clock: true });
+  try {
+    const cases = await page.evaluate(async () => {
+      window.__timeScale(4);
+      const { G, debug } = window.__game, { Tactical } = await import('./src/core/tactical.js');
+      const { loadGridMotion } = await import('./src/assets.js');
+      const g = G.newGame(4, 1, 3), view = debug.duelView, out = [];
+      const canvas = Object.assign(document.createElement('canvas'), { width: 128, height: 128 });
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      const frame = (img) => {
+        ctx.clearRect(0, 0, 128, 128);
+        ctx.drawImage(img, 0, 0, 128, 128, 0, 0, 128, 128);
+        return ctx.getImageData(0, 0, 128, 128).data;
+      };
+      const sample = async (state, id, left, expected) => {
+        await debug.loadOfficerSprites([id, 38], state);
+        const b = new Tactical(state, left ? id : 38, left ? 38 : id, 2, G.rng(state), { human: 'a' });
+        b.deploy();
+        view.setPlace({ month: 2, city: 12, siege: null }); debug.show('dview');
+        await view.enter(b, { a: 'attacker', d: 'defender' });
+        const { x } = view.probe(id);
+        const rider = view.scene.children.find((o) => o.isGroup && Math.abs(o.position.x - x) < 0.001
+          && o.children.some((c) => c.geometry?.type === 'RingGeometry'));
+        const body = rider.children.find((c) => c.material?.map && c.visible);
+        return { left, x, scale: Math.sign(body.scale.x), matches: frame(body.material.map.image).every((v, i) => v === expected[i]) };
+      };
+      for (const [id, key] of [[262, 'zhangzhao'], [263, 'zhanghong'], [264, 'zhangxiu']]) {
+        const asset = await loadGridMotion(`assets/characters/${key}/motion.png`);
+        const expected = frame(asset.duel.tex.image);
+        asset.march.tex.dispose(); asset.duel.tex.dispose(); asset.duel.turn.tex.dispose();
+        const placements = [await sample(g, id, true, expected), await sample(g, id, false, expected)];
+        if (id === 262) {
+          const legacy = structuredClone(g);
+          delete legacy.famousRoster;
+          delete legacy.famousSkills;
+          legacy.officers.length = id;
+          legacy.clones = [id];
+          legacy.officers.push({ ...legacy.officers[0], id });
+          G.registerClones(legacy);
+          const oldFrame = await sample(legacy, id, true, expected);
+          G.registerClones(g);
+          const restoredFrame = await sample(g, id, true, expected);
+          out.push({ key, legacy: oldFrame.matches, restored: restoredFrame.matches });
+        }
+        out.push({ key, placements });
+      }
+      return out;
+    });
+    for (const item of cases) {
+      if (!item.placements) {
+        assert.equal(item.legacy, false, '旧分身应使用原本的通用动作');
+        assert.equal(item.restored, true, '恢复新版之后应重新使用张昭动作');
+        continue;
+      }
+      for (const pose of item.placements) {
+        assert.equal(pose.matches, true, `${item.key} 必须使用自己的动作`);
+        assert.equal(pose.scale, pose.left ? 1 : -1);
+        assert.equal(Math.sign(pose.x), pose.left ? -1 : 1);
+      }
+    }
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });

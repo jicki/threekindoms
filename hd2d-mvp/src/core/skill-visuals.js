@@ -5,5 +5,7 @@ export const SKILL_VISUALS = {
   xunyou: { name: '公达奇策', scene: 'skill-xunyou', fx: 'cunning', cue: 'cue-st-ruse' },
   qianzhao: { name: '牵招镇边', scene: 'skill-qianzhao', fx: 'border', cue: 'cue-st-ruse' },
   huangshi: { name: '黄氏巧思', scene: 'skill-huangshi', fx: 'ingenuity', cue: 'cue-st-trap' },
+  zhangzhao: { name: '子布辅政', scene: 'skill-zhangzhao', fx: 'rationOrders', cue: 'cue-st-ruse' },
+  zhanghong: { name: '子纲筹略', scene: 'skill-zhanghong', fx: 'riverRoutes', cue: 'cue-st-trap' },
 };
-export const DUEL_VISUALS = { qiaorui: 'skill-qiaorui', zhurong: 'skill-zhurong' };
+export const DUEL_VISUALS = { qiaorui: 'skill-qiaorui', zhurong: 'skill-zhurong', zhangxiu: 'skill-zhangxiu' };
