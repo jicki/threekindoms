@@ -265,7 +265,7 @@ test('旧版本会话转入君主列传，旧记录不再提供入口且保持�
   } finally { await page.context().close(); }
 });
 
-test('新增人物素材可解码，单挑技在页面显示、使用后禁用', async () => {
+test('新增人物素材可解码，旧规则单挑技在页面显示、使用后禁用', async () => {
   const page = await game.open('', { setup: (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-heroes')) });
   try {
     const images = await page.evaluate(async () => {
@@ -280,6 +280,7 @@ test('新增人物素材可解码，单挑技在页面显示、使用后禁用',
     for (const [, name, width, height] of images) assert.deepEqual([width, height], name === 'motion.png' ? [512, 512] : name === 'portrait.webp' ? [768, 1152] : [384, 512]);
     await page.evaluate(() => { window.__game.debug.quickTactical(38, 22, 2); });
     await page.waitForSelector('.tq-form', { timeout: 60000 });
+    await page.evaluate(() => { window.__game.g.campaignRevision = 1; });
     await page.locator('.tq-form').first().click(); await page.locator('.tq-deploy:not(.arming)').click();
     await page.waitForSelector('.tq-start button', { timeout: 30000 });
     await page.evaluate(() => { window.__tq.side.a.tacticRounds = 1; });
@@ -315,6 +316,7 @@ test('吕布可在单挑页面使用飞将破阵且每场只有一次', async ()
   try {
     await page.evaluate(() => { window.__game.debug.quickTactical(218, 38, 2); });
     await page.waitForSelector('.tq-form', { timeout: 60000 });
+    await page.evaluate(() => { window.__game.g.campaignRevision = 1; });
     await page.locator('.tq-form').first().click(); await page.locator('.tq-deploy:not(.arming)').click();
     await page.waitForSelector('.tq-start button', { timeout: 30000 });
     await page.evaluate(() => {
@@ -339,6 +341,7 @@ test('手机横屏中专属单挑技可见且可以点击', async () => {
     await page.setViewportSize({ width: 812, height: 375 });
     await page.evaluate(() => { window.__game.debug.quickTactical(38, 22, 2); });
     await page.waitForSelector('.tq-form', { timeout: 60000 });
+    await page.evaluate(() => { window.__game.g.campaignRevision = 1; });
     await page.locator('.tq-form').first().click(); await page.locator('.tq-deploy:not(.arming)').click();
     await page.waitForSelector('.tq-start button', { timeout: 30000 });
     await page.evaluate(() => { const b = window.__tq; b.startDuel('a'); b.duel.aiCommand = () => 'feint'; });
@@ -394,6 +397,7 @@ test('战场页面可施展专属计略，并显示次数用尽的原因', async
     await newCampaign(page);
     await page.evaluate(() => {
       const { g, debug } = window.__game, home = g.factions[g.player].city;
+      g.campaignRevision = 1;
       const foe = g.cities.find((c) => c.faction !== g.player && g.factions[c.faction] && c.officers.length);
       g.officers[242].soldiers = 500; g.officers[foe.officers[0]].soldiers = 500;
       debug.fieldWar({ city: 8, from: home, attacker: g.player, defender: foe.faction, day: 1,

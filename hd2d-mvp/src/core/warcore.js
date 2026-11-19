@@ -2,7 +2,7 @@
 // 出阵 (5.9 §7), 战后 (6.10 §3–6), AI 自动战 (6.5 第五/六批).
 import { data, rng, NONE, DEAD, SERVING, RONIN, roads, officerCity, capturedLoyalty, recruitLoyalty, addExp, citiesOf, holdingsOf, kill, isRuler, isPass, sparedHp, rulerPassive } from './game.js';
 import { abilityDuel, abilityStrategyIds, strategySpecs } from './famous-skills.js';
-import { makeSquads, officerSpecialty, officerSquadLimit } from './troop-specialties.js';
+import { officerSquads } from './troop-specialties.js';
 import { passiveRiceUse } from './ruler-passives.js';
 import { relationshipAffinity } from './relationships.js';
 import { CROSSING_ROADS } from './expanded-map.js';
@@ -54,8 +54,9 @@ export function defenseCandidates(g, attacker, defender, city, occupancy = g.cit
 export function joinDefense(g, war, plan) {
   if (!plan || war.raid || war.support || !war.def.ids.length) return false;
   const match = defenseCandidates(g, war.attacker, war.defender, war.city, war.def.ids.length).find(c => c.city === plan.city);
-  if (!match || match.faction !== plan.faction) return false;
-  const c = g.cities[match.city], rice = Math.min(9999 - war.def.rice, match.ids.length * 60);
+  if (!match || match.faction !== plan.faction || match.ids.length !== plan.ids?.length
+    || match.ids.some((id, i) => id !== plan.ids[i])) return false;
+  const c = g.cities[match.city], rice = Math.min(Math.max(0, 9999 - war.def.rice), match.ids.length * 60);
   c.officers = c.officers.filter(id => !match.ids.includes(id));
   c.rice -= rice;
   war.def.ids.push(...match.ids); war.def.rice += rice; war.support = match;
@@ -63,7 +64,7 @@ export function joinDefense(g, war, plan) {
   return true;
 }
 
-export function validDefenseSupport(g, war, human) {
+export function validDefenseSupport(g, war, human, units = []) {
   const s = war.support;
   if (s == null) return true;
   return advancedBattle(g) && !war.raid && Number.isInteger(s.faction) && Number.isInteger(s.city)
@@ -71,7 +72,9 @@ export function validDefenseSupport(g, war, human) {
     && s.faction !== war.attacker && s.faction !== war.defender && g.cities[s.city]?.faction === s.faction && roads(war.city).includes(s.city)
     && war.def.ids.length <= 10 && s.ids.every(id => Number.isInteger(id) && id >= 0 && g.officers[id] && !isRuler(g, id)
       && war.def.ids.indexOf(id) > 0 && !war.att.ids.includes(id) && !g.cities.some(c => c.officers.includes(id)))
-    && (human !== 'def' || [s.faction, war.defender].includes(g.player));
+    && (human === 'att' ? war.attacker === g.player : human !== 'def' || [s.faction, war.defender].includes(g.player))
+    && units.every(u => u && (u.supporting === undefined || (u.side === 'def' && !u.commander && typeof u.supporting === 'boolean'))
+      && (u.capturedForSupport === undefined || (u.capturedForSupport === true && u.gone && u.fate === 'captured' && u.capturedBy === 'def')));
 }
 
 // Empty-city capture (`$B670`): no battle.
@@ -115,6 +118,15 @@ export function winnerQueue(res) {
   const win = res.loser === 'att' ? 'def' : 'att', held = win === 'att' ? res.captured.byAtt : res.captured.byDef;
   return [...res.survivors[win].filter((id) => !res.retreated.some((x) => x.id === id)), ...held];
 }
+
+export function supportSettlement(war, res) {
+  if (!war.support) return [];
+  const survivors = res.supportSurvivors ?? war.support.ids;
+  return [...new Set([
+    ...res.survivors.def.filter(id => survivors.includes(id)),
+    ...res.captured.byDef.filter(id => res.supportCaptures?.includes(id)),
+  ])];
+}
 // Where a human loser may send them (`$BB84`): roads from the battle city to own or ownerless cities.
 // Full cities are listed too; the menu refuses them (10 per city).
 export function retreatOptions(g, war, f) {
@@ -136,17 +148,7 @@ export function resolveWar(g, war, res) {
     toRoninAt(g, id, cid);
     if (protectedRuler(id)) g.officers[id].warRulerRonin = true;
   };
-  if (war.support) {
-    const { ids, faction, city: home } = war.support;
-    const returning = res.survivors.def.filter(id => ids.includes(id));
-    res.survivors.def = res.survivors.def.filter(id => !returning.includes(id));
-    res.retreated = res.retreated.filter(o => !returning.includes(o.id));
-    for (const id of returning) {
-      const c = g.cities[home];
-      const dest = c.faction === faction && c.officers.length < 10 ? c : holdingsOf(g, faction).find(v => v.officers.length < 10);
-      if (dest) place(g, faction, [id], dest.id); else roninAt(id, home);
-    }
-  }
+  const returning = supportSettlement(war, res);
   for (const id of res.dead) if (g.officers[id].status !== DEAD) g.officers[id].status = DEAD;
   // Occupation losses (`$BF0A`, only when the defender loses).
   if (res.loser === 'def' && !res.skipCut && !isPass(war.city)) {
@@ -162,7 +164,17 @@ export function resolveWar(g, war, res) {
     const o = g.officers[id]; o.loyalty = capturedLoyalty(o.loyalty); o.status = SERVING;
     if (protectedRuler(id)) o.warRulerSpared = true;
   }
-  const prisoners = held(winSide);
+  if (returning.length) {
+    const { faction, city: home } = war.support;
+    res.survivors.def = res.survivors.def.filter(id => !returning.includes(id));
+    res.retreated = res.retreated.filter(o => !returning.includes(o.id));
+    for (const id of returning) {
+      const c = g.cities[home];
+      const dest = c.faction === faction && c.officers.length < 10 ? c : holdingsOf(g, faction).find(v => v.officers.length < 10);
+      if (dest) place(g, faction, [id], dest.id); else roninAt(id, home);
+    }
+  }
+  const prisoners = held(winSide).filter(id => !returning.includes(id));
   const left = new Map(res.retreated.map((x) => [x.id, x.city])); // units that walked off the field
   // A human side's settlement menu (`$CE9E`, `$D20D`) chose each officer's city or 下野. Those choices are
   // honoured before anything is placed automatically, so the other side's overflow cannot take the
@@ -190,7 +202,7 @@ export function resolveWar(g, war, res) {
     if (over.length && g.noWarDeath && isRuler(g, id)) { const c = holdingsOf(g, f).find((c) => c.officers.length < 10); if (c) over = place(g, f, [id], c.id); }
     if (over.length) roninAt(id, dest);
   }
-  let queue = [...res.survivors[winSide].filter((id) => !left.has(id)), ...prisoners], back = loserQueue(res);
+  let queue = [...res.survivors[winSide].filter((id) => !left.has(id)), ...prisoners], back = loserQueue(res).filter(id => !returning.includes(id));
   if (res.placementSide === winSide) queue = chosen(queue, winF, true);
   else if (res.placementSide === loseSide) back = chosen(back, loseF, false);
   // Winners (and their prisoners) fill the battle city, then neighbouring own / ownerless cities.
@@ -290,19 +302,14 @@ export function fight(g, war) {
     def: autoSkillBonus(g, war.def.ids, war.att.ids, baseD, war.defender, war.att.rice),
   };
   // 电脑间抽象战斗按有兵的特色武将计入少量战力，总加成不超过基础战力的约 3%。
-  const troopStrength = (ids, enemies, base) => {
+  const squads = (id, side) => officerSquads(data(), g, id, g.campaignRevision >= 4 && side === 'def' && war.city != null);
+  const troopStrength = (ids, enemies, base, side) => {
     if (!enemies.length || g.eliteTroops !== true) return 0;
-    const D = data(), able = ids.filter((id) => {
-      const o = O(id), special = officerSpecialty(D, g, id);
-      if (!o || o.hp <= 0 || o.soldiers <= 0 || !special) return false;
-      const band = o.war >= 80 ? '80-99' : o.war >= 50 ? '50-79' : '0-49';
-      const comp = D.composition.find((c) => c.level === o.level && c.war === band) || { inf: 5, arc: 3, cav: 2 };
-      return makeSquads(comp, Math.min(10, Math.ceil(o.soldiers / 100)), false, special, officerSquadLimit(D, g, id, special), g.balancedTroops === true && o.level < 3).some((squad) => squad.special);
-    });
+    const able = ids.filter(id => O(id)?.hp > 0 && O(id)?.soldiers > 0 && squads(id, side).some(squad => squad.special));
     return Math.min(Math.floor(base / 30), able.length);
   };
   const troops = war.phantom ? { att: 0, def: 0 } : {
-    att: troopStrength(war.att.ids, war.def.ids, baseA), def: troopStrength(war.def.ids, war.att.ids, baseD),
+    att: troopStrength(war.att.ids, war.def.ids, baseA, 'att'), def: troopStrength(war.def.ids, war.att.ids, baseD, 'def'),
   };
   const equipment = (ids, enemies, base) => {
     if (g.campaignRules !== true || !enemies.length) return 0;
@@ -332,13 +339,7 @@ export function fight(g, war) {
     if (g.campaignRules !== true || !enemies.length || !ids.some((id) => O(id)?.soldiers > 0)) return 0;
     const unique = rulerPassive(g, faction)?.combat?.unique, ruler = g.factions[faction]?.ruler;
     const active = ids.filter((id) => O(id)?.hp > 0 && O(id)?.soldiers > 0), D = data();
-    const hasCavalry = (id) => {
-      const o = O(id), band = o.war >= 80 ? '80-99' : o.war >= 50 ? '50-79' : '0-49';
-      const comp = D.composition.find((c) => c.level === o.level && c.war === band) || { inf: 5, arc: 3, cav: 2 };
-      const special = officerSpecialty(D, g, id);
-      return makeSquads(comp, Math.min(10, Math.ceil(o.soldiers / 100)), false, special, officerSquadLimit(D, g, id, special),
-        g.balancedTroops === true && o.level < 3).some((squad) => squad.kind === 'cav');
-    };
+    const hasCavalry = id => squads(id, side).some(squad => squad.kind === 'cav');
     const applies = unique === 'assault' && side === 'att'
       || unique === 'muster' && active.length >= 4
       || unique === 'river' && hasRiver()

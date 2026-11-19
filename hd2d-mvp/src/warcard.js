@@ -3,6 +3,7 @@
 // on the right (side 'right') while one of ours is selected and the pointer or a confirmation is on him.
 import { h } from './ui.js';
 import { maxHp as maxHpOf } from './core/game.js';
+import { officerMainTroop } from './core/troop-specialties.js';
 
 const TROOPS_FULL = 1000; // 分兵 caps a unit at 1000 (core/game.js), so a full bar is a full unit
 
@@ -17,7 +18,8 @@ export function unitCard({ u, o, field, D, mine, village, side = 'left', portrai
   const w = D.equipment[o.weapon], a = D.equipment[24 + o.armor], maxHp = maxHpOf(o, u.id);
   const gearIcon = (id) => { const src = id == null ? null : equipIcon(id); return src ? h('img', { class: 'eqi', src, alt: '' }) : null; };
   const trapped = u.qimen ? (field.kongmingOn() ? `奇门遁甲：无法移动，每日折兵（余${u.qimen}日）` : '奇门遁甲：无法移动（诸葛亮不在场，不再折兵）') : u.stop ? `${u.stopBy ?? '受困'}：无法移动（余${u.stop}日）` : null;
-  const chips = [u.qimen ? `奇门 ${u.qimen}日` : null, u.stop ? `${u.stopBy ?? '受困'} ${u.stop}日` : null, field.ambush?.[u.side]?.u === u ? '伏兵中' : null].filter(Boolean);
+  const mainTroop = officerMainTroop(D, field.g, u.id);
+  const chips = [mainTroop ? `主兵种 · ${mainTroop.name}` : null, u.qimen ? `奇门 ${u.qimen}日` : null, u.stop ? `${u.stopBy ?? '受困'} ${u.stop}日` : null, field.ambush?.[u.side]?.u === u ? '伏兵中' : null].filter(Boolean);
   // 兵 and 体 are the bars' own figures above, so the list starts at 武力: four pairs a row fit even a card squeezed beside the other.
   const dl = [['武力', o.war], ['智力', o.int], ['人德', o.virtue], ['忠诚', o.loyalty], ['等级', o.level], ['经验', expText(o)], ['军属性', o.army], ['地形', village ? '村落' : field.ground(u.x, u.y)]];
   const gear = h('div', { class: `gear${flash ? ' flash' : ''}` },

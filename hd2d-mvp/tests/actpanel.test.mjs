@@ -94,6 +94,11 @@ test('C01: a double or triple click on a target, on the map or in the list, only
   const row = page.locator(`.actpanel [data-target="${c.id}"]`);
   await row.dblclick(); await page.waitForTimeout(400);
   s = await state(page); assert.deepEqual([s.casts, s.confirm], [0, true], 'a double click on the row only asks');
+  assert.equal(await page.locator('.actpanel .runtimes b').textContent(), '1', 'the second click cannot change the repeat count');
+  const more = page.getByRole('button', { name: '增加施放次数' });
+  await more.click();
+  assert.equal(await page.locator('.actpanel .runtimes b').textContent(), '2', 'an intentional click can still increase the count');
+  await page.getByRole('button', { name: '减少施放次数' }).click();
   // A new single click on the target casts, once.
   await page.mouse.click(c.x, c.y);
   await settle(page);

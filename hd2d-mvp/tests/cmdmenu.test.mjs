@@ -68,11 +68,17 @@ test('the same city keeps the group through a redraw; another city closes it', a
   await pick(names[0]); assert.equal(await shown(), false);
 });
 
-test('books 0: every row but 分兵 and 任命 is off, with the reason', async () => {
+test('命令书用尽时，委任、分兵和任命仍可用，其他命令注明原因', async () => {
   await page.evaluate(() => { window.__game.g.books = 0; }); await redraw();
-  await openCmds(page, '城'); assert.ok((await rows()).every((r) => r.off && r.note === '命令书已用完'), JSON.stringify(await rows()));
-  await openCmds(page, '军'); assert.deepEqual((await rows()).filter((r) => !r.off).map((r) => r.name), ['分兵', '任命']);
-  await page.evaluate(() => { window.__game.g.books = 3; }); await redraw();
+  try {
+    await openCmds(page, '城');
+    const city = await rows();
+    assert.deepEqual(city.filter(r => !r.off && r.free).map(r => r.name), ['委任']);
+    assert.ok(city.filter(r => r.name !== '委任').every(r => r.off && r.note === '命令书已用完'), JSON.stringify(city));
+    await openCmds(page, '军'); assert.deepEqual((await rows()).filter((r) => !r.off).map((r) => r.name), ['分兵', '任命']);
+  } finally {
+    await page.evaluate(() => { window.__game.g.books = 3; }); await redraw();
+  }
 });
 
 // Where the keys are: a command's row, 'tab:町' for a group's button, else null.

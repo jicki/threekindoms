@@ -185,7 +185,7 @@ if (base) {
       update((d) => { if (balancedTroops.checked) d.balancedTroops = true; else delete d.balancedTroops; }, '低级骑兵平衡设置已应用到草稿');
     });
     const assignment = draft.specialTroops?.find((entry) => entry.officer === o.id);
-    const specialTroop = select('specialTroop', [['', '原默认兵队'], ...Object.entries(SPECIAL_TROOPS).map(([key, troop]) => [key, `${troop.name}（${troop.level}级，最多${troop.max}队）· ${troop.text}`])], assignment?.type ?? '');
+    const specialTroop = select('specialTroop', [['', draft.newBattleRules ? '混编（原配比）' : '原默认兵队'], ...Object.entries(SPECIAL_TROOPS).map(([key, troop]) => [key, `${troop.name}（${troop.level}级${draft.newBattleRules && !troop.fallback ? '' : `，最多${troop.max}队`}）· ${troop.text}`])], assignment?.type ?? '');
     const troopLimit = input('troopLimit', assignment?.maxSquads ?? 2, 1, 3);
     const syncTroopLimit = () => { troopLimit.disabled = !specialTroop.value; };
     specialTroop.addEventListener('change', syncTroopLimit); syncTroopLimit();
@@ -325,7 +325,9 @@ if (base) {
       }, '人物修改已应用到草稿');
     });
     return workspace(side, panel('detail', el('h2', {}, `${o.name} · No.${o.id}`),
-      field('启用名将特色兵队', elite), field('平衡低级特色骑兵', balancedTroops), el('p', { class: 'intro' }, '仅新开局生效。等级不足时使用对应低级兵种；特色队数取兵种、武将与等级上限的较小值，最多三队。野战无对应兵类时需六队以上才转换一队；启用平衡时，一、二级武将不会将步弓队强行转换为骑兵。守城步兵仍转为弓兵。'), form));
+      field('启用名将特色兵队', elite), field('平衡低级特色骑兵', balancedTroops), el('p', { class: 'intro' }, draft.newBattleRules
+        ? '启用特色兵队后，所选兵种成为该武将的主兵种。野战约六至七成是主队，其他队保留步弓骑辅兵。进阶兵种受等级和队数上限限制，其余主队补基础兵种。低级骑兵平衡开启时，一、二级新编骑队最多约三分之一，原配比已有的骑队可保留。守城优先配弓队，满编步、枪、锤、盾将最多四队主力，骑队最多三分之一。'
+        : '仅新开局生效。等级不足时使用对应低级兵种；特色队数取兵种、武将与等级上限的较小值，最多三队。野战无对应兵类时需六队以上才转换一队；启用平衡时，一、二级武将不会将步弓队强行转换为骑兵。守城步兵仍转为弓兵。'), form));
   }
 
   function renderWeapons() {

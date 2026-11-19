@@ -10,7 +10,7 @@ import { loadManifest, loadPixelTexture, equipIcon, packSpriteStrip, loadGridMot
 import { readResource } from './resource.js';
 import { authoredGridWeapon, replacementWeaponMotion } from './weapon-motion.js';
 import { Audio } from './audio.js';
-import { SPECIAL_TROOPS, officerSpecialty, officerSquadLimit } from './core/troop-specialties.js';
+import { SPECIAL_TROOPS, officerMainTroop, officerSpecialty, officerSquadLimit } from './core/troop-specialties.js';
 import { playVignette, sceneFor, cueFor, sceneFrame, vignettesOn, setVignettes, recordText } from './vignette.js';
 import { playUnification, playFall } from './ending.js';
 import { createStrategy, colorOf } from './strategy.js';
@@ -39,11 +39,11 @@ import { describeRulerPassive } from './core/ruler-passives.js';
 import { aiTurn, aiDomestic } from './core/ai.js';
 import { suspend, peekSuspend, suspendToken, futureSuspend, dropSuspend, withSuspendLock } from './core/suspend.js';
 import { warFate } from './warreport.js';
-import { setupWar, occupyEmpty, resolveWar, loserQueue, winnerQueue, retreatOptions, defenseCandidates, joinDefense } from './core/warcore.js';
+import { setupWar, occupyEmpty, resolveWar, loserQueue, winnerQueue, retreatOptions, defenseCandidates, joinDefense, supportSettlement } from './core/warcore.js';
 import { chooseRaid, startRaid, resolveRaid, finishRaid, resolveAiRaid, registerRaidTemplates } from './core/raids.js';
 import { Field, STRAT_INFO } from './core/field.js';
 import { battleEntryDirection } from './core/battlefields.js';
-import { advancedBattle, battleWeather, WEATHER_NAMES, officerPassive } from './core/battle-rules.js';
+import { advancedBattle, battleWeather, fullStrategyWeather, WEATHER_NAMES, officerPassive } from './core/battle-rules.js';
 import { $, $$, keyName, h, pressable, clear, root, layer, modal, message, toast, banner, officerRow, officerTable, pickOfficers, sliders, confirmBox, face, avatar, figure, setHalfbody, setPortraits, setFaces, blocking } from './ui.js';
 import { MONTH_NAMES, SEASON_OF, WEATHER_OF } from './seasons.js';
 import { ORIGINAL, PACES, paceSpeed, paceLabel, setPace, paced, hold } from './pace.js';
@@ -1067,7 +1067,7 @@ function help() {
     h('p', {}, `快捷存档（${quickSaveKey}）另有一个位置，不占八个普通记录；与普通记录一样，默认消耗一张命令书，开启免费记录后不消耗。己方回合的战略地图可存档，F8 快捷读档；在我军回合的战场读取会放弃当前战斗。快捷记录可以反复读取，不是只能继续一次的战场中断。`),
     h('p', {}, '武将不会自然回复体力、也不会自然增加忠诚，需靠病院与赏赐。每将最多带1000兵，征兵每百人20金，再用「分兵」分配。'),
     h('h4', {}, '战争'), h('p', {}, '出阵时选武将、总大将并携带金米。攻方先行动，机动力全军共用，按总兵数每天恢复。金色轮廓围出的范围可移动（指向其中一格会画出行军箭头和消耗）、橙框为城、四角红框的敌将可攻击（2机动力）、四角紫框为计略目标；按住 R（3D 战场也可点右下的「威」）显示敌军威胁范围（红色斜纹：敌军下次行动时任何一名敌将单独能打到的格子，指着敌将只看他一人）；[ 和 ] 切换我方武将；点名牌等于点这名武将，被山挡住的武将点他的剪影；选了计略后镜头会移到目标处，也可以直接在目标名单里点名字；拖动可平移。攻方踏上城格即胜；总大将阵亡/被俘/退却即败；30日未决或米尽则败。'),
-    h('p', {}, advancedBattle(g) ? '计略按智力和等级习得。夹攻需要另一名友军贴近目标，破阵削弱目标接下来一场白兵。雨天林地和部分水域行军较慢，火计削弱、乱水与水攻增强。雪天加重行军消耗，白兵骑兵每回合少行动一次。'
+    h('p', {}, advancedBattle(g) ? `计略按智力和等级习得。夹攻需要另一名友军贴近目标，破阵削弱目标接下来一场白兵。雨天林地和部分水域行军较慢，火计削弱、乱水与水攻增强。雪天加重行军消耗，白兵骑兵每回合少行动一次。${fullStrategyWeather(g) ? '计略面板会显示每项计策受到的天气影响。' : ''}`
       : '智力越高可用计略越多（40/60/75/85分档，诸葛亮等名士随等级解锁特殊计）。命中率看双方智力、等级与距离（通常最远5格）。'),
     h('h4', {}, '白兵与单挑'), h('p', {}, '攻击会进入16×10的白兵战场：先选阵形（长蛇、雁行、锥行、鱼鳞），每100兵一队，按步→弓→骑→将的顺序行动。交战中可分别给将、骑、弓、步下令前进、后退、待机或包围（「全军」一栏可一次令各兵种待机或包围），并用战术点施展咒缚、挑发、强弩、士气向上、火矢、爆炎；也可暂停、变速、交给自动或全军撤退。'),
     h('p', {}, '新版本中的弓将可向同一行或列两格远的敌军射击，地形和友军会遮挡；远射时战力和武器攻击分别按 55% 和 60% 计算，近身遇敌将仍进入单挑。强弩和火矢作用于弓兵，不改变弓将的射程或箭矢。'),
@@ -1205,7 +1205,7 @@ function sysButtons() {
     }, '启用增强时，战场方案不增加金米；旧版保留此前的精简效果。敌我同时切换，设置随记录保存。') : '',
     ), group('记录',
     document.body.dataset.screen === 'strategy' && G.campaignUpgradeAvailable(g)
-      ? item(() => '升级当前战役', () => { close(); upgradeCampaignRules(); }, '在原有进度上启用新战场、天气、援军和人物被动。确认后可另存到一个记录位置。') : '',
+      ? item(() => '升级当前战役', () => { close(); upgradeCampaignRules(); }, '在原有进度上启用最新战场规则。确认后可另存到一个记录位置。') : '',
     g ? item(() => '记录进度', (b) => { const why = saveBlocked(); if (why) return toast(`<em>${why}</em>`, 3500); close(); runCommand(saveCity(), '记录'); },
       '进度不会自动保存。在八个记录位置之一保存当前进度（消耗一张命令书，开启免费记录时不消耗；与城市菜单「录」相同；己方回合、战略地图上可用）') : '',
     g && inWar() ? item(() => '中断战斗', () => { close(); suspendWar(); },
@@ -1265,8 +1265,9 @@ const saveCity = () => (sel != null && mineCity(sel) ? sel : g.factions[g.player
 async function upgradeCampaignRules() {
   if (!mapCalm()) return toast('请在己方战略回合完成当前操作后升级', 3500);
   const campaign = g;
+  const mechanics = fullStrategyWeather(g) ? '主辅兵种编队' : advancedBattle(g) ? '计策天气及主辅兵种编队' : '新版战场、计策天气、同盟援军、人物被动及主辅兵种编队';
   const confirmed = await confirmBox('升级当前战役',
-    '启用新版战场、天气、同盟援军及人物被动。新版以人物被动取代专属计策和单挑技，并保留进度、兵力、装备及已有设置。升级后可另存一格，保留原记录。');
+    `启用${mechanics}。保留进度、兵力、装备及已有设置。升级后可另存一格，保留原记录。`);
   if (!confirmed) return;
   if (g !== campaign || !mapCalm()) return toast('当前战役状态已变化，请重新选择升级', 3500);
   if (!G.upgradeCampaign(g)) return toast('当前战役无法安全升级，仍可按原规则继续', 4500);
@@ -1960,7 +1961,10 @@ function cityPanel(cid) {
     showDetail && !G.isPass(cid) ? talentNote(cid) : null,
     // With the pad, the way from the menu to these rows is not to be guessed (feedback D62, 2026-11-14): told above them.
     own && !PHONE && c.officers.length ? h('p', { class: 'roster-tip hint' }, ...padText((k) => `命令分组上推 ← 选武将，${k('a')} 看资料`)) : null,
-    h('div', { class: 'roster' }, ...(showDetail ? c.officers : []).map((id, i) => officerRow(g, id, { extra: id === ruler ? '君主' : i === 0 ? '太守' : null, onclick: () => officerCard(id) }))),
+    h('div', { class: 'roster' }, ...(showDetail ? c.officers : []).map((id, i) => officerRow(g, id, {
+      extra: [id === ruler ? '君主' : i === 0 ? '太守' : '', officerMainTroop(D, g, id)?.name].filter(Boolean).join(' · '),
+      onclick: () => officerCard(id),
+    }))),
   );
   root().append(panel);
   if (own && g.current === g.player && !g.over) root().append(commandDock(cid));
@@ -1985,8 +1989,9 @@ function officerSheet(id, { live = null, foot = null } = {}) {
   const rulerFaction = g.factions.find((fac) => fac.ruler === id)?.id;
   const passive = rulerFaction == null ? null : G.rulerPassive(g, rulerFaction);
   const personal = officerPassive(D, g, id);
-  const specialty = officerSpecialty(D, g, id);
+  const mainTroop = officerMainTroop(D, g, id), specialty = mainTroop?.current ?? officerSpecialty(D, g, id);
   const targetTroop = Object.hasOwn(SPECIAL_TROOPS, d.troopType) ? SPECIAL_TROOPS[d.troopType] : null;
+  const nextTroop = targetTroop && targetTroop !== specialty ? `；${targetTroop.level}级可用${targetTroop.name}` : '';
   const meter = (k, v, max = 100, cls = '') => h('div', { class: `meter ${cls}` }, h('span', {}, k), h('div', { class: 'track' }, h('i', { style: { width: `${Math.max(0, Math.min(100, (100 * v) / max))}%` } })), h('b', {}, max === 100 ? v : `${v}/${max}`));
   return h('div', { class: 'ocard' },
     face(id),
@@ -1995,7 +2000,9 @@ function officerSheet(id, { live = null, foot = null } = {}) {
       h('div', { class: 'ocard-tags' },
         live?.side ? h('span', { class: `tagc ocard-side ${live.mine ? 'me' : 'foe'}` }, `${live.mine ? '我军' : '敌军'} · ${live.side === 'a' ? '攻方' : '守方'}`) : null,
         o.status === G.SERVING ? h('span', { class: 'owner', style: { background: colorOf(f) } }, o.raidEnemy ? (g.raidBattle?.kind === 'pirate' ? '海贼' : '山贼') : factionName(f)) : h('span', { class: 'owner' }, { [G.RONIN]: '在野', [G.UNAPPEARED]: '未登场', [G.DEAD]: '已故' }[o.status]),
-        G.isRuler(g, id) ? h('span', { class: 'tagc' }, '君主') : null, famous ? h('span', { class: 'tagc' }, famous) : null, h('span', { class: 'tagc' }, `${o.army}军`), h('span', { class: 'tagc' }, `等级 ${o.level}`)),
+        G.isRuler(g, id) ? h('span', { class: 'tagc' }, '君主') : null, famous ? h('span', { class: 'tagc' }, famous) : null,
+        mainTroop ? h('span', { class: 'tagc main-troop' }, `主兵种 · ${mainTroop.name}`) : null,
+        h('span', { class: 'tagc' }, `${o.army}军`), h('span', { class: 'tagc' }, `等级 ${o.level}`)),
       meter('体力', hp, G.maxHp(o, id), hp < G.maxHp(o, id) / 2 ? 'low' : ''), meter('武力', o.war, 100, 'war'), meter('智力', o.int, 100, 'int'), meter('人德', o.virtue, 100, 'vir'), meter('忠诚', o.loyalty, 100, o.loyalty < 60 ? 'low' : 'loy'),
       h('div', { class: 'stats ocard-gear' },
         h('div', {}, h('span', {}, '兵数'), h('b', {}, soldiers)), h('div', {}, h('span', {}, '经验'), h('b', {}, expText(o))),
@@ -2004,7 +2011,8 @@ function officerSheet(id, { live = null, foot = null } = {}) {
       live ? null : h('p', { class: 'hint' }, d.birthYear != null ? `${d.birthYear}年出生　·　` : '', d.birthCity != null ? `出生于${cityName(d.birthCity)}　·　` : '', `${d.year}年登场`, debutShown(id) ? `　·　${debutText(id)}` : '', o.status === G.UNAPPEARED && talentMode === 'all' ? `　·　${waitText(id)[0]}` : ''),
       strategies.length ? h('p', { class: 'hint' }, `战场计略：${strategies.map(strategyText).join('、')}`) : null,
       duelSkill ? h('p', { class: 'hint' }, `单挑技：${duelSkill.name}（命中阈值${duelSkill.hit >= 0 ? '+' : ''}${duelSkill.hit}；伤害${duelSkill.damage}%；每次单挑1次）`) : null,
-      specialty ? h('p', { class: 'hint' }, `特色兵队：${specialty.name} · ${specialty.text}（当前最多${officerSquadLimit(D, g, id, specialty)}队）${targetTroop && targetTroop !== specialty ? `；${targetTroop.level}级可用${targetTroop.name}` : ''}`) : null,
+      mainTroop ? h('p', { class: 'hint' }, `可编入${specialty.name} · ${specialty.text}${specialty !== mainTroop.basic ? `（精锐最多${officerSquadLimit(D, g, id, specialty)}队）` : ''}${nextTroop}`)
+        : specialty ? h('p', { class: 'hint' }, `特色兵队：${specialty.name} · ${specialty.text}（当前最多${officerSquadLimit(D, g, id, specialty)}队）${nextTroop}`) : null,
       passive ? h('p', { class: 'hint' }, `君主被动：${passive.name} · ${passive.text}`) : null,
       personal ? h('p', { class: 'hint' }, `人物被动：${personal.name} · ${personal.text}`) : null,
       live || ![...(D.relationships ?? []), ...(g?.campaignRules ? D.campaignRelationships ?? [] : [])].some((r) => r.from === id || r.to === id) ? null : h('p', { class: 'hint' }, '人物关系：',
@@ -2029,7 +2037,7 @@ const CMD_LABEL = { 学问所: '书馆', 武器屋: '铁铺' };
 const DESC = {
   开发: '提高土地、产业或人口；智力影响费用与成效', 防灾: '修筑堤防，减轻洪水与旱灾的损失', 移动: '把武将调往相邻的己方城或空城', 搜索: '在城中寻访人才、金或米', 记录: '保存当前进度',
   出阵: '率军进攻相邻的敌城或空城', 征兵: '每100兵20金，征得的兵进入预备兵', 分兵: '把预备兵分给武将，每将最多1000', 侦察: '消耗一张命令书，连续查看各城情报', 任命: '更换此城的太守',
-  运输: '沿己方道路运送金、米、宝', 委任: '指定太守在每月开始时办理防灾、征兵或储粮', 赏赐: '赏金或赐宝，提高武将忠诚', 施舍: '向百姓施舍金米，提高统治度',
+  运输: '沿己方道路运送金、米、宝', 委任: '每月自动防灾、征兵或储粮', 赏赐: '赏金或赐宝，提高武将忠诚', 施舍: '向百姓施舍金米，提高统治度',
   买米: '在米市用金买米', 卖米: '在米市卖米换金', 卖宝: '每件宝物换100金', 病院: '花50金为武将治伤', 学问所: '智力80以下的武将可在此学习', 武器屋: '为武将购买武器与防具',
   外交: '与其他势力同盟、诱纳或离间', 同盟: '遣使与他国结盟，或废除现有同盟', 诱纳: '劝诱敌将投奔我军', 离间: '散布流言，降低敌将忠诚',
 };
@@ -2877,7 +2885,8 @@ async function fieldWar(w, humanSide, { after = { kind: humanSide === 'att' ? 'a
 async function settleMenu(w, res, side) {
   const lost = res.loser === side, f = side === 'att' ? w.attacker : w.defender;
   if (w.support && side === 'def' && f !== g.player) return null;
-  const queue = (lost ? loserQueue(res) : winnerQueue(res)).filter(id => side !== 'def' || !w.support?.ids.includes(id));
+  const returning = side === 'def' ? supportSettlement(w, res) : [];
+  const queue = (lost ? loserQueue(res) : winnerQueue(res)).filter(id => !returning.includes(id));
   const opts = lost ? retreatOptions(g, w, f) : [w.city, ...retreatOptions(g, w, f)];
   if (!queue.length || !opts.length || (!lost && queue.length <= 10)) return null;
   const base = Object.fromEntries(opts.map((n) => [n, (n === w.city ? 0 : g.cities[n].officers.length) + res.retreated.filter((x) => x.city === n).length]));
@@ -3094,18 +3103,25 @@ function actPanel(info, was) {
   if (stage === 'strats') {
     // Each 计略 with its cost; one he cannot cast now says why in the row itself (not only in a tooltip). The foot tells what the
     // one pointed at or walked to does and where it can be cast.
-    const idle0 = '命中率取决于双方智力、等级与距离（6格以内）', info2 = h('p', { class: 'hint ap-info' });
+    const idle0 = '命中率随智力、等级和距离变化，选择计略可查看条件', info2 = h('p', { class: 'hint ap-info' });
     // Phone: there is no pointer to hover with, so the first tap on a 计略 tells what it does (and marks the row) and the second picks
     // it; one that cannot be cast is told the same way, with the reason. stratArmed outlives the panel's redraws.
     if (fresh) stratArmed = null;
     const idle = PHONE ? '点一下计略看说明，再点一次选用' : idle0;
-    const tell = (x) => { if (!x) { info2.textContent = idle; return; } const i = STRAT_INFO[x.id]; info2.replaceChildren(h('b', {}, x.name), `　${i.does}。条件：${war.field.strategyWhere(u, x.id)}。`, x.usable ? (PHONE ? h('i', { class: 'again' }, '再点一次选用') : '') : h('em', {}, `现在不能用：${x.why || '无法施展'}`)); };
+    const weather = (id) => war.field.strategyWeather(u, id);
+    const tell = (x) => {
+      if (!x) { info2.textContent = idle; return; }
+      const i = STRAT_INFO[x.id], conditions = weather(x.id);
+      info2.replaceChildren(h('b', {}, x.name), `　${i.does}。条件：${war.field.strategyWhere(u, x.id)}。`,
+        conditions ? `${conditions}。` : '',
+        x.usable ? (PHONE ? h('i', { class: 'again' }, '再点一次选用') : '') : h('em', {}, `现在不能用：${x.why || '无法施展'}`));
+    };
     // (the second tap of a quick pair is the pick: it does not pass fresh2, which refuses the second click of a double click)
     const arm = (x, e) => { stratArmed = x.id; for (const b of e.currentTarget.parentNode.children) b.classList.toggle('on', b === e.currentTarget); tell(x); };
     // The row says it short (the foot has the whole reason): no mobility, no target in reach, or his own place.
-    const short = (w = '') => (w.startsWith('机动力不足') ? '机动力不足' : w.startsWith('6格内') ? '6格内无合适目标' : w || '无法施展');
+    const short = (w = '') => w.startsWith('机动力不足') ? '机动力不足' : w.replace(/^(\d+格内)没有符合条件的敌军.*$/, '$1无合适目标') || '无法施展';
     body = h('div', { class: 'ap-body strats', role: 'menu', 'aria-label': '计略', onpointerleave: PHONE ? null : () => tell(null) },
-      ...strategies.map((x) => h('button', { class: `btn${PHONE && stratArmed === x.id ? ' on' : ''}${PHONE && !x.usable ? ' off' : ''}`, role: 'menuitem', disabled: !!busy || (!PHONE && !x.usable), 'aria-disabled': PHONE && !x.usable ? 'true' : null, 'data-sid': x.id, title: `${STRAT_INFO[x.id].does}\n条件：${war.field.strategyWhere(u, x.id)}${x.usable ? '' : `\n现在不能用：${x.why || '无法施展'}`}`,
+      ...strategies.map((x) => h('button', { class: `btn${PHONE && stratArmed === x.id ? ' on' : ''}${PHONE && !x.usable ? ' off' : ''}`, role: 'menuitem', disabled: !!busy || (!PHONE && !x.usable), 'aria-disabled': PHONE && !x.usable ? 'true' : null, 'data-sid': x.id, title: [STRAT_INFO[x.id].does, `条件：${war.field.strategyWhere(u, x.id)}`, weather(x.id), x.usable ? '' : `现在不能用：${x.why || '无法施展'}`].filter(Boolean).join('\n'),
         onclick: (e) => { if (PHONE && (!x.usable || stratArmed !== x.id)) return arm(x, e); if (PHONE || fresh2(e)) war.chooseStrategy(x.id); }, onfocus: PHONE ? null : () => tell(x), onkeydown: walk },
       h('span', {}, x.name, x.last ? h('i', { class: 'lasttag' }) : null), h('small', {}, x.cost), x.usable ? null : h('em', {}, short(x.why)))));
     // A greyed button takes no pointer events of its own in every browser, so the list watches the pointer for it.
@@ -3143,6 +3159,7 @@ function actPanel(info, was) {
     foot = h('div', { class: 'ap-foot' }, h('div', { class: 'ap-sum' }, ...sum.filter(Boolean)), h('div', { class: 'ap-btns' }, back, war.flat ? null : aim, go));
   } else {
     const t = confirm?.t ?? null, on = (r) => t && r.u === t;
+    const weather = confirm ? war.field.strategyWeather(u, confirm.id) : '';
     const setCount = (n, preferred) => {
       war.setCastCount(n);
       ($(`.actpanel [aria-label="${preferred}"]:not(:disabled)`) ?? $('.actpanel .runtimes button:not(:disabled)') ?? $('.actpanel .ap-go'))?.focus({ preventScroll: true });
@@ -3164,10 +3181,11 @@ function actPanel(info, was) {
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
         e.preventDefault(); e.stopPropagation(); const up = e.key === 'ArrowRight'; setCount(confirm.count + (up ? 1 : -1), up ? '增加施放次数' : '减少施放次数');
       } },
-        h('span', {}, '次数 '), h('button', { class: 'btn', disabled: confirm.count <= 1, 'aria-label': '减少施放次数', onclick: () => setCount(confirm.count - 1, '减少施放次数') }, '−'),
-        h('b', {}, String(confirm.count)), h('button', { class: 'btn', disabled: confirm.count >= confirm.maxCount, 'aria-label': '增加施放次数', onclick: () => setCount(confirm.count + 1, '增加施放次数') }, '＋'),
-        h('button', { class: 'btn', 'aria-label': '最多施放次数', onclick: () => setCount(confirm.maxCount, '最多施放次数') }, '最多')) : null,
+        h('span', {}, '次数 '), h('button', { class: 'btn', disabled: confirm.count <= 1, 'aria-label': '减少施放次数', onclick: (e) => { if (fresh2(e)) setCount(confirm.count - 1, '减少施放次数'); } }, '−'),
+        h('b', {}, String(confirm.count)), h('button', { class: 'btn', disabled: confirm.count >= confirm.maxCount, 'aria-label': '增加施放次数', onclick: (e) => { if (fresh2(e)) setCount(confirm.count + 1, '增加施放次数'); } }, '＋'),
+        h('button', { class: 'btn', 'aria-label': '最多施放次数', onclick: (e) => { if (fresh2(e)) setCount(confirm.maxCount, '最多施放次数'); } }, '最多')) : null,
       h('p', { class: 'ap-does' }, `效果：${STRAT_INFO[confirm.id].does}`),
+      weather ? h('p', { class: 'ap-key ap-weather' }, weather) : null,
       h('p', { class: 'hint' }, pad.active ? padText((k) => (t ? `再对${name(t.id)}按 ${k('a')}，或按「施展」` : `按「施展」`)) : t ? `再点${name(t.id)}或按 Enter 施展` : '按 Enter 或「施展」'),
     ] : [h('p', {}, `消耗 ${targets.cost}，全军余 `, h('b', {}, pool - targets.cost), `（还够攻击 ${Math.max(0, Math.floor((pool - targets.cost) / 2))} 次）`),
       h('p', { class: 'hint' }, pad.active ? padText((k) => `选好目标按 ${k('a')}；推右到地图上选`) : '点紫色格或名单里的武将')];

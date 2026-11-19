@@ -107,6 +107,15 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
           return [choose(cx+moat,cy,cx+outer,cy),choose(cx+outer,cy,cx+moat,cy),choose(3,3,4,3)];
         });
         assert.deepEqual(castChoices,[false,false,true],'手机战场计策目标应在两个方向一致，并允许无遮挡目标');
+        await p.evaluate(() => { const w = window.__game.war; w.cancel(); w.openStrategies(); });
+        const fire = p.locator('.actpanel [data-sid="0"]');
+        await tap(fire);
+        assert.match(await p.locator('.actpanel .ap-info').textContent(), /雪天.*命中阈值 −6.*损兵 ×90%/);
+        await tap(fire);
+        await p.locator('.actpanel [data-target]').first().click();
+        const weather = p.locator('.actpanel .ap-weather');
+        assert.ok(await weather.isVisible());
+        assert.match(await weather.textContent(), /雪天.*损兵 ×90%/);
       }
       assert.deepEqual(p.errors, []);
     } finally { stop(); }

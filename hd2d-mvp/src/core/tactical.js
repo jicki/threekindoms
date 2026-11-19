@@ -8,7 +8,7 @@
 // The engine is stepped by the UI (one event per call) or run to the end for AI-only battles.
 import { data, addExp, isRuler, spared, sparedHp, maxHp, weaponGroup, boundRulerWeapon } from './game.js';
 import { Duel } from './skirmish.js';
-import { SPECIAL_TROOPS, makeSquads, officerSpecialty, officerSquadLimit, troopDamage, troopGroup, counterBonus } from './troop-specialties.js';
+import { SPECIAL_TROOPS, officerSquads, troopDamage, troopGroup, counterBonus } from './troop-specialties.js';
 import { advancedBattle, aiBattleBonus, officerPassive } from './battle-rules.js';
 import { skirmishMap } from './skirmish-maps.js';
 
@@ -77,21 +77,18 @@ export class Tactical {
     const D = data();
     for (const s of ['a', 'd']) {
       const S = this.side[s], o = S.o, n = o.soldiers, k = Math.ceil(n / 100);
-      const band = S.baseWar >= 80 ? '80-99' : S.baseWar >= 50 ? '50-79' : '0-49';
-      const comp = D.composition.find((c) => c.level === o.level && c.war === band) || { inf: 5, arc: 3, cav: 2 };
       const q = k ? Math.floor(n / k) : 0, rem = k ? n % k : 0, castle = s === 'd' && this.castleDef;
-      const special = officerSpecialty(D, this.g, S.id);
-      const squads = makeSquads(comp, Math.min(k, 10), castle, special, officerSquadLimit(D, this.g, S.id, special), this.g.balancedTroops === true && o.level < 3);
+      const squads = officerSquads(D, this.g, S.id, castle, S.baseWar);
       const place = (idx, kind) => {
         const f = castle ? D.formations[kind === 'arc' ? 4 : 5] : D.formations[S.formation];
         const [ax, y, dx] = f[idx]; return [s === 'a' ? ax : castle ? 15 - ax : dx, y];
       };
       const [gx, gy] = place(0, 'gen');
       this.units.push({ side: s, kind: 'gen', idx: 0, x: gx, y: gy, hp: S.hp, id: S.id });
-      for (let i = 0; i < k && i < 10; i++) {
-        const { kind, special } = squads[i];
-        const [x, y] = place(i + 1, kind);
-        this.units.push({ side: s, kind, idx: i + 1, x, y, hp: q + (i < rem ? 1 : 0), ...(special ? { special } : {}) });
+      for (let i = 0; i < squads.length; i++) {
+        const squad = squads[i];
+        const [x, y] = place(i + 1, squad.kind);
+        this.units.push({ ...squad, side: s, idx: i + 1, x, y, hp: q + (i < rem ? 1 : 0) });
       }
       if (this.modern && !castle) this.organize(s);
     }

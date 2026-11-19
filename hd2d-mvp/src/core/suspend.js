@@ -12,7 +12,9 @@ import { siegeLayout, restoreGates } from './siege.js';
 import { validDefenseSupport } from './warcore.js';
 
 export const SUSPEND_KEY = 'haou-hd2d-suspend';
-export const SUSPEND_VERSION = 1;
+const LEGACY_SUSPEND_VERSION = 1;
+export const SUSPEND_VERSION = 2;
+const hasSupportOwnership = (field) => field.units.some(u => u?.supporting !== undefined || u?.capturedForSupport !== undefined);
 
 // Coordinate a confirmed discard with another tab's suspend/continue operation. Browsers without Web
 // Locks can coordinate with one another using an IndexedDB read-write transaction. Callbacks must be
@@ -69,11 +71,12 @@ export function futureSuspend(token = suspendToken()) {
   return (Number.isInteger(rec?.version) && rec.version > SUSPEND_VERSION) || futureVersion(rec?.g);
 }
 function valid(rec) {
-  if (!rec || typeof rec !== 'object' || rec.version !== SUSPEND_VERSION) return null;
+  if (!rec || typeof rec !== 'object' || ![LEGACY_SUSPEND_VERSION, SUSPEND_VERSION].includes(rec.version)) return null;
   if (!rec.war || !rec.field || !Array.isArray(rec.field.units) || !['att', 'def'].includes(rec.side) || !rec.after) return null;
+  if (rec.version === LEGACY_SUSPEND_VERSION && hasSupportOwnership(rec.field)) return null;
   if (rec.war.raid ? !validRaidRecord(rec.g, rec.war) || rec.side !== 'def' || rec.after.kind !== 'raid' : !!rec.g?.raidBattle) return null;
   if (!upgrade(rec.g)) return null;
-  if (!validDefenseSupport(rec.g, rec.war, rec.side)) return null;
+  if (!validDefenseSupport(rec.g, rec.war, rec.side, rec.field.units)) return null;
   if (rec.g.battlefields === 2) {
     try {
       const D=data(), w=rec.war, layout=battlefieldLayout(D,rec.g,w.city,w.from);
@@ -90,7 +93,10 @@ function valid(rec) {
 export function suspend(g, war, field, { side, start, after, yaw = null, expected = suspendToken(), onSaved }) {
   try {
     if (expected === undefined || futureSuspend(expected) || futureVersion(g)) return false;
-    const rec = { version: SUSPEND_VERSION, savedAt: Date.now(), g: { ...g, version: SAVE_VERSION }, war, side, start, after, yaw, field: field.snapshot() };
+    const snapshot = field.snapshot();
+    // 含联军战后归属的记录使用新版格式，防止仍在运行的旧客户端消费这场中断并丢失归属。
+    const version = hasSupportOwnership(snapshot) ? SUSPEND_VERSION : LEGACY_SUSPEND_VERSION;
+    const rec = { version, savedAt: Date.now(), g: { ...g, version: SAVE_VERSION }, war, side, start, after, yaw, field: snapshot };
     const text = JSON.stringify(rec);
     if (!valid(parse(text)) || suspendToken() !== expected) return false;
     localStorage.setItem(scenarioKey(SUSPEND_KEY), text);

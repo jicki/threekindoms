@@ -10,7 +10,7 @@ import { passiveRiceUse } from './ruler-passives.js';
 import { battleEntryDirection, battlefieldLayout, battlefieldProfile } from './battlefields.js';
 import { siegeLayout, siegeRing, wallAt, gateAt, gateDefense, blockedStrategy, restoreGates } from './siege.js';
 import { abilityStrategy, abilityStrategyIds, strategySpecs } from './famous-skills.js';
-import { advancedBattle, aiBattleBonus, battleWeather, officerPassive, weatherPenalty } from './battle-rules.js';
+import { advancedBattle, aiBattleBonus, battleWeather, fullStrategyWeather, officerPassive, tacticWeather, WEATHER_NAMES, weatherPenalty } from './battle-rules.js';
 
 const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0]]; // 上下左右
 export const W = 32, H = 19, FOREST = 0, SAND = 1, PLAIN = 2, RIVER = 3, MOUNT = 4, CASTLE = 5;
@@ -161,7 +161,10 @@ export class Field {
   unitAt(x, y) { return this.alive.find((u) => u.x === x && u.y === y); }
   castle() { return this.dep.defender[0]; }
   faction(s) { return s === 'att' ? this.war.attacker : this.war.defender; }
-  unitFaction(u) { return u.side === 'def' && this.war.support?.ids.includes(u.id) ? this.war.support.faction : this.faction(u.side); }
+  isSupporting(u) {
+    return !!this.war.support && u.side === 'def' && (u.supporting ?? this.war.support.ids.includes(u.id));
+  }
+  unitFaction(u) { return this.isSupporting(u) ? this.war.support.faction : this.faction(u.side); }
   controls(u) { return !!u && u.side === this.human && (!this.war.support || this.unitFaction(u) === this.g.player); }
   chest(s) { return this.war[s]; }
   combatPassive(s) {
@@ -294,22 +297,37 @@ export class Field {
     return res;
   }
   applySkirmish(a, d, res) {
-    for (const [u, info] of [[a, res.a], [d, res.d]]) {
+    for (const [u, by, info] of [[a, d, res.a], [d, a, res.d]]) {
       const o = this.O(u.id);
       o.soldiers = info.soldiers; o.hp = info.hp;
       if (info.fate === 'dead') { o.status = DEAD; u.gone = true; u.fate = 'dead'; }
-      if (info.fate === 'captured') { u.gone = true; u.fate = 'captured'; u.capturedBy = u.side === 'att' ? 'def' : 'att'; if (info.spared) u.spared = true; }
+      if (info.fate === 'captured') this.captureUnit(u, by, info.spared);
     }
-    for (const [u, info] of [[a, res.a], [d, res.d]]) if (info.fate === 'defected') {
-      const oldSide = u.side, newSide = oldSide === 'att' ? 'def' : 'att';
-      const wasCommander = u.commander, faction = this.faction(newSide), ruler = this.g.factions[faction]?.ruler;
-      u.side = newSide; u.role = u.home = 4; u.commander = false;
-      delete u.mission; delete u.aiDetour;
+    for (const [u, by, info] of [[a, d, res.a], [d, a, res.d]]) if (info.fate === 'defected') {
+      const oldSide = u.side, wasCommander = u.commander;
+      const faction = this.joinUnitSide(u, by, true), ruler = this.g.factions[faction]?.ruler;
       const o = this.O(u.id);
       if (ruler != null) o.loyalty = recruitLoyaltyWithRelation(data(), this.g, faction, u.id, recruitLoyalty(this.O(ruler).virtue, o.loyalty));
       if (wasCommander) this.end(oldSide, 'commander');
     }
     this.checkCommanders();
+  }
+  joinUnitSide(u, by, resetRole = false) {
+    const modern = this.war.support || fullStrategyWeather(this.g);
+    if (modern && this.ambush?.[u.side]?.u === u) this.ambush[u.side] = null;
+    if (modern || resetRole) {
+      u.home = 4;
+      delete u.mission; delete u.aiDetour;
+    }
+    u.side = by.side; u.role = 4; u.commander = false;
+    if (this.war.support && u.side === 'def') u.supporting = this.isSupporting(by);
+    else delete u.supporting;
+    return this.unitFaction(u);
+  }
+  captureUnit(u, by, protectedRuler) {
+    u.gone = true; u.fate = 'captured'; u.capturedBy = by.side;
+    if (this.isSupporting(by)) u.capturedForSupport = true;
+    if (protectedRuler) u.spared = true;
   }
   // 武将不战死 keeps a ruler from being lost to an overflow after the war: an AI ruler 退却s only to a city with room,
   // the AI's own 退却 city first, else any own or empty neighbour.
@@ -336,7 +354,7 @@ export class Field {
   // AI (`AF0D`): the attacker's source city is not checked for room; an overflow is settled after the war.
   retreatTargets(u) {
     if (this.war.raid && u.side === 'att') return []; // 临时敌军不能退入、占领任何城市。
-    if (u.side === 'def' && this.war.support?.ids.includes(u.id)) {
+    if (this.isSupporting(u)) {
       const { city, faction } = this.war.support;
       return this.g.cities[city].faction === faction && this.headcount(city) < 10 ? [city] : [];
     }
@@ -415,6 +433,16 @@ export class Field {
     return [...normal, ...custom];
   }
   passive(u) { return officerPassive(data(), this.g, u.id); }
+  strategyWeather(u, id) {
+    const [hit, scale] = tacticWeather(this.g, id, this.weather);
+    if (!hit && scale === 100) return '';
+    if (this.passive(u)?.weatherproof) return `${WEATHER_NAMES[this.weather]}天 · 观天免疫`;
+    const effects = [
+      hit ? `命中阈值 ${hit > 0 ? '+' : '−'}${Math.abs(hit)}` : '',
+      scale !== 100 ? `${id === 11 ? '伏兵损兵' : id === 5 ? '烧粮量' : '损兵'} ×${scale}%` : '',
+    ].filter(Boolean);
+    return `${WEATHER_NAMES[this.weather]}天 · ${effects.join('，')}`;
+  }
   strategyLimit(u, id) { return advancedBattle(this.g) && [PINCER, DISRUPT].includes(id) ? 4 : 6 + (this.passive(u)?.range ?? 0); }
   get fortifiedDefense() { return this.siege?.revision >= 2 && this.g.siegeTactics === true; }
   defendingFromGate(u, id, t) {
@@ -475,8 +503,7 @@ export class Field {
     const d = this.dist(u, t); if (d >= this.strategyLimit(u, id)) return 0;
     const a = this.O(u.id), b = this.O(t.id);
     const D = advancedBattle(this.g) || this.controls(u) || !this.human ? 10 : [5, 10, 20][this.g.level];
-    const passive = this.passive(u), wet = this.weather === 'rain' && !passive?.weatherproof;
-    const weather = wet && [0, 5, 6, 7, 14].includes(id) ? -10 : wet && [4, 10, 12].includes(id) ? 8 : 0;
+    const passive = this.passive(u), [weather] = tacticWeather(this.g, id, this.weather, passive);
     let s = 15 - 5*d + Math.max(a.int - b.int, 0) + 2 * Math.max(a.level - b.level, 0) + D
       + (passive?.strategy ?? 0) - (this.passive(t)?.ward ?? 0) + weather + aiBattleBonus(this.g, this.unitFaction(u));
     // 新局按完整数值封顶；没有标记的原版与旧记录保留原作的 8 位判定。
@@ -495,7 +522,12 @@ export class Field {
   lureChance(u, t) {
     const a = this.O(u.id), b = this.O(t.id);
     if (this.dist(u, t) >= this.strategyLimit(u, 8) || b.loyalty >= 71) return 0;
-    const base = (b.loyalty <= 30 ? 60 : b.loyalty <= 50 ? 30 : 10) + Math.floor(((a.int + a.virtue) & 255) / 10) + 2 * Math.max(a.level - b.level, 0);
+    let base = (b.loyalty <= 30 ? 60 : b.loyalty <= 50 ? 30 : 10) + Math.floor(((a.int + a.virtue) & 255) / 10) + 2 * Math.max(a.level - b.level, 0);
+    if (fullStrategyWeather(this.g)) {
+      const passive = this.passive(u), [weather] = tacticWeather(this.g, 8, this.weather, passive);
+      base = Math.min(95, Math.max(5, base + weather + (passive?.strategy ?? 0)
+        - (this.passive(t)?.ward ?? 0) + aiBattleBonus(this.g, this.unitFaction(u))));
+    }
     return recruitThreshold(data(), this.g, this.unitFaction(u), t.id, this.passiveChance(base, u.side, 100), this.unitFaction(t));
   }
   // What the player is told: the chance the cast really has. hitChance / lureChance are the numbers the roll is
@@ -550,9 +582,9 @@ export class Field {
     // once, and the effects read his level anew for every target (`$B070`, `$B1E3`: record byte 0B), as L() does.
     let acc = 0;
     const L = () => a.level - 1;
-    const passive = this.passive(u), wet = this.weather === 'rain' && !passive?.weatherproof;
-    const scale = [0, 6, 7, 14].includes(id) ? (100 + (passive?.fire ?? 0)) * (wet ? 85 : 100)
-      : [4, 12].includes(id) ? (100 + (passive?.water ?? 0)) * (wet ? 115 : 100) : 10000;
+    const passive = this.passive(u), [, effect] = tacticWeather(this.g, id, this.weather, passive);
+    const bonus = [0, 6, 7, 14].includes(id) ? passive?.fire ?? 0 : [4, 12].includes(id) ? passive?.water ?? 0 : 0;
+    const scale = (100 + bonus) * effect;
     const loss = (v, n) => { const o = this.O(v.id), d = Math.min(o.soldiers, Math.max(0, Math.floor(n * scale / 10000))); o.soldiers -= d; acc += d; addExp(this.g, u.id, Math.floor(acc / 2)); hits.push({ u: v, soldiers: -d }); lines.push(`${nm(v)} 损兵 ${d}`); };
     const hp = (v, n) => { const o = this.O(v.id), d = Math.min(o.hp, Math.max(0, n)); o.hp -= d; hits.push({ u: v, hp: -d }); lines.push(`${nm(v)} 体力 −${d}`); if (o.hp <= 0) fall(v); };
     // 不战死保护的被俘结果记录在单位上，战斗中切换选项或中断后仍然有效。
@@ -560,7 +592,7 @@ export class Field {
       const o = this.O(v.id);
       const raidSpared = this.war.raid && v.side === 'def' && !isRuler(this.g, v.id);
       if (!spared(this.g) && !raidSpared) { o.status = DEAD; v.gone = true; v.fate = 'dead'; lines.push(`${nm(v)} 阵亡`); return; }
-      o.hp = sparedHp(this.g, v.id); v.gone = true; v.fate = 'captured'; v.capturedBy = u.side; if (isRuler(this.g, v.id)) v.spared = true; lines.push(`${nm(v)} 被擒`);
+      o.hp = sparedHp(this.g, v.id); this.captureUnit(v, u, isRuler(this.g, v.id)); lines.push(`${nm(v)} 被擒`);
     };
     const nm = (v) => data().officers[v.id].name;
     const fire = (v) => loss(v, ((Math.floor((a.int * (9 + U(5))) / 10) + 10 * L()) & 255) + 30);
@@ -596,11 +628,14 @@ export class Field {
       case 2: t.stop = u.side === 'def' ? 2 : 3; t.stopBy = '虚兵'; delete t.stopSkipTick; lines.push(`${nm(t)} 中了虚兵之计，无法移动`); break;
       case 3: loss(t, Math.floor((a.war * (14 + U(7))) / 10)); break;
       case 4: loss(t, Math.floor((a.int * (20 + U(7))) / 10) + L() + 7); break;
-      case 5: { const ch = this.chest(t.side), d = Math.min(ch.rice, Math.floor((ch.rice * (10 + U(5))) / 100) + Math.floor(a.int / 5)); ch.rice -= d; hits.push({ u: t, rice: -d }); lines.push(`烧毁敌军米 ${d}`); break; }
+      case 5: {
+        const ch = this.chest(t.side), base = Math.floor((ch.rice * (10 + U(5))) / 100) + Math.floor(a.int / 5);
+        const d = Math.min(ch.rice, Math.floor(base * effect / 100));
+        ch.rice -= d; hits.push({ u: t, rice: -d }); lines.push(`烧毁敌军米 ${d}`); break;
+      }
       case 7: fire(t); for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) { const n = this.unitAt(t.x + dx, t.y + dy); if (n && n.side === t.side && !blockedStrategy(this.siege,u,n)) fire(n); } break;
       case 8: {
-        t.side = u.side; t.role = 4; t.commander = false;
-        const o = this.O(t.id), faction = this.faction(u.side), ruler = this.g.factions[faction].ruler;
+        const faction = this.joinUnitSide(t, u), o = this.O(t.id), ruler = this.g.factions[faction].ruler;
         o.loyalty = recruitLoyaltyWithRelation(data(), this.g, faction, t.id, recruitLoyalty(this.O(ruler).virtue, o.loyalty));
         lines.push(`${nm(t)} 倒戈投向我军`); break;
       }
@@ -618,10 +653,13 @@ export class Field {
   ambushCheck(mover) {
     const foe = mover.side === 'att' ? 'def' : 'att', am = this.ambush?.[foe];
     if (!am || am.u.gone || this.terr(mover.x, mover.y) !== FOREST || this.dist(mover, am) > 2) return null;
+    if (fullStrategyWeather(this.g) && blockedStrategy(this.siege, am, mover)) return null;
     const a = this.O(am.u.id), raw = (((a.level - 1) << 4) | (ARMY_IDX[a.army] << 2)) & 255;
     const x = (raw * 8) & 255, b = x + raw, offset = (b + raw + (b >= 256 ? 1 : 0)) & 255;
     this.r(101);
-    const d = Math.min(this.O(mover.id).soldiers, Math.floor((a.int * (30 + this.r(11))) / 10) + offset);
+    const base = Math.floor((a.int * (30 + this.r(11))) / 10) + offset;
+    const [, scale] = tacticWeather(this.g, 11, this.weather, this.passive(am.u));
+    const d = Math.min(this.O(mover.id).soldiers, Math.floor(base * scale / 100));
     this.O(mover.id).soldiers -= d; this.ambush[foe] = null; addExp(this.g, am.u.id, Math.floor(d / 2));
     return { by: am.u, damage: d };
   }
@@ -660,11 +698,18 @@ export class Field {
   // Build the write-back record for warcore.resolveWar.
   result() {
     const surv = { att: [], def: [] }, captured = { byAtt: [], byDef: [] }, dead = [], retreated = [], sparedRulers = [];
+    const supportSurvivors = [], supportCaptures = [];
     for (const u of this.units) {
       if (u.fate === 'dead') dead.push(u.id);
-      else if (u.fate === 'captured') { captured[u.capturedBy === 'att' ? 'byAtt' : 'byDef'].push(u.id); if (u.spared) sparedRulers.push(u.id); }
-      else if (u.fate === 'retreat') { retreated.push({ id: u.id, city: u.to }); surv[u.side].push(u.id); }
-      else surv[u.side].push(u.id);
+      else if (u.fate === 'captured') {
+        captured[u.capturedBy === 'att' ? 'byAtt' : 'byDef'].push(u.id);
+        if (u.spared) sparedRulers.push(u.id);
+        if (u.capturedForSupport) supportCaptures.push(u.id);
+      } else {
+        if (u.fate === 'retreat') retreated.push({ id: u.id, city: u.to });
+        surv[u.side].push(u.id);
+        if (this.isSupporting(u)) supportSurvivors.push(u.id);
+      }
     }
     // The losing side's units still on the field are not captured here: the settlement queue (`bank8:$BDCD`)
     // takes them back with their own side, and only 白兵/单挑 produce prisoners (`$C766` code 3). The
@@ -672,7 +717,8 @@ export class Field {
     // a mass capture of untouched officers.
     const loser = this.over.loser;
     this.war.day = this.day; // the occupation-loss tier in resolveWar reads the war's elapsed days
-    return { loser, survivors: surv, dead, captured, retreated, chests: { att: this.war.att, def: this.war.def }, ...(sparedRulers.length ? { sparedRulers } : {}) };
+    return { loser, survivors: surv, dead, captured, retreated, chests: { att: this.war.att, def: this.war.def },
+      ...(sparedRulers.length ? { sparedRulers } : {}), ...(this.war.support ? { supportSurvivors, supportCaptures } : {}) };
   }
 
   // ---------- War AI (6.8) ----------
@@ -884,6 +930,13 @@ export class Field {
     } else {
       const n = o.int < 40 ? 2 : o.int < 60 ? 4 : o.int < 75 ? 6 : o.int < 85 ? 8 : 10;
       order = (modern ? [6, 9, 7, 4, 0, 8, 'rnd', 5] : [6, 5, 8, 9, 7, 'rnd', 4, 0]).filter((x) => x === 'rnd' || x < n);
+    }
+    if (fullStrategyWeather(this.g) && this.weather !== 'clear') {
+      const passive = this.passive(u);
+      order = order.map((id, i) => {
+        const [hit, effect] = tacticWeather(this.g, id, this.weather, passive);
+        return { id, priority: i * 5 - hit - (effect - 100) / 3 };
+      }).sort((a, b) => a.priority - b.priority).map(({ id }) => id);
     }
     const targets = this.side(foe).filter((e) => this.dist(u, e) < this.strategyLimit(u)).sort((a, b) => this.O(b.id).soldiers - this.O(a.id).soldiers);
     const needTroops = [0, 3, 4, 6, 7, 9, 12, 13, 14];

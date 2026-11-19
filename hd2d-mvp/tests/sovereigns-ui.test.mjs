@@ -127,6 +127,37 @@ test('手机白兵在旧素材索引下加载十四类特色动作并能播放�
   } finally { await page.context().close(); }
 });
 
+test('手机版人物资料和白兵布阵标记主兵种与实际队数', { timeout: 180000 }, async () => {
+  const page = await game.open('&flat&phone');
+  try {
+    await page.setViewportSize({ width: 812, height: 375 });
+    await (await chooseRuler(page, '刘备')).click(); await waitPlayer(page);
+    const hero = await page.evaluate(() => {
+      const { g, G, debug } = window.__game, id = G.data().officers.find(o => o.name === '关羽').id;
+      Object.assign(g.officers[id], { level: 6, soldiers: 1000 });
+      debug.hud(); return id;
+    });
+    const row = page.locator(`.roster .off[data-id="${hero}"]`);
+    assert.match(await row.innerText(), /枪兵/);
+    await row.click();
+    assert.equal(await page.locator('.ocard .main-troop').innerText(), '主兵种 · 枪兵');
+    await page.locator('.shade').getByRole('button', { name: '关闭', exact: true }).click();
+    await page.evaluate(id => { void window.__game.debug.quickTactical(id, 1, 2); }, hero);
+    await page.locator('.tq-main-troop').waitFor({ timeout: 60000 });
+    assert.equal(await page.locator('.tq-main-troop').innerText(), '主兵种 枪兵 ×6');
+    assert.match(await page.locator('.tq-kinds').innerText(), /重甲枪兵 ×3/);
+    assert.match(await page.locator('.tq-kinds').innerText(), /普通枪兵 ×3/);
+    for (const [width, height] of [[812, 375], [568, 320]]) {
+      await page.setViewportSize({ width, height });
+      for (const locator of [page.locator('.tq-main-troop'), page.locator('.tq-deploy')]) {
+        const box = await locator.boundingBox();
+        assert.ok(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= width && box.y + box.height <= height, JSON.stringify(box));
+      }
+    }
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
 test('特色兵队布阵可辨识，转向素材缺失时仍能部署', { timeout: 180000 }, async () => {
   const missing = [];
   const page = await game.open('&flat&phone', { setup: async (context) => {
@@ -143,7 +174,7 @@ test('特色兵队布阵可辨识，转向素材缺失时仍能部署', { timeou
       void debug.quickTactical(hero.id, 1, 2);
     });
     await page.locator('.tq-formation').waitFor({ timeout: 60000 });
-    assert.match(await page.locator('.tq-kinds').innerText(), /特色：重甲重盾兵 ×2/);
+    assert.match(await page.locator('.tq-kinds').innerText(), /重甲重盾兵 ×2/);
     assert.ok(missing.length > 0);
     assert.ok(await page.locator('.tk.special .sb[data-kind="盾"]').count() > 0);
     await page.evaluate(() => window.__game.debug.loadOfficerSprites([243]));
@@ -179,7 +210,7 @@ test('特色兵队侧面素材缺失时使用普通动作，稍后可重试', { 
       void debug.quickTactical(hero.id, 1, 2);
     });
     await page.locator('.tq-formation').waitFor({ timeout: 60000 });
-    assert.match(await page.locator('.tq-kinds').innerText(), /特色：普通盾兵/);
+    assert.match(await page.locator('.tq-kinds').innerText(), /普通盾兵 ×6/);
     const fallback = await page.evaluate(() => {
       let found = false;
       window.__game.tview.scene.traverse((mesh) => { if (/\/troops\/attacker-soldier(?:-v2)?\.png$/.test(mesh.material?.map?.image?.src ?? '')) found = true; });

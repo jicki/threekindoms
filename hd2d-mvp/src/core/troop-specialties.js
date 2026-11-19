@@ -76,6 +76,52 @@ export function officerSquadLimit(data, game, id, troop = officerSpecialty(data,
   return Math.min(troop.max, target?.max ?? troop.max, data.officers[id]?.troopLimit ?? 2, rankLimit);
 }
 
+const MAIN_NAMES = { inf: '步兵', spear: '枪兵', hammer: '锤兵', shield: '盾兵', cav: '骑兵', arc: '弓兵' };
+export function officerMainTroop(data, game, id) {
+  if (!(game?.campaignRevision >= 4)) return null;
+  const current = officerSpecialty(data, game, id);
+  if (!current) return null;
+  let basic = current;
+  while (basic.fallback) basic = SPECIAL_TROOPS[basic.fallback];
+  const group = troopGroup({ kind: basic.kind, special: basic.sprite });
+  return { name: MAIN_NAMES[group], current, basic };
+}
+
+// 布阵、战斗和电脑自动结算共用编队规则。旧修订仍沿用少量特色队的替换规则。
+export function officerSquads(data, game, id, castle, war = game.officers[id].war) {
+  const o = game.officers[id], count = Math.min(10, Math.ceil(o.soldiers / 100));
+  const band = war >= 80 ? '80-99' : war >= 50 ? '50-79' : '0-49';
+  const comp = data.composition.find(c => c.level === o.level && c.war === band) ?? { inf: 5, arc: 3, cav: 2 };
+  const main = officerMainTroop(data, game, id), current = main?.current ?? officerSpecialty(data, game, id);
+  const limit = officerSquadLimit(data, game, id, current), lowCavalry = game.balancedTroops === true && o.level < 3;
+  if (!main || count === 0) return makeSquads(comp, count, castle, current, limit, lowCavalry);
+
+  const { basic } = main, legacy = makeSquads(comp, count, castle, null);
+  let total = Math.max(1, Math.round(count * (basic.kind === 'inf' ? 0.6 : 0.65)));
+  if (castle) {
+    if (basic.kind === 'cav') total = Math.floor(count / 3);
+    else if (basic.kind === 'inf') total = Math.max(1, Math.min(Math.floor(count * 0.4), count - 5));
+    else total = Math.max(total, Math.min(count >= 4 ? count - 1 : count, legacy.filter(s => s.kind === 'arc').length));
+  } else if (basic.kind === 'cav') {
+    if (lowCavalry) total = Math.min(total, Math.max(Math.floor(count / 3), legacy.filter(s => s.kind === 'cav').length));
+    else total = Math.min(total, Math.max(1, Math.floor(count * 0.6)));
+  }
+  const mainSquads = Array.from({ length: total }, (_, i) => ({
+    kind: basic.kind, special: i < Math.min(limit, Math.ceil(count / 4)) ? current.sprite : basic.sprite, primary: true,
+  }));
+  // 以原有配比挑选辅队，尽可能保留不同兵类；缺位时补步兵或弓兵。
+  const spare = count - total;
+  const candidates = legacy.filter(s => castle && basic.kind !== 'arc' ? s.kind === 'arc' : s.kind !== basic.kind);
+  const reserveKind = basic.kind === 'arc' ? 'inf' : 'arc';
+  const reserves = candidates.length > spare
+    ? Array.from({ length: spare }, (_, i) => candidates[Math.floor((i + 0.5) * candidates.length / spare)])
+    : candidates.concat(Array.from({ length: spare - candidates.length }, () => ({ kind: reserveKind })));
+  if (spare >= 2 && !reserves.some(s => s.kind === reserveKind)) reserves[spare - 1] = { kind: reserveKind };
+  const squads = mainSquads.concat(reserves);
+  // 城防阵位按弓兵优先排列，沿用原城防弓兵的前排和侧翼站位。
+  return castle ? squads.sort((a, b) => Number(b.kind === 'arc') - Number(a.kind === 'arc')) : squads;
+}
+
 // 小部队不强行转换兵类；足够兵力的野战可补充一队，守城保持原版步转弓规则。
 export function makeSquads(comp, count, castle, special, limit = special?.max ?? 0, limitForcedCavalry = false) {
   const squads = Array.from({ length: count }, (_, i) => {

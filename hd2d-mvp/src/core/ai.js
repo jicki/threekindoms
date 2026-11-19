@@ -365,8 +365,11 @@ async function attackBranch(g, f, r, io, spend) {
   const war = setupWar(g, { from: source, to: target, ids, commander: ids[0], gold, rice });
   const relief = defenseCandidates(g, f, war.defender, war.city, war.def.ids.length);
   const player = relief.find(c => c.faction === g.player);
-  if (player && await io.offerSupport?.(war, player)) joinDefense(g, war, player);
-  else joinDefense(g, war, relief.find(c => c.faction !== g.player));
+  const accepted = player && await io.offerSupport?.(war, player) && joinDefense(g, war, player);
+  if (!accepted) {
+    const fallback = defenseCandidates(g, f, war.defender, war.city, war.def.ids.length).find(c => c.faction !== g.player);
+    joinDefense(g, war, fallback);
+  }
   if (!g.factions[war.defender].ai || war.support?.faction === g.player) { await io.war(war); return 'war'; }
   const res = autoBattle(g, war);
   await io.event({ type: 'autobattle', war, res });

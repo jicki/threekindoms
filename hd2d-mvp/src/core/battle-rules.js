@@ -1,4 +1,5 @@
-export const advancedBattle = (g) => g?.campaignRevision === 2;
+export const fullStrategyWeather = (g) => g?.campaignRevision >= 3;
+export const advancedBattle = (g) => g?.campaignRevision >= 2;
 
 export const WEATHER_NAMES = { clear: '晴', rain: '雨', snow: '雪' };
 const NORTH = new Set([0, 1, 2, 3, 4, 5, 8, 9, 11, 12, 14, 33, 34, 35, 37]);
@@ -53,4 +54,24 @@ export function weatherPenalty(weather, terrain, passive, army) {
   if (passive?.weatherproof || (weather === 'rain' && passive?.rainproof)) return 0;
   if (weather === 'rain' && (terrain === 0 || (terrain === 3 && army !== '水'))) return 1;
   return weather === 'snow' && [0, 2, 4].includes(terrain) ? 1 : 0;
+}
+
+// 命中修正按随机表阈值计算。倍率用于直接效果，埋伏的倍率在触发时读取。
+const FIRE = [[-10, 85], [-6, 90]];
+const WATER = [[8, 115], [-8, 90]];
+const STRATEGY_WEATHER = [
+  FIRE, [[6, 100], [-4, 100]], [[5, 100], [6, 100]], [[4, 100], [-4, 100]],
+  WATER, FIRE, FIRE, FIRE, [[-4, 100], [4, 100]], [[4, 100], [-4, 100]],
+  [[8, 100], [-8, 100]], [[0, 110], [0, 108]], WATER, [[-6, 100], [-4, 100]],
+  FIRE, null, [[-6, 100], [-8, 100]], [[4, 100], [6, 100]],
+];
+const NEUTRAL = [0, 100];
+export function tacticWeather(g, id, weather, passive) {
+  if (passive?.weatherproof || !weather || weather === 'clear') return NEUTRAL;
+  if (fullStrategyWeather(g)) return STRATEGY_WEATHER[id]?.[weather === 'rain' ? 0 : 1] ?? NEUTRAL;
+  if (weather !== 'rain' || !advancedBattle(g)) return NEUTRAL;
+  if ([0, 6, 7, 14].includes(id)) return FIRE[0];
+  if (id === 5) return [-10, 100];
+  if ([4, 12].includes(id)) return WATER[0];
+  return id === 10 ? [8, 100] : NEUTRAL;
 }

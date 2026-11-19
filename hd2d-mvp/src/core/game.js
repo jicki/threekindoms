@@ -55,7 +55,7 @@ const officerRecord = (o) => ({
 });
 
 // 战役规则修订号独立于存档结构。读取旧记录保留其规则，由玩家在战略回合选择升级。
-const CAMPAIGN_REVISION = 2;
+const CAMPAIGN_REVISION = 4;
 const FAMOUS_CAMPAIGN_RULES = { battlefields: 2, famousSkills: 2, famousRoster: 1, siegeTactics: true };
 const supportsNewBattle = () => D.expandedMap === true && (scenarioId === EXPANDED_MAP_ID || D.newBattleRules === true);
 function campaignDefaults() {
@@ -90,7 +90,7 @@ export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random(
     if (staticRosterSize(D, null) !== FAMOUS_ROSTER_START) throw new Error('内置人物数据与名将名单不匹配');
     Object.assign(g, FAMOUS_CAMPAIGN_RULES, { campaignRevision: CAMPAIGN_REVISION });
   } else if (supportsNewBattle()) {
-    Object.assign(g, { campaignRevision: CAMPAIGN_REVISION, campaignRules: true, safeStrategyChance: true, eliteTroops: true, battlefields: 2, siegeTactics: true });
+    Object.assign(g, { campaignRevision: CAMPAIGN_REVISION, campaignRules: true, safeStrategyChance: true, battlefields: 2, siegeTactics: true });
   }
   if (D.expandedMap && D.frontierMap) g.frontierMap = true;
   activateFamousRoster(D,g);
@@ -998,15 +998,22 @@ function missingCampaignDefaults(g) {
 }
 
 export function campaignUpgradeAvailable(g) {
-  if (scenarioId !== EXPANDED_MAP_ID || D?.expandedMap !== true || g?.scenarioId !== scenarioId
+  if (!D || !supportsNewBattle() || g?.scenarioId !== scenarioId
     || g.over || g.raidBattle || (g.campaignRevision ?? 0) >= CAMPAIGN_REVISION) return false;
-  return true;
+  return scenarioId === EXPANDED_MAP_ID || advancedBattle(g);
 }
 
 export function upgradeCampaign(g) {
   if (!campaignUpgradeAvailable(g)) return false;
   const next = upgrade(structuredClone(g));
   if (!next) return false;
+  if (advancedBattle(next)) {
+    next.campaignRevision = CAMPAIGN_REVISION;
+    if (!upgrade(next)) return false;
+    Object.assign(g, next);
+    registerClones(g);
+    return true;
+  }
   if (!hasFamousRoster(next)) {
     // 原有编号保留。旧记录的分身排在新增名将之后，城市、势力及三顾计数一并迁移。
     const extras = next.officers.slice(FAMOUS_ROSTER_START), clones = new Set(next.clones);

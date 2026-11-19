@@ -6,13 +6,66 @@ import { Tactical, GW, GH } from '../src/core/tactical.js';
 import { fight } from '../src/core/warcore.js';
 import { applyScenario, validateScenario } from '../src/core/scenario.js';
 import { loadScenario } from '../src/core/scenario-store.js';
-import { FAMOUS_TROOPS, SPECIAL_TROOPS, officerSpecialty, officerSquadLimit } from '../src/core/troop-specialties.js';
+import { EXPANDED_MAP_ID, expandMap } from '../src/core/expanded-map.js';
+import { FAMOUS_TROOPS, SPECIAL_TROOPS, officerMainTroop, officerSpecialty, officerSquadLimit, officerSquads } from '../src/core/troop-specialties.js';
 
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
 const scenario = await loadScenario('builtin-sovereigns', base);
 const expanded = applyScenario(base, scenario);
 const use = () => G.setData(expanded, 'builtin-sovereigns');
 const id = (name) => expanded.officers.find((o) => o.name === name).id;
+
+test('主辅编队覆盖十四类兵种、不同兵力和守城布阵，并保留总兵数与精锐上限', () => {
+  const scenarioData = expandMap(structuredClone(expanded)), hero = id('韦康'), foe = id('伊籍');
+  G.setData(scenarioData, EXPANDED_MAP_ID);
+  try {
+    const game = G.newGame(4, 1, 9);
+    const defender = game.officers[hero];
+    for (const [type, troop] of Object.entries(SPECIAL_TROOPS)) for (const level of [1, 3, 6]) {
+      Object.assign(scenarioData.officers[hero], { troopType: type, troopLimit: 3 });
+      for (const soldiers of [0, 99, 101, 300, 599, 700, 1000]) for (const terrain of [2, 5]) {
+        Object.assign(defender, { soldiers, level, war: 75 });
+        const battle = new Tactical(game, foe, hero, terrain, () => 0); battle.deploy();
+        const units = battle.units.filter(u => u.side === 'd' && u.kind !== 'gen'), main = officerMainTroop(scenarioData, game, hero);
+        const primary = units.filter(u => u.primary), label = `${type} Lv${level} ${soldiers} 地形${terrain}`;
+        assert.equal(units.reduce((n, u) => n + u.hp, 0), soldiers, label);
+        assert.equal(new Set(battle.units.map(u => `${u.x},${u.y}`)).size, battle.units.length, label);
+        assert.ok(primary.every(u => u.kind === troop.kind), label);
+        assert.ok(units.filter(u => !u.primary).every(u => u.kind !== main.basic.kind), label);
+        if (main.current !== main.basic) assert.ok(primary.filter(u => u.special === main.current.sprite).length <= officerSquadLimit(scenarioData, game, hero), label);
+        if (terrain === 5 && troop.kind === 'cav') assert.ok(primary.length <= Math.floor(units.length / 3), label);
+        if (units.length === 10 && terrain === 2 && troop.kind !== 'cav') assert.equal(primary.length, troop.kind === 'inf' ? 6 : 7, label);
+        if (units.length === 10 && terrain === 5 && troop.kind === 'inf') assert.equal(primary.length, 4, label);
+        if (units.length === 6 && terrain === 5 && troop.kind === 'inf') assert.equal(units.filter(u => u.kind === 'arc').length, 5, label);
+        if (units.length === 10 && terrain === 5 && troop.kind !== 'arc') assert.ok(units.some(u => u.kind === 'arc'), label);
+        if (terrain === 2 && units.length === 10 && troop.kind === 'cav') assert.equal(primary.length, level === 1 ? 3 : 6, label);
+      }
+    }
+  } finally { G.setData(base); }
+});
+
+test('主兵种从修订 4 启用，显式升级可保留兵力、等级及已有规则开关', () => {
+  const scenarioData = expandMap(structuredClone(expanded)), hero = id('关羽'), regular = id('韦康');
+  G.setData(scenarioData, EXPANDED_MAP_ID);
+  try {
+    const game = G.newGame(4, 1, 7), legacy = { ...structuredClone(game), campaignRevision: 3 };
+    for (const state of [game, legacy]) Object.assign(state.officers[hero], { level: 6, soldiers: 1000 });
+    assert.deepEqual(G.upgrade(structuredClone(legacy)), legacy);
+    assert.equal(officerMainTroop(scenarioData, legacy, hero), null);
+    assert.equal(officerMainTroop(scenarioData, game, regular), null);
+    assert.equal(officerMainTroop(scenarioData, game, hero).name, '枪兵');
+    assert.deepEqual(officerSquads(scenarioData, game, regular, true), officerSquads(scenarioData, legacy, regular, true));
+    assert.equal(officerSquads(scenarioData, legacy, hero, true).filter(u => u.special).length, 0);
+    const squads = officerSquads(scenarioData, game, hero, true);
+    assert.equal(squads.filter(u => u.primary).length, 4);
+    assert.equal(squads.filter(u => u.special === SPECIAL_TROOPS.heavyspear.sprite).length, 3);
+    assert.ok(G.upgradeCampaign(legacy));
+    assert.deepEqual(legacy, game);
+    delete legacy.eliteTroops;
+    assert.equal(officerMainTroop(scenarioData, legacy, hero), null);
+    assert.ok(officerSquads(scenarioData, legacy, hero, true).every(u => !u.primary));
+  } finally { G.setData(base); }
+});
 
 test('十四套兵队动作图和元数据完整匹配，动作事件引用有效帧', () => {
   assert.equal(Object.keys(SPECIAL_TROOPS).length, 14);

@@ -229,17 +229,24 @@ test('计略: the player\'s caster 喜 / 忧, the enemy\'s target 忧 / 喜; 十
   assert.deepEqual([w.who, w.mood], [at.id, 'grief']); assert.match(w.text, /伏兵奇袭/);
   await p.evaluate(() => document.querySelector('.panel.msg')?.click());
   await p.waitForFunction(() => !window.__game.war.st.busy);
-  // An enemy walks into the player's: the one who set it, 喜. All forest, so wherever he marches it springs.
+  // 让一名敌将按指定路线走出一步，验证伏兵演出，不依赖守城电脑是否主动出城。
   const by = await p.evaluate(() => {
     const w = window.__game.war, f = w.field, me = f.alive.find((x) => x.side === f.human), foe = f.alive.find((x) => x.side !== f.human);
-    for (const row of f.map) row.fill(0);
-    f.ambush = { [me.side]: { u: me, x: foe.x, y: foe.y, days: 5 } };
-    f.dist = () => 0;
+    const target = [[0,1], [0,-1], [1,0], [-1,0]].map(([dx,dy]) => [foe.x+dx,foe.y+dy])
+      .find(([x,y]) => f.inside(x,y) && f.deployable(x,y) && !f.unitAt(x,y));
+    const [x,y] = target;
+    f.map[y][x] = 0;
+    f.ambush = { [me.side]: { u: me, x, y, days: 5 } };
+    f.aiActions = function* () {
+      const cost = f.cost(foe, x, y);
+      f.pool[foe.side] = cost;
+      f.move(foe, x, y, cost);
+      yield { type: 'move', u: foe, path: [target], cost };
+    };
     w.cancel(); w.cancel(); w.endTurn();
     return me.id;
   });
-  let sprung = await nextWindow(p); // an enemy may cast a 计略 of his own on the way; those windows pass
-  for (let i = 0; i < 30 && !/伏兵发动奇袭/.test(sprung.text); i++) { await p.evaluate(() => document.querySelector('.panel.msg')?.click()); await p.waitForTimeout(150); sprung = await nextWindow(p); }
+  const sprung = await nextWindow(p);
   assert.deepEqual([sprung.who, sprung.mood], [by, 'joy']); assert.match(sprung.text, /伏兵发动奇袭/);
   await p.context().close();
 });

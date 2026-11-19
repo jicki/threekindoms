@@ -89,11 +89,16 @@ test('on screen: tags, legend and the 继位 notice carry the new ruler, also af
   assert.ok(said.includes(`${old}去世`) && said.includes(heir), `notice: ${said}`);
   assert.ok(!said.includes(`${heir}的君主`), `the heir is not his own predecessor's lord: ${said}`);
 
-  const tags = (p) => p.evaluate((f) => {
-    const { g, G } = window.__game, c = g.cities.find((x) => x.faction === f);
-    const tag = [...document.querySelectorAll('.ctag')].find((el) => el.textContent.startsWith(G.cityName(c.id)));
-    return { tag: tag.querySelector('small').textContent, all: [...document.querySelectorAll('.ctag small')].map((s) => s.textContent).join(' '), legend: document.querySelector('.legend, .lgs')?.textContent ?? document.body.textContent };
-  }, f);
+  const tags = async (p) => {
+    const rendered = await p.waitForFunction((f) => {
+      const { g, G } = window.__game, c = g.cities.find((x) => x.faction === f);
+      if (!c) return null;
+      const tag = [...document.querySelectorAll('.ctag')].find((el) => el.textContent.startsWith(G.cityName(c.id)))?.querySelector('small');
+      // 读取记录后战略视图先就绪，三维地图的城名牌在素材读取完成后才挂载。
+      return tag ? { tag: tag.textContent, all: [...document.querySelectorAll('.ctag small')].map((s) => s.textContent).join(' ') } : null;
+    }, f);
+    try { return await rendered.jsonValue(); } finally { await rendered.dispose(); }
+  };
   await page.evaluate(() => window.__game.strategy.refresh(window.__game.g));
   const t = await tags(page);
   assert.ok(t.tag.startsWith(heir), `tag: ${t.tag}`);

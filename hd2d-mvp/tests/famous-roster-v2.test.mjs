@@ -13,7 +13,7 @@ import { Tactical } from '../src/core/tactical.js';
 import { Duel } from '../src/core/skirmish.js';
 import { autoSkillBonus } from '../src/core/warcore.js';
 import { startRaid, validRaidRecord } from '../src/core/raids.js';
-import { suspend, peekSuspend, takeSuspend, suspendToken, futureSuspend, dropSuspend, SUSPEND_KEY } from '../src/core/suspend.js';
+import { suspend, peekSuspend, takeSuspend, suspendToken, futureSuspend, dropSuspend, SUSPEND_KEY, SUSPEND_VERSION } from '../src/core/suspend.js';
 
 const base=JSON.parse(readFileSync(new URL('../data/game-data.json',import.meta.url)));
 const D=expandMap(applyScenario(base,await loadScenario(SOVEREIGN_SCENARIO_ID,base)));
@@ -235,7 +235,7 @@ test('自动续玩和中断保护较新版本和其他页面刚写的记录', ()
       assert.equal(G.dropAuto(raw), false);
       assert.equal(G.autoToken(), raw);
     }
-    for (const future of [{ ...battle, version: battle.version + 1 },
+    for (const future of [{ ...battle, version: SUSPEND_VERSION + 1 },
       { ...battle, g: { ...battle.g, version: battle.g.version + 1 } },
       { ...battle, g: { ...battle.g, campaignRevision: battle.g.campaignRevision + 1 } }]) {
       const raw = JSON.stringify(future);

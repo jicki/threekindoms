@@ -1677,28 +1677,25 @@ test('the slow-map frame-rate watch is armed on our idle turn in an attack war, 
   assert.equal(r.animating, false, 'not while the war animates (the opening, a march)');
 });
 
-// Must stay the last test on the shared 3D page: it retreats one of our units there.
-// Review minor: 诸葛亮 leaving mid-day changes the trapped ones' tags at once.
+// 奇门遁甲只在旧规则中可用；使用独立的原版战场验证孔明退离后的标记。
 test('奇门: when 诸葛亮 leaves the field mid-day the trapped one\'s tag says 困·孔明不在 at once', async () => {
-  const p = await threeD();
-  const orig = await p.evaluate(() => {
-    const w = window.__game.war, f = w.field; w.cancel(); w.cancel();
-    const e = f.alive.find((x) => x.side !== f.human), m = f.side(f.human).find((x) => f.retreatTargets(x).length);
-    window.__trap = { e, m, id: m.id, mine: f.side(f.human).find((x) => x !== m) };
-    m.id = 109; e.qimen = 3; w.refreshTags(); // 诸葛亮 stands on our side: the tag counts the days
-    return { before: tagOf(e) };
-    function tagOf(u) { return [...document.querySelectorAll('.tag')].filter((t) => t.isConnected && t.querySelector('em.qimen')).map((t) => t.textContent); }
-  });
+  const p = await game.open('', { setup: (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'original')) });
   try {
-    assert.ok(orig.before.some((t) => t.includes('奇门 3日')), `counting: ${orig.before}`);
-    const after = await p.evaluate(() => {
-      const w = window.__game.war, { m } = window.__trap;
-      w.clickCell(m.x, m.y); const city = w.field.retreatTargets(m)[0]; const ok = w.retreat(city, m);
-      return { ok, tags: [...document.querySelectorAll('.tag')].filter((t) => t.isConnected && t.querySelector('em.qimen')).map((t) => t.textContent) };
+    await toWar(p);
+    const result = await p.evaluate(() => {
+      const w = window.__game.war, f = w.field;
+      const e = f.alive.find(x => x.side !== f.human), m = f.side(f.human).find(x => !x.commander && f.retreatTargets(x).length);
+      const tags = () => [...document.querySelectorAll('.tag em.qimen')].map(t => t.textContent);
+      m.id = 109; e.qimen = 3; w.refreshTags();
+      const before = tags();
+      w.clickCell(m.x, m.y);
+      return { before, ok: w.retreat(f.retreatTargets(m)[0], m), after: tags() };
     });
-    assert.ok(after.ok, 'he retreats');
-    assert.ok(after.tags.length && after.tags.every((t) => t.includes('困·孔明不在')), `the tag follows him out: ${after.tags}`);
-  } finally { await p.evaluate(() => { const { e, m, id } = window.__trap; m.id = id; e.qimen = 0; window.__game.war.cancel(); }); }
+    assert.ok(result.before.includes('奇门 3日'), `counting: ${result.before}`);
+    assert.ok(result.ok, 'he retreats');
+    assert.ok(result.after.length && result.after.every(t => t === '困·孔明不在'), `the tag follows him out: ${result.after}`);
+    assert.deepEqual(p.errors, []);
+  } finally { await p.context().close(); }
 });
 
 test("the player's own 计略 leaves his view where he slid it, an enemy's goes to it", async () => {
