@@ -23,7 +23,7 @@ const idOf = (name) => data.officers.find((o) => o.name === name).id;
 const setup = () => { G.setData(data, EXPANDED_MAP_ID); return G.newGame(4, 1, 13); };
 
 test('新局八名女将分别提升且不改变登场、装备、技能及其他武将', () => {
-  const original = JSON.stringify(data), g = setup();
+  const original = structuredClone(data), g = setup();
   for (const [name, want] of Object.entries(stats)) {
     const id = idOf(name), current = g.officers[id], source = data.officers[id];
     assert.deepEqual(values(current), want, name);
@@ -37,7 +37,9 @@ test('新局八名女将分别提升且不改变登场、装备、技能及其�
   for (const source of data.officers.filter((o) => !Object.hasOwn(stats, o.name))) {
     assert.deepEqual(values(g.officers[source.id]), values(source), `${source.name} 不受本次调整影响`);
   }
-  assert.equal(JSON.stringify(data), original, '静态剧本及技能关系不被修改');
+  // 新局会在既有名单后登记名将模板，原有武将及其他静态剧本资料仍须逐项一致。
+  assert.deepEqual({ ...data, officers: data.officers.slice(0, original.officers.length) }, original, '静态剧本及技能关系不被修改');
+  assert.ok(data.officers.slice(original.officers.length).every(o => o.famousExtra === true), '追加的运行时人物应为名将模板');
   assert.ok(g.officers[idOf('孙尚香')].war < g.officers[38].war, '孙尚香武力低于关羽');
   assert.ok(g.officers[idOf('祝融夫人')].war < g.officers[75].war, '祝融武力低于黄忠');
   assert.ok(g.officers[idOf('蔡琰')].int < g.officers[109].int, '蔡琰智力低于诸葛亮');

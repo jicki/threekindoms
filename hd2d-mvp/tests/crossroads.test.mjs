@@ -16,6 +16,14 @@ const map = (frontier) => {
   const s = structuredClone(scenario); s.frontierMap = frontier;
   return expandMap(applyScenario(base, s));
 };
+function legacyBattleCampaign() {
+  const g = G.newGame(4, 1, 7);
+  // 跨城直达路线调整前的记录使用原始地形和布阵，没有新版战场或城防标记。
+  delete g.battlefields;
+  delete g.siegeTactics;
+  delete g.campaignRevision;
+  return g;
+}
 const crossings = [[13, 22, 30], [12, 21, 32]];
 const edge = (a, b) => [a, b].sort((x, y) => x - y).join('-');
 const terrainHeight = (raw) => {
@@ -31,7 +39,7 @@ const terrainHeight = (raw) => {
 
 for (const frontier of [false, true]) test(`${frontier ? '边疆' : '扩展'}地图的跨城路线经过新据点，双向道路与布阵完整`, () => {
   const d = map(frontier); G.setData(d, EXPANDED_MAP_ID);
-  const g = G.newGame(4, 1, 7);
+  const g = legacyBattleCampaign();
   try {
     for (const [a, b, via] of crossings) {
       assert.ok(!G.roads(a).includes(b) && !G.roads(b).includes(a), `${a} 与 ${b} 不应绕过 ${via}`);
@@ -46,7 +54,9 @@ for (const frontier of [false, true]) test(`${frontier ? '边疆' : '扩展'}地
         const old = { city: to, from, attacker: 0, defender: 4,
           att: { ids: [40], gold: 0, rice: 100 }, def: { ids: [41], gold: 0, rice: 100 } };
         const field = new Field(g, old, 'att'), restored = Field.restore(g, old, field.snapshot());
+        assert.deepEqual(restored.map, base.maps[to]);
         assert.deepEqual(restored.dep, base.deploy[to][from]);
+        assert.equal(restored.siege, null);
         Object.assign(g.cities[from], { faction: G.NONE, officers: [] });
         assert.ok(retreatOptions(g, old, old.attacker).includes(from), '旧战场的进攻方应能撤回原出阵地');
         assert.ok(!retreatOptions(g, old, old.defender).includes(from), '守方不能获得跨城撤退路线');
@@ -162,13 +172,13 @@ test('调整前已中断的跨城战斗可读取并在败北后撤回原出阵�
     getItem: (key) => records.get(key) ?? null, setItem: (key, value) => records.set(key, String(value)), removeItem: (key) => records.delete(key),
   } });
   try {
-    for (const [a, b, via] of crossings) for (const [from, to] of [[a, b], [b, a]]) {
-      const updated = map(true), old = structuredClone(updated);
+    for (const frontier of [false, true]) for (const [a, b, via] of crossings) for (const [from, to] of [[a, b], [b, a]]) {
+      const updated = map(frontier), old = structuredClone(updated);
       old.cities[a].roads.push(b);
       old.cities[b].roads = old.cities[b].roads.map((id) => id === via ? a : id);
       old.cities[via].roads = old.cities[via].roads.filter((id) => id !== b);
       G.setData(old, EXPANDED_MAP_ID);
-      const g = G.newGame(4, 1, 7);
+      const g = legacyBattleCampaign();
       for (const city of g.cities) city.officers = city.officers.filter((id) => id !== 40 && id !== 41);
       Object.assign(g.cities[from], { faction: 4, officers: [40], gold: 100, rice: 300 });
       Object.assign(g.cities[to], { faction: 0, officers: [41], gold: 100, rice: 300 });
@@ -178,7 +188,11 @@ test('调整前已中断的跨城战斗可读取并在败北后撤回原出阵�
       assert.ok(suspend(g, war, field, { side: 'att', start: {}, after: { kind: 'att', faction: 4, pts: 0 } }));
       G.setData(updated, EXPANDED_MAP_ID);
       const saved = takeSuspend(); assert.ok(saved, '新地图应读取旧中断记录');
-      assert.deepEqual(Field.restore(saved.g, saved.war, saved.field).units, field.units);
+      const restored = Field.restore(saved.g, saved.war, saved.field);
+      assert.deepEqual(restored.map, base.maps[to]);
+      assert.deepEqual(restored.dep, base.deploy[to][from]);
+      assert.deepEqual(restored.units, field.units);
+      assert.equal(restored.siege, null);
       assert.ok(retreatOptions(saved.g, saved.war, 4).includes(from));
       resolveWar(saved.g, saved.war, { loser: 'att', survivors: { att: [40], def: [41] }, dead: [],
         captured: { byAtt: [], byDef: [] }, retreated: [], chests: { att: saved.war.att, def: saved.war.def } });
