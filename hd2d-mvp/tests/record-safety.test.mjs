@@ -7,6 +7,60 @@ let game;
 before(async () => { game = await startGame({ scenario: 'original' }); });
 after(async () => { await game?.close(); });
 
+test('普通档和快捷档任一落盘步骤失败时，保留主档、备份和当前战役', async () => {
+  const p = await game.open('&flat');
+  try {
+    const outcomes = await p.evaluate(async () => {
+      const { G } = window.__game, outcomes = [];
+      for (const quick of [false, true]) {
+        const key = quick ? 'haou-hd2d-save:quick' : 'haou-hd2d-save:1', backupKey = key + ':bak';
+        const g = G.newGame(4, 1, 7);
+        for (const year of [190, 191]) {
+          g.year = year;
+          if (!(quick ? G.saveQuick(g) : G.save(g, 1))) throw new Error('测试存档创建失败');
+        }
+        const raw = localStorage.getItem(key), backup = localStorage.getItem(backupKey);
+        const write = () => quick ? G.saveQuickChecked(g, localStorage.getItem(key)) : G.saveChecked(g, 1, localStorage.getItem(key));
+        const set = Storage.prototype.setItem;
+        g.year = 192;
+        const live = JSON.stringify(g);
+        for (const failingKey of [backupKey, key]) {
+          Storage.prototype.setItem = function (name, value) {
+            if (name === failingKey) throw new DOMException('测试：存档空间不足', 'QuotaExceededError');
+            return set.call(this, name, value);
+          };
+          try {
+            outcomes.push([await write(), localStorage.getItem(key) === raw, localStorage.getItem(backupKey) === backup, JSON.stringify(g) === live]);
+          } finally { Storage.prototype.setItem = set; }
+        }
+        outcomes.push([await write(), JSON.parse(localStorage.getItem(key)).year, localStorage.getItem(backupKey) === raw]);
+      }
+      return outcomes;
+    });
+    const expected = [['failed', true, true, true], ['failed', true, true, true], ['saved', 192, true]];
+    assert.deepEqual(outcomes, [...expected, ...expected]);
+    assert.deepEqual(p.errors, []);
+  } finally { await p.context().close(); }
+});
+
+test('导入较新版本记录时立即提示更新客户端，并保留既有记录', async () => {
+  const p = await game.open('&flat');
+  try {
+    const { before, future } = await p.evaluate(() => {
+      const { G } = window.__game, g = G.newGame(4, 1, 7);
+      if (!G.save(g, 1)) throw new Error('测试存档创建失败');
+      return { before: G.slotToken(1), future: JSON.stringify({ ...g, version: G.SAVE_VERSION + 1 }) };
+    });
+    await p.goto(new URL('save-editor.html', game.url).href);
+    await p.waitForFunction(() => window.__editor?.g);
+    await p.locator('#file').setInputFiles({ name: 'future.json', mimeType: 'application/json', buffer: Buffer.from(future) });
+    await p.getByText('记录来自更新版本，请更新游戏后导入', { exact: false }).waitFor();
+    assert.equal(await p.getByRole('dialog', { name: '导入到哪个记录槽' }).count(), 0);
+    assert.equal(await p.evaluate(() => localStorage.getItem('haou-hd2d-save:1')), before);
+    assert.deepEqual(p.errors, []);
+  } finally { await p.context().close(); }
+});
+
 test('还原此城 preserves the original special land and the legal maximum governance', async () => {
   const p = await game.open();
   try {

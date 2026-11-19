@@ -12,7 +12,7 @@ import { Tactical } from '../src/core/tactical.js';
 import { Duel } from '../src/core/skirmish.js';
 import { autoSkillBonus } from '../src/core/warcore.js';
 import { startRaid, validRaidRecord } from '../src/core/raids.js';
-import { suspend, peekSuspend, takeSuspend } from '../src/core/suspend.js';
+import { suspend, peekSuspend, takeSuspend, suspendToken, futureSuspend, dropSuspend, SUSPEND_KEY } from '../src/core/suspend.js';
 
 const base=JSON.parse(readFileSync(new URL('../data/game-data.json',import.meta.url)));
 const D=expandMap(applyScenario(base,await loadScenario(SOVEREIGN_SCENARIO_ID,base)));
@@ -204,6 +204,59 @@ test('早期扩展地图的普通、快捷和自动记录可读取，升级后�
     assert.equal(G.saveQuick(upgraded), false);
     assert.equal(store.get(`${prefix}:2`), future);
     assert.equal(store.get(`${prefix}:quick`), future);
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, 'localStorage', descriptor);
+    else delete globalThis.localStorage;
+  }
+});
+
+test('自动续玩和中断保护较新版本和其他页面刚写的记录', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage'), store = new Map();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k),
+  } });
+  try {
+    const g = game(), autoKey = G.scenarioKey('haou-hd2d-save') + ':auto', battleKey = G.scenarioKey(SUSPEND_KEY);
+    const w = { city: 34, from: 8, attacker: 0, defender: 4, att: { ids: [40], rice: 500, gold: 0 }, def: { ids: [43], rice: 500, gold: 0 } };
+    const field = new Field(g, w, 'att'), options = { side: 'att', after: { kind: 'att' } };
+    assert.ok(G.saveAuto(g));
+    assert.ok(suspend(g, w, field, options));
+    const rawAuto = G.autoToken(), rawBattle = suspendToken();
+    assert.ok(rawAuto && rawBattle);
+    const auto = JSON.parse(rawAuto), battle = JSON.parse(rawBattle);
+    for (const future of [{ ...auto, version: auto.version + 1 }, { ...auto, campaignRevision: auto.campaignRevision + 1 }]) {
+      const raw = JSON.stringify(future);
+      store.set(autoKey, raw);
+      assert.equal(G.loadAuto(), null);
+      assert.equal(G.saveAuto(g), false);
+      assert.equal(G.dropAuto(raw), false);
+      assert.equal(G.autoToken(), raw);
+    }
+    for (const future of [{ ...battle, version: battle.version + 1 },
+      { ...battle, g: { ...battle.g, version: battle.g.version + 1 } },
+      { ...battle, g: { ...battle.g, campaignRevision: battle.g.campaignRevision + 1 } }]) {
+      const raw = JSON.stringify(future);
+      store.set(battleKey, raw);
+      assert.equal(futureSuspend(), true);
+      assert.equal(peekSuspend(), null);
+      assert.equal(takeSuspend(), null);
+      assert.equal(suspend(g, w, field, options), false);
+      assert.equal(dropSuspend(raw), 'newer');
+      assert.equal(suspendToken(), raw);
+    }
+    const replacementAuto = JSON.stringify({ ...auto, savedAt: auto.savedAt + 1 });
+    const replacementBattle = JSON.stringify({ ...battle, savedAt: battle.savedAt + 1 });
+    store.set(autoKey, replacementAuto);
+    store.set(battleKey, replacementBattle);
+    assert.equal(G.dropAuto(rawAuto), false);
+    assert.equal(dropSuspend(rawBattle), 'changed');
+    assert.equal(suspend(g, w, field, { ...options, expected: null }), false);
+    assert.equal(G.autoToken(), replacementAuto);
+    assert.equal(suspendToken(), replacementBattle);
+    assert.ok(G.dropAuto(replacementAuto));
+    assert.equal(dropSuspend(replacementBattle), 'dropped');
+    assert.equal(G.autoToken(), null);
+    assert.equal(suspendToken(), null);
   } finally {
     if (descriptor) Object.defineProperty(globalThis, 'localStorage', descriptor);
     else delete globalThis.localStorage;

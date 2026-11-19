@@ -36,10 +36,10 @@ import { SOVEREIGN_SCENARIO_ID, SOVEREIGN_SCENARIO_NAME, visualUrl } from './cor
 import { abilityDuel, abilityStrategy, abilityStrategyIds, famousLabel, strategySpecs } from './core/famous-skills.js';
 import { describeRulerPassive } from './core/ruler-passives.js';
 import { aiTurn, aiDomestic } from './core/ai.js';
-import { suspend, peekSuspend, takeSuspend, dropSuspend, withSuspendLock } from './core/suspend.js';
+import { suspend, peekSuspend, suspendToken, futureSuspend, dropSuspend, withSuspendLock } from './core/suspend.js';
 import { warFate } from './warreport.js';
 import { setupWar, occupyEmpty, resolveWar, loserQueue, winnerQueue, retreatOptions } from './core/warcore.js';
-import { chooseRaid, startRaid, resolveRaid, finishRaid, resolveAiRaid } from './core/raids.js';
+import { chooseRaid, startRaid, resolveRaid, finishRaid, resolveAiRaid, registerRaidTemplates } from './core/raids.js';
 import { Field, STRAT_INFO } from './core/field.js';
 import { $, $$, keyName, h, pressable, clear, root, layer, modal, message, toast, banner, officerRow, officerTable, pickOfficers, sliders, confirmBox, face, avatar, figure, setHalfbody, setPortraits, setFaces, blocking } from './ui.js';
 import { MONTH_NAMES, SEASON_OF, WEATHER_OF } from './seasons.js';
@@ -351,15 +351,21 @@ if (PHONE) document.addEventListener('visibilitychange', () => { const c = audio
 // As the page goes out of sight the game is put down where 中断战斗 or a record would put it: the war in progress as a suspended
 // battle, the 战略地图 on the player's turn as the auto record (src/core/game.js). Both are dropped when the page comes back,
 // so they are there only for a page that never did; nothing is spent and nothing can be loaded twice.
-let autoHeld = false;
+let autoHeld = null, autoRecord = null;
 function autoPut() {
   try {
     if (!g) return;
-    if (inWar()) { if (!suspendBlocked() && !peekSuspend() && suspend(g, warCtx.w, warCtx.field, { ...warCtx, yaw: war.yaw })) autoHeld = true; return; }
-    if (document.body.dataset.screen === 'strategy' && g.current === g.player && !busy && !blocking()) G.saveAuto(g);
+    if (inWar()) {
+      if (!suspendBlocked()) suspend(g, warCtx.w, warCtx.field, { ...warCtx, yaw: war.yaw, expected: null, onSaved: (token) => { autoHeld = token; } });
+      return;
+    }
+    if (document.body.dataset.screen === 'strategy' && g.current === g.player && !busy && !blocking()) G.saveAuto(g, (token) => { autoRecord = token; });
   } catch { /* storage full or closed: the page may still come back */ }
 }
-function autoTake() { G.dropAuto(); if (autoHeld) { autoHeld = false; dropSuspend(); } }
+function autoTake() {
+  G.dropAuto(autoRecord); autoRecord = null;
+  if (autoHeld) { dropSuspend(autoHeld); autoHeld = null; }
+}
 if (PHONE) { document.addEventListener('visibilitychange', () => (document.hidden ? autoPut() : autoTake())); addEventListener('pagehide', autoPut); addEventListener('pageshow', (e) => { if (e.persisted) autoTake(); }); }
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 // A drag lives from pointerdown to its own pointerup. The canvas captures the pointer so a release outside
@@ -1137,7 +1143,7 @@ function sysButtons() {
     g ? item(() => '记录进度', (b) => { const why = saveBlocked(); if (why) return toast(`<em>${why}</em>`, 3500); close(); runCommand(saveCity(), '记录'); },
       '进度不会自动保存。在八个记录位置之一保存当前进度（消耗一张命令书，开启免费记录时不消耗；与城市菜单「录」相同；己方回合、战略地图上可用）') : '',
     g && inWar() ? item(() => '中断战斗', () => { close(); suspendWar(); },
-      '保存这场战斗的进行状态并回到标题，之后在标题画面「继续战斗」从此处接着打。不占记录位置、不消耗命令书；继续时取出，只能继续一次。己方回合、无动作进行时可用') : '',
+      '保存战斗并回到标题。在标题画面选择「继续战斗」，战场准备完成后清除中断档，恢复失败可重试。不占记录位置，不消耗命令书。己方回合内无动作进行时可用') : '',
     g ? item(() => '读取记录', () => { close(); loadRecord(); }, '读取一份记录，从记录的月份接着玩（当前未记录的进度不保留）') : '',
     (g || G.hasQuick()) ? h('div', { class: 'sysmenu-quick' },
       g ? item(() => `快捷存档 ${quickSaveKey}`, () => { close(); quickRecord(); },
@@ -1268,7 +1274,7 @@ function pickSlot(mode, list, current = null) {
 const LOAD_KEY = G.scenarioKey('haou-hd2d-load');
 let quickLoading = false, quickCostExplained = false;
 async function restartWithRecord(n, rec, { alwaysConfirm = false } = {}) {
-  const held = peekSuspend();
+  const token = suspendToken(), held = peekSuspend(token);
   const loss = g ? (inWar() ? '当前战斗和未记录的进度将丢失。' : '当前未记录的进度将丢失。') : '';
   const warLoss = held ? `中断的${cityName(held.war.city)}之战（第${held.field.day}日）也将放弃。` : '';
   if ((g || held || alwaysConfirm) && !(await confirmBox('读取记录', `读取${recordName(n)}（${recordLine(rec)} · ${stamp(rec.savedAt)}）？${loss}${warLoss}`))) return;
@@ -1276,10 +1282,10 @@ async function restartWithRecord(n, rec, { alwaysConfirm = false } = {}) {
   // load a different record from the one the player just saw and approved.
   const current = recordAt(n);
   if (!current || JSON.stringify(current) !== JSON.stringify(rec)) return toast('<em>记录已改变，请重新选择</em>', 3500);
-  if (JSON.stringify(peekSuspend()) !== JSON.stringify(held)) return toast('<em>中断战斗已改变，请重新读档</em>', 3500);
+  if (suspendToken() !== token) return toast('<em>中断战斗已改变，请重新读档</em>', 3500);
   // Carry the exact record through the fade/reload; the shared slot can change after confirmation.
   // The suspended battle is not removed until that snapshot has been read and validated at the new boot.
-  const pending = { kind: n, record: rec, backup: G.restored(rec), held: JSON.stringify(held) };
+  const pending = { kind: n, record: rec, backup: G.restored(rec), held: held ? token : 'null' };
   try { sessionStorage.setItem(LOAD_KEY, JSON.stringify(pending)); } catch { return toast('<em>无法读取记录</em>'); }
   await fade(true); location.reload();
 }
@@ -1358,15 +1364,15 @@ async function title() {
   setMode(strategy); audio.playBgm('bgm-title');
   clear();
   const list = G.saves(), quick = G.loadQuick({preview:true}), auto = PHONE ? G.loadAuto({preview:true}) : null; // auto: what a page the phone threw away left behind (自动续玩 below)
-  const records = [...list, quick, auto].filter(Boolean), saved = G.latest(records), count = records.filter((r) => r !== auto).length, held = peekSuspend();
+  const records = [...list, quick, auto].filter(Boolean), saved = G.latest(records), count = records.filter((r) => r !== auto).length;
+  const token = suspendToken(), held = peekSuspend(token);
   // The opening (arrow, flash, band) plays once per visit; coming back from 选择君主 shows the finished title.
   const screen = createTitle({ audio, intro: !titleSeen, sys: sysButtons(),
-    menu: [held ? h('button', { class: 'btn', onclick: async (e) => {
+    menu: [held ? h('button', { class: 'btn', onclick: (e) => {
         if (e.currentTarget.disabled) return;
         e.currentTarget.disabled = true; audio.unlock();
-        const result = await withSuspendLock(() => JSON.stringify(peekSuspend()) === JSON.stringify(held) ? { record: takeSuspend() } : { changed: true }, { legacyFallback: true });
-        if (result?.record) begin(result.record.g, true, result.record);
-        else { toast(result?.changed ? '<em>中断战斗已改变，请重新选择</em>' : '<em>中断的战斗已无法读取</em>', 3000); title(); }
+        if (suspendToken() !== token) { title(); return toast('<em>中断战斗已改变，请重新选择</em>', 3500); }
+        begin(held.g, true, held, { resumeToken: token });
       } }, '继续战斗',
         h('small', {}, `${cityName(held.war.city)}之战 · 第${held.field.day}日 · ${held.g.year}年${held.g.month + 1}月 · ${G.recordOfficerName(held.g,held.g.factions[held.g.player].ruler)}`)) : null,
       saved ? h('button', { class: 'btn', onclick: () => { audio.unlock(); begin(saved, true); } }, saved.auto ? '继续上次' : '继续记录', h('small', {}, `${saved.auto ? '离开时的进度' : recordName(saved.slot)} · ${saved.year}年${saved.month + 1}月 · ${G.recordOfficerName(saved,saved.factions[saved.player].ruler)}`)) : null,
@@ -1468,13 +1474,24 @@ async function setup() {
 
 // ---------- Game ----------
 // resume: a suspended war (src/core/suspend.js) to take up first; its game keeps its seed, as it never stopped.
-async function begin(state, loaded, resume = null, { keepSuspend = false, notice = null, pendingRaw = null, expectedHeld = null, source = state.slot } = {}) {
+async function begin(state, loaded, resume = null, { keepSuspend = false, notice = null, pendingRaw = null, expectedHeld = null, source = state.slot, resumeToken = null } = {}) {
+  const autoAtStart = G.autoToken();
   if (!resume && !keepSuspend && !(await leaveSuspend())) return title();
-  G.dropAuto(); delete state.auto; // 自动续玩 is taken by whatever starts: it never becomes a second record
+  delete state.auto;
   quickCostExplained = false;
+  let resumeNotice = '战斗恢复失败，可从标题重试';
+  const resumeFailed = async (error) => {
+    console.error('中断战斗恢复失败', error);
+    warCtx = null;
+    warNav?.dispose(); warNav = null;
+    war?.dispose?.(); war = null;
+    await title(); await fade(false);
+    toast(`<em>${resumeNotice}</em>`, 6000);
+  };
   try {
     g = loaded && !resume && !new URLSearchParams(location.search).has('fixedseed') ? G.reseed(state) : state;  // ?fixedseed: replay a record exactly
     G.registerClones(g);
+    if (resume?.war.raid && !registerRaidTemplates(g, resume.war)) throw new Error('无效的守城中断名册');
     await fade(true);
     document.body.dataset.screen = 'strategy';
     setMode(strategy); strategy.refresh(g); sel = null; playerPose = null;
@@ -1483,6 +1500,7 @@ async function begin(state, loaded, resume = null, { keepSuspend = false, notice
     strategy.resetView(); strategy.focusCity(g.factions[g.player].city);
     hud(); audio.playBgm('bgm-strategy');
   } catch (error) {
+    if (resume) return resumeFailed(error);
     if (!pendingRaw) throw error;
     // An unexpected initialization failure must not strand the player in a reload loop or discard a battle.
     try { if (sessionStorage.getItem(LOAD_KEY) === pendingRaw) sessionStorage.removeItem(LOAD_KEY); } catch {}
@@ -1494,15 +1512,13 @@ async function begin(state, loaded, resume = null, { keepSuspend = false, notice
   // A confirmed load remains recoverable until its snapshot has initialized. Only then can the exact
   // suspended battle that was approved for removal be discarded, under the same lock as other tabs.
   if (pendingRaw) {
-    const result = expectedHeld === 'null' ? (peekSuspend() ? 'changed' : 'none') : await withSuspendLock(() => {
-      if (JSON.stringify(peekSuspend()) !== expectedHeld) return 'changed';
-      dropSuspend(); return peekSuspend() ? 'failed' : 'dropped';
-    });
+    const result = expectedHeld === 'null' ? (peekSuspend() ? 'changed' : 'none') : await withSuspendLock(() => dropSuspend(expectedHeld));
     if (result === 'changed') notice = '中断战斗已改变，已为您保留';
-    else if (result === 'failed') notice = '中断战斗未能放弃，已为您保留';
+    else if (result !== 'dropped' && result !== 'none') notice = '中断战斗未能放弃，已为您保留';
     try { if (sessionStorage.getItem(LOAD_KEY) === pendingRaw) sessionStorage.removeItem(LOAD_KEY); } catch {}
   }
   if (!resume) {
+    G.dropAuto(autoAtStart);
     const notices = [];
     if (loaded && G.restored(state)) notices.push(`${recordName(source)}已损坏，读取的是这一格上一次的记录`);
     if (notice) notices.push(notice);
@@ -1511,7 +1527,21 @@ async function begin(state, loaded, resume = null, { keepSuspend = false, notice
   }
   if (!loaded) await message('出征', `${g.year}年，天下大乱。${name(g.factions[g.player].ruler)}于${cityName(g.factions[g.player].city)}起兵，志在一统${D.expandedMap ? '三十三城' : '三十州'}。<br>每月君主领取<b>命令书</b>，按占城数发放；用尽即结束本月行动。<br>进度<b>不会自动保存</b>：在己方城市选「录」，或「☰ 系统 → 记录进度」存档（消耗一张命令书）。`, g.factions[g.player].ruler);
   if (loaded) g.endTurn = false;
-  try { if (resume) await resumeWar(resume); await G.run(g, io); } catch (e) { console.error(e); await message('错误', String(e.stack || e)); }
+  try {
+    if (resume) await resumeWar(resume, async () => {
+      const result = await withSuspendLock(() => dropSuspend(resumeToken), { legacyFallback: true });
+      if (result !== 'dropped') {
+        if (result === 'changed' || result === 'newer') resumeNotice = '中断战斗已改变，请重新选择';
+        throw new Error(resumeNotice);
+      }
+      resumeToken = null;
+      G.dropAuto(autoAtStart);
+    });
+    await G.run(g, io);
+  } catch (e) {
+    if (resumeToken !== null) return resumeFailed(e);
+    console.error(e); await message('错误', String(e.stack || e));
+  }
   await ending();
 }
 
@@ -2646,18 +2676,19 @@ function suspendBlocked() {
 }
 async function suspendWar() {
   const why = suspendBlocked(); if (why) return toast(`<em>${why}</em>`, 3000);
-  const { w, field } = warCtx, held = peekSuspend();
+  const { w, field } = warCtx, token = suspendToken(), held = peekSuspend(token);
+  if (futureSuspend(token)) return toast('<em>中断战斗来自更新版本，不能覆盖</em>', 3500);
   const ok = await modal('中断战斗', (close) => [
     h('p', {}, `保存${cityName(w.city)}之战（第${field.day}日）的进行状态，回到标题画面。之后在标题画面选「继续战斗」，从我军这一回合接着打。`),
-    h('p', { class: 'hint' }, '中断不是记录：不占记录位置、不消耗命令书；继续时取出，只能继续一次。开始新的征程或读取记录会放弃它。'),
+    h('p', { class: 'hint' }, '中断战斗不占记录位置，也不消耗命令书。战场恢复成功后会清除这份中断记录。'),
     held ? h('p', { class: 'hint' }, `已有中断的${cityName(held.war.city)}之战（第${held.field.day}日）；中断本场将覆盖它。`) : null,
     h('div', { class: 'foot' }, h('button', { class: 'btn', onclick: () => close(false) }, '取消'), h('button', { class: 'btn primary', onclick: () => close(true) }, '中断并回到标题'))]);
   if (!ok) return;
   const still = suspendBlocked(); if (still) return toast(`<em>${still}</em>`, 3000);
   const result = await withSuspendLock(() => {
     if (warCtx?.w !== w || warCtx?.field !== field || suspendBlocked()) return 'busy';
-    if (JSON.stringify(peekSuspend()) !== JSON.stringify(held)) return 'changed';
-    return suspend(g, warCtx.w, warCtx.field, { ...warCtx, yaw: war.yaw }) ? 'saved' : 'failed';
+    if (suspendToken() !== token) return 'changed';
+    return suspend(g, warCtx.w, warCtx.field, { ...warCtx, yaw: war.yaw, expected: token }) ? 'saved' : 'failed';
   }, { legacyFallback: true });
   if (result === 'busy') return toast('<em>战斗状态已改变，请完成当前动作后再中断</em>', 3500);
   if (result === 'changed') return toast('<em>中断战斗已改变，请重新操作</em>', 3500);
@@ -2668,21 +2699,18 @@ async function suspendWar() {
 // The suspended war taken up from the title (begin): the war, then what came after it in the unbroken game. An attack of the
 // player's returns to the player's turn (G.run), as runCommand would; an AI attack finishes that AI's turn (ai.js aiDomestic)
 // and the month goes on from the next faction.
-async function resumeWar(rec) {
-  await fieldWar(rec.war, rec.side, { field: rec.field, start: rec.start, after: rec.after, yaw: rec.yaw });
+async function resumeWar(rec, onReady) {
+  await fieldWar(rec.war, rec.side, { field: rec.field, start: rec.start, after: rec.after, yaw: rec.yaw, onReady });
   if (g.over || G.citiesOf(g, g.player).length === G.cityCount()) return;
   if (rec.after.kind === 'def') { aiDomestic(g, rec.after.faction, rec.after.pts); g.books = 0; strategy.refresh(g); hud(); }
   else if (rec.after.kind !== 'raid' && g.books <= 0) await banner('命令书用尽　本月行动结束', colorOf(g.player));
 }
 // Before a new game or a record replaces it: a suspended war is given up only when the player says so.
 async function leaveSuspend() {
-  const s = peekSuspend(); if (!s) return true;
+  const token = suspendToken(), s = peekSuspend(token); if (!s) return true;
   const yes = await confirmBox('放弃中断的战斗', `还有一场中断的${cityName(s.war.city)}之战（第${s.field.day}日）没有继续。开始后它将被放弃，确定吗？`);
   if (!yes) return false;
-  const result = await withSuspendLock(() => {
-    if (JSON.stringify(peekSuspend()) !== JSON.stringify(s)) return 'changed';
-    dropSuspend(); return peekSuspend() ? 'failed' : 'dropped';
-  }, { legacyFallback: true });
+  const result = await withSuspendLock(() => dropSuspend(token), { legacyFallback: true });
   if (result === 'changed') toast('<em>中断战斗已改变，请重新选择</em>', 3500);
   else if (result !== 'dropped') toast('<em>未能放弃中断战斗</em>', 3500);
   return result === 'dropped';
@@ -2690,7 +2718,7 @@ async function leaveSuspend() {
 const WHY = { castle: '攻占了城池', commander: '总大将失去了战斗能力', retreat: '总大将撤退', timeout: '战事持续30日未分胜负', rice: '军粮耗尽' };
 // opts.after: what follows once the war is settled, kept for 中断 (suspendWar). opts.field / opts.start: a suspended war
 // taken up again (resumeWar), its field and the soldiers each general opened it with (the result's ledger).
-async function fieldWar(w, humanSide, { after = { kind: humanSide === 'att' ? 'att' : 'def', faction: w.attacker, pts: 0 }, field: snap = null, start: start0 = null, yaw = null } = {}) {
+async function fieldWar(w, humanSide, { after = { kind: humanSide === 'att' ? 'att' : 'def', faction: w.attacker, pts: 0 }, field: snap = null, start: start0 = null, yaw = null, onReady } = {}) {
   await fade(true);
   document.body.dataset.screen = 'war'; clear();
   const start = start0 ?? Object.fromEntries([...w.att.ids, ...w.def.ids].map((id) => [id, g.officers[id].soldiers]));
@@ -2706,7 +2734,14 @@ async function fieldWar(w, humanSide, { after = { kind: humanSide === 'att' ? 'a
   await prewarm(war); // under the fade
   terrainPinned = false; terrainView(); // each battle opens with its generals shown
   threatHeld = false; threatView();
-  setMode(war); audio.playBgm('bgm-battle');
+  const wasBusy = war.st.busy;
+  if (onReady) war.st.busy = true;
+  try {
+    setMode(war); audio.playBgm('bgm-battle');
+    if (onReady) await onReady();
+  } finally {
+    if (onReady) war.st.busy = wasBusy;
+  }
   await fade(false);
   const battleName = `${w.raid ? `${cityName(w.city)}守卫战` : `${cityName(w.city)}之战`}${field.sceneProfile ? ` · ${field.sceneProfile.label}` : ''}`;
   const sideName = (side) => w.raid && side === 'att' ? (w.raid.kind === 'pirate' ? '海贼' : '山贼') : `${factionName(side === 'att' ? w.attacker : w.defender)}军`;

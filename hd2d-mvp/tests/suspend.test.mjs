@@ -59,6 +59,45 @@ test('broken off on the player\'s turn, the war resumes from 继续战斗 as it 
   await skipIntro(page);
   const line = page.locator('button', { hasText: '继续战斗' });
   assert.match(await line.innerText(), /之战 · 第1日/);
+  const saved = await page.evaluate(k => localStorage.getItem(k), KEY);
+  await page.evaluate(async () => {
+    const { Field } = await import('./src/core/field.js'), restore = Field.restore;
+    Field.restore = (...args) => {
+      Field.restore = restore;
+      throw new Error('测试：战场初始化暂时失败');
+    };
+  });
+  await line.click();
+  const retryHint = page.getByText('战斗恢复失败，可从标题重试');
+  await retryHint.waitFor();
+  assert.equal(await page.evaluate(k => localStorage.getItem(k), KEY), saved);
+  await retryHint.evaluate(el => el.closest('.toast').remove());
+  await page.evaluate(key => {
+    const remove = Storage.prototype.removeItem;
+    Storage.prototype.removeItem = function (k) {
+      if (k === key) {
+        Storage.prototype.removeItem = remove;
+        throw new DOMException('测试：中断档暂时无法删除', 'SecurityError');
+      }
+      return remove.call(this, k);
+    };
+  }, KEY);
+  await line.click();
+  await retryHint.waitFor();
+  assert.equal(await page.evaluate(k => localStorage.getItem(k), KEY), saved);
+  await page.evaluate(async key => {
+    const { Field } = await import('./src/core/field.js'), restore = Field.restore;
+    Field.restore = (...args) => {
+      Field.restore = restore;
+      const replacement = JSON.parse(localStorage.getItem(key));
+      replacement.savedAt++;
+      localStorage.setItem(key, JSON.stringify(replacement));
+      return restore(...args);
+    };
+  }, KEY);
+  await line.click();
+  await page.getByText('中断战斗已改变，请重新选择').waitFor();
+  assert.equal(await page.evaluate(k => JSON.parse(localStorage.getItem(k)).savedAt, KEY), JSON.parse(saved).savedAt + 1);
   await line.click();
   const stop2 = closeMessages(page); try { await myTurn(); } finally { stop2(); }
   const now = await state();

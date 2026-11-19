@@ -851,7 +851,7 @@ const KEY = 'haou-hd2d-save', key = () => scenarioKey(KEY), slotKey = (n) => `${
 const quickKey = () => `${key()}:quick`, quickBak = () => `${quickKey()}:bak`;
 const parse = (s) => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
 const read = (k) => { try { return parse(localStorage.getItem(k)); } catch { return null; } };
-const futureVersion = (g) => (Number.isInteger(g?.version) && g.version > SAVE_VERSION)
+export const futureVersion = (g) => (Number.isInteger(g?.version) && g.version > SAVE_VERSION)
   || (Number.isInteger(g?.campaignRevision) && g.campaignRevision > CAMPAIGN_REVISION);
 const slotStates = new WeakMap();
 export function slotToken(slot) { try { return localStorage.getItem(slotKey(slot)); } catch { return undefined; } }
@@ -992,6 +992,25 @@ function prepareSave(g, slot) {
   const savedAt = Date.now();
   return { savedAt, text: JSON.stringify({ ...g, slot, savedAt, version: SAVE_VERSION }) };
 }
+// 单个 localStorage 写入失败时该键保持原值。主档写入失败后恢复本次已轮换的备份。
+function writeRecordPair(key, backupKey, text, previous) {
+  const backup = localStorage.getItem(backupKey);
+  if (futureVersion(parse(backup))) return 'newer';
+  const rotate = previous && previous !== backup;
+  if (rotate) localStorage.setItem(backupKey, previous);
+  try {
+    localStorage.setItem(key, text);
+  } catch (error) {
+    if (rotate) {
+      try {
+        if (backup === null) localStorage.removeItem(backupKey);
+        else localStorage.setItem(backupKey, backup);
+      } catch (restoreError) { console.error('存档写入失败后无法恢复备份', restoreError); }
+    }
+    throw error;
+  }
+  return 'saved';
+}
 function commitSave(g, slot, expected, previous, prepared) {
   try {
     const current = slotToken(slot);
@@ -999,8 +1018,8 @@ function commitSave(g, slot, expected, previous, prepared) {
     if (current !== expected) return 'changed';
     if (futureVersion(parse(current)) || futureVersion(parse(previous))) return 'newer';
     if (!upgrade(parse(prepared.text))) return 'failed';
-    if (previous && upgrade(parse(previous))) localStorage.setItem(bakKey(slot), previous);
-    localStorage.setItem(slotKey(slot), prepared.text);
+    const result = writeRecordPair(slotKey(slot), bakKey(slot), prepared.text, upgrade(parse(previous)) ? previous : null);
+    if (result !== 'saved') return result;
     g.slot = slot; g.savedAt = prepared.savedAt; g.version = SAVE_VERSION;
     slotStates.set(g, { slot, token: prepared.text });
     return 'saved';
@@ -1008,7 +1027,7 @@ function commitSave(g, slot, expected, previous, prepared) {
 }
 export function save(g, slot = g.slot ?? 1) {
   try {
-    if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return false;
+    if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId || futureVersion(g)) return false;
     const current = slotToken(slot);
     if (current === undefined || futureVersion(parse(current))) return false;
     return commitSave(g, slot, current, current, prepareSave(g, slot)) === 'saved';
@@ -1016,6 +1035,7 @@ export function save(g, slot = g.slot ?? 1) {
 }
 // 确认期间或等待锁期间若记录被其他页面更改，保留现有内容并要求重新选择。
 export async function saveChecked(g, slot, expected, { snapshot = g, isCurrent = () => true, onSaved = () => {}, acceptedConflict, onConflict = () => {}, acceptedPending, onPending = () => {} } = {}) {
+  if (futureVersion(snapshot)) return 'newer';
   if ((snapshot.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return 'wrong-scenario';
   return withRecordLock(slotKey(slot), (state) => {
     const token = slotToken(slot);
@@ -1042,9 +1062,27 @@ export async function saveChecked(g, slot, expected, { snapshot = g, isCurrent =
 // and the quick one. It is written when the page is hidden and dropped when the page comes back, so it only outlives a page the
 // system threw away; continuing from it takes it. It is no record: nothing is spent, and it cannot be loaded a second time.
 const autoKey = () => `${key()}:auto`;
-export function saveAuto(g) { try { if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return false; localStorage.setItem(autoKey(), JSON.stringify({ ...g, savedAt: Date.now(), version: SAVE_VERSION })); return true; } catch { return false; } }
+export function autoToken() { try { return localStorage.getItem(autoKey()); } catch { return undefined; } }
+export function saveAuto(g, onSaved) {
+  if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId || futureVersion(g)) return false;
+  try {
+    const previous = autoToken();
+    if (previous === undefined || futureVersion(parse(previous))) return false;
+    const text = JSON.stringify({ ...g, savedAt: Date.now(), version: SAVE_VERSION });
+    localStorage.setItem(autoKey(), text);
+    onSaved?.(text);
+    return true;
+  } catch { return false; }
+}
 export function loadAuto({ preview = false } = {}) { const g = upgrade(read(autoKey())); if (g) { if (!preview) registerClones(g); g.auto = true; } return g; }
-export function dropAuto() { try { localStorage.removeItem(autoKey()); } catch {} }
+export function dropAuto(expected = autoToken()) {
+  if (expected == null || futureVersion(parse(expected))) return false;
+  try {
+    if (autoToken() !== expected) return false;
+    localStorage.removeItem(autoKey());
+    return true;
+  } catch { return false; }
+}
 export function load(slot, { preview = false } = {}) {
   migrate();
   const raw = slotToken(slot), parsed = parse(raw);
@@ -1097,14 +1135,15 @@ function commitQuick(g, expected, previous, prepared) {
     if (current === undefined) return 'failed';
     if (current !== expected) return 'changed';
     if (futureQuick(current) || futureQuick(previous)) return 'newer';
-    if (previous && quickUpgrade(parse(previous))) localStorage.setItem(quickBak(), previous);
-    localStorage.setItem(quickKey(), prepared.text);
+    const result = writeRecordPair(quickKey(), quickBak(), prepared.text, quickUpgrade(parse(previous)) ? previous : null);
+    if (result !== 'saved') return result;
     g.quickId = prepared.id; // never change the running game or its current numbered slot on a failed write
     return 'saved';
   } catch { return 'failed'; }
 }
 export function saveQuick(g) {
   try {
+    if (futureVersion(g)) return false;
     const current = quickToken(), prepared = prepareQuick(g);
     return current !== undefined && !!prepared && commitQuick(g, current, current, prepared) === 'saved';
   } catch { return false; }
@@ -1112,6 +1151,7 @@ export function saveQuick(g) {
 // Every game/editor writer checks and writes inside the same origin-wide lock. A token check outside
 // the lock alone cannot protect two tabs that both see the empty slot at the same instant.
 export async function saveQuickChecked(g, expected, { isCurrent = () => true, onSaved = () => {}, acceptedConflict, onConflict = () => {}, acceptedPending, onPending = () => {} } = {}) {
+  if (futureVersion(g)) return 'newer';
   if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return 'wrong-scenario';
   return withRecordLock(quickKey(), (state) => {
     const token = quickToken();

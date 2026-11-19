@@ -1,11 +1,11 @@
 // 战场中断 (not in the original, whose record is kept from the city menu only): a war can be broken off on the player's own
 // turn and taken up again later, from the title. It is not a record: one place apart from the eight slots, no 命令书, and it
-// is taken out as it is read, so a battle resumes exactly once and cannot be replayed from the same point. The seed goes with
+// is removed after the battlefield is ready, so a failed initialization can be retried. The seed goes with
 // it unchanged (records draw a fresh one on load, game.js reseed): continuing is the same battle as never having stopped.
 //
 // The record: { version, savedAt, g, war, side, start, after, yaw, field } (yaw: which way the war map faced). `after` says what follows the settled war: the
 // player's own turn ({ kind: 'att' }), or the rest of the attacking AI's turn ({ kind: 'def', faction, pts }: ai.js aiDomestic).
-import { upgrade, registerClones, SAVE_VERSION, scenarioKey, data } from './game.js';
+import { upgrade, registerClones, SAVE_VERSION, scenarioKey, data, futureVersion } from './game.js';
 import { validRaidRecord, registerRaidTemplates } from './raids.js';
 import { battlefieldLayout } from './battlefields.js';
 import { siegeLayout, restoreGates } from './siege.js';
@@ -62,6 +62,11 @@ export async function withSuspendLock(fn, { legacyFallback = false } = {}) {
 }
 
 const parse = (s) => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
+export function suspendToken() { try { return localStorage.getItem(scenarioKey(SUSPEND_KEY)); } catch { return undefined; } }
+export function futureSuspend(token = suspendToken()) {
+  const rec = parse(token);
+  return (Number.isInteger(rec?.version) && rec.version > SUSPEND_VERSION) || futureVersion(rec?.g);
+}
 function valid(rec) {
   if (!rec || typeof rec !== 'object' || rec.version !== SUSPEND_VERSION) return null;
   if (!rec.war || !rec.field || !Array.isArray(rec.field.units) || !['att', 'def'].includes(rec.side) || !rec.after) return null;
@@ -79,22 +84,34 @@ function valid(rec) {
 }
 
 // Write the suspension (true when it is stored). The parts are copied as JSON, so the running game is not touched.
-export function suspend(g, war, field, { side, start, after, yaw = null }) {
+export function suspend(g, war, field, { side, start, after, yaw = null, expected = suspendToken(), onSaved }) {
   try {
+    if (expected === undefined || futureSuspend(expected) || futureVersion(g)) return false;
     const rec = { version: SUSPEND_VERSION, savedAt: Date.now(), g: { ...g, version: SAVE_VERSION }, war, side, start, after, yaw, field: field.snapshot() };
     const text = JSON.stringify(rec);
-    if (!valid(parse(text))) return false;
+    if (!valid(parse(text)) || suspendToken() !== expected) return false;
     localStorage.setItem(scenarioKey(SUSPEND_KEY), text);
+    onSaved?.(text);
     return true;
   } catch { return false; }
 }
 // The stored suspension, left in place (the title's 继续战斗 line); null when there is none or it no longer reads.
-export function peekSuspend() { try { return valid(parse(localStorage.getItem(scenarioKey(SUSPEND_KEY)))); } catch { return null; } }
-// Take it out to resume: read, removed, its 阿会喃 copies registered. A record that no longer reads is removed too.
+export function peekSuspend(token = suspendToken()) { try { return valid(parse(token)); } catch { return null; } }
+// Core callers that already know they can restore the field can consume it immediately.
 export function takeSuspend() {
-  const rec = peekSuspend();
-  dropSuspend();
-  if (rec) { registerClones(rec.g); if (rec.war.raid) registerRaidTemplates(rec.g, rec.war); }
+  const token = suspendToken(), rec = peekSuspend(token);
+  if (!rec || dropSuspend(token) !== 'dropped') return null;
+  registerClones(rec.g);
+  if (rec.war.raid) registerRaidTemplates(rec.g, rec.war);
   return rec;
 }
-export function dropSuspend() { try { localStorage.removeItem(scenarioKey(SUSPEND_KEY)); } catch {} }
+export function dropSuspend(expected) {
+  try {
+    const current = suspendToken();
+    if (current === undefined) return 'failed';
+    if (current !== expected) return 'changed';
+    if (futureSuspend(current)) return 'newer';
+    if (current !== null) localStorage.removeItem(scenarioKey(SUSPEND_KEY));
+    return 'dropped';
+  } catch { return 'failed'; }
+}

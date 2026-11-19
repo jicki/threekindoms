@@ -628,6 +628,7 @@ $('write').onclick = async () => {
     if (result === 'cancelled') { toast('<em>编辑内容已变化</em>，请重新写回', 3500); return; }
     if (result === 'busy') { toast('<em>快捷存档正在使用</em>，请稍后再试', 3500); return; }
     if (result === 'pending') { toast('<em>快捷存档有未完成的写入</em>，请稍后再试', 3500); return; }
+    if (result === 'newer') { toast('<em>快捷存档来自更新版本</em>，不能覆盖', 3500); return; }
     if (result === 'wrong-scenario') { toast('<em>记录不属于当前游戏版本</em>', 3500); return; }
     if (result === 'unavailable') { toast('<em>当前环境暂不能写回快捷存档</em>', 3500); return; }
     if (result !== 'saved') { toast('<em>写回失败</em>：浏览器存储不可用或已满', 3000); return; }
