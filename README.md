@@ -141,6 +141,12 @@ PS 结局的对应关系依据音源标签，尚未与原 PS 游戏的结局画�
 
 Dockerfile 从 `reg.deeproute.ai` 拉取 Node 和 Python 基础镜像。本次验证的镜像为 `linux/amd64`；在 ARM 主机上运行需要支持 amd64 模拟。
 
+首次部署，或更新游戏代码、规则数据、依赖、构建文件或素材锁定文件后，运行 `make up` 即可构建并启动。只需要生成镜像时执行 `make build`。只改端口、令牌等运行配置时，可用 `docker compose up -d --no-build` 复用已有镜像；只改文档或测试时也可继续使用已有镜像。
+
+执行 `cat ASSETS.lock.json` 查看当前工作区构建所用的素材版本。下载地址中的 Release 标签即素材版本，`sha256` 和 `size` 是精确的校验值。也可以执行 `git show HEAD:ASSETS.lock.json` 查看已提交的锁文件，将 `HEAD` 换成目标提交号即可查询历史版本。只更新游戏代码且素材安装器、锁文件和素材清单未改变时，Docker 可以复用素材层。
+
+网络中断或下载校验失败时，检查网络和锁定的 Release 后，重新执行 `make build` 或 `make up` 即可。失败的构建不会更新镜像，重试会重新下载失败的素材层。直接在本地运行游戏时，可用 `make assets` 安装或重试。
+
 ```bash
 make build    # 下载校验素材并构建镜像
 make up       # 构建镜像并在后台启动
@@ -151,7 +157,7 @@ make down     # 停止并移除容器
 
 客户端提前断开连接时，日志会保留一条简短提示；其他服务端异常仍会输出完整堆栈。
 
-打开 http://localhost:8677/hd2d-mvp/ 。也可单独执行 `make build` 构建镜像。默认只监听本机的 8677 端口；可以通过环境变量修改监听地址和宿主机端口，例如：
+打开 http://localhost:8677/hd2d-mvp/ 。默认只监听本机的 8677 端口；可以通过环境变量修改监听地址和宿主机端口，例如：
 
 ```bash
 GAME_BIND_ADDRESS=0.0.0.0 GAME_PORT=8080 make up
@@ -508,6 +514,7 @@ npm --prefix hd2d-mvp/desktop ci
 node --test hd2d-mvp/tests/artcoverage.test.mjs                  # 单个测试文件
 node --test --test-concurrency=1 'hd2d-mvp/tests/*.test.mjs'     # 全部测试（较慢，war.test 约 10 分钟）
 python3 hd2d-mvp/tests/scenario_server_test.py                  # 游戏版本发布接口与认证
+python3 hd2d-mvp/tests/assets_pack_test.py                      # 素材包校验、中断和重试
 ```
 
 ## 打包桌面版

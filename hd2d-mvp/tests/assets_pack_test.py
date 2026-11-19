@@ -1,10 +1,14 @@
 """素材包发布格式和安装失败边界。"""
+from http.client import HTTPResponse
+from io import BytesIO
 import json
 from pathlib import Path
 import stat
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 from zipfile import ZipFile, ZipInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
@@ -56,6 +60,39 @@ class AssetsPackTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "SHA-256"):
             install(self.root, self.archive)
         self.assertEqual(self.asset.read_bytes(), b"existing")
+
+    def test_retry_after_download_interruption_and_bad_checksum(self):
+        pack(self.root, self.archive)
+        self.lock()
+        correct = self.archive.read_bytes()
+        self.asset.write_bytes(b"existing")
+
+        def response(headers, body):
+            wire = b"HTTP/1.1 200 OK\r\n" + headers + b"\r\n\r\n" + body
+            result = HTTPResponse(SimpleNamespace(makefile=lambda *_: BytesIO(wire)))
+            result.begin()
+            result.url = "https://example.invalid/bundle.zip"
+            return result
+
+        size = f"Content-Length: {len(correct)}".encode()
+        chunk = f"{len(correct):x}\r\n".encode() + correct[:10]
+        corrupted = bytes([correct[0] ^ 1]) + correct[1:]
+        for headers, body, message in [
+            (size, correct[:10], "下载不完整"),
+            (b"Transfer-Encoding: chunked", chunk, "下载不完整"),
+            (size, corrupted, "SHA-256"),
+        ]:
+            with self.subTest(headers=headers, message=message):
+                with patch("assets_pack.urlopen", return_value=response(headers, body)):
+                    with self.assertRaisesRegex(ValueError, message):
+                        install(self.root, None)
+                self.assertEqual(self.asset.read_bytes(), b"existing")
+                self.assertEqual(list(self.root.glob(".asset-pack-*")), [])
+
+        with patch("assets_pack.urlopen", return_value=response(size, correct)):
+            install(self.root, None)
+        self.assertEqual(self.asset.read_bytes(), self.data)
+        self.assertEqual(list(self.root.glob(".asset-pack-*")), [])
 
     def test_per_file_sha_and_member_type_are_checked_before_install(self):
         for content, file_type in [(b"unexpected", stat.S_IFREG), (self.data, stat.S_IFLNK)]:

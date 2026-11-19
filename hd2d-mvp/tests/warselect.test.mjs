@@ -31,9 +31,12 @@ async function arrange(p) {
   return p.evaluate(() => {
     const w = window.__game.war, f = w.field, mine = f.side(f.human), foe = f.alive.filter((u) => u.side !== f.human);
     const put = (u, x, y) => { u.x = x; u.y = y; w.spriteOf(u).position.set(x - 15.5, w.probe().top(x, y), y - 9); };
-    mine.forEach((u, i) => put(u, 12 + i * 4, 10)); foe.forEach((u, i) => put(u, 2 + i * 3, 3));
+    // 三维城防放大后，中央名牌下方会投影到不可通行的墙格。在护城河外保留可走的重叠地格。
+    const outside = !w.flat && f.siege;
+    mine.forEach((u, i) => put(u, outside ? 2 + i * 3 : 12 + i * 4, 10));
+    foe.forEach((u, i) => put(u, 2 + i * 3, 3));
     f.pool[f.human] = 80; w.cancel(); w.clickCell(mine[0].x, mine[0].y);
-    if (!w.flat) w.frame(16, 10, 24);
+    if (!w.flat) w.frame(mine[1].x, mine[1].y, 24);
     return mine.map((u) => u.id);
   });
 }

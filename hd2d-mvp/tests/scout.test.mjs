@@ -21,6 +21,12 @@ beforeEach(async () => {
   }) });
   await page.evaluate(async () => { (await import('./src/pace.js')).setPace(4); (await import('./src/vignette.js')).setVignettes(false); });
   await resumeCampaign(page);
+  // 读档先显示战略画面，己方命令栏和主城城签随后才可交互。
+  await page.waitForFunction(() => {
+    const { g, strategy } = window.__game;
+    return !document.querySelector('#fade.on, .banner') && document.querySelector('.dock [data-tab="军"]')
+      && strategy.tagOf(g.factions[g.player].city)?.isConnected;
+  });
   cities = await page.evaluate(() => {
     const { g, G } = window.__game, home = g.factions[g.player].city;
     const foes = g.cities.filter((c) => c.faction !== g.player && c.faction !== G.NONE && c.officers.length);

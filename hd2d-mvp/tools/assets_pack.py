@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+from http.client import IncompleteRead
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -80,11 +81,14 @@ def download(url: str, output: Path, size: int) -> None:
         if urlsplit(response.url).scheme != "https":
             raise ValueError("素材包重定向必须使用 HTTPS")
         remaining = size
-        while block := response.read(min(1024 * 1024, remaining + 1)):
-            remaining -= len(block)
-            if remaining < 0:
-                raise ValueError("素材包大于锁定大小")
-            stream.write(block)
+        try:
+            while block := response.read(min(1024 * 1024, remaining + 1)):
+                remaining -= len(block)
+                if remaining < 0:
+                    raise ValueError("素材包大于锁定大小")
+                stream.write(block)
+        except IncompleteRead as error:
+            raise ValueError("素材包下载不完整") from error
         if remaining:
             raise ValueError("素材包下载不完整")
 

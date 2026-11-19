@@ -223,13 +223,18 @@ for (const view of ['flat', '3D']) test(`the war map on the pad (${view}): deplo
   }
   assert.equal((await state(page)).zone, 'map');
   // X: 撤销, and the cursor goes back with him.
-  await padTap(page, 'x', { wait: 400 });
+  await padTap(page, 'x');
+  // 坐标和机动力先恢复，动画结束后才解除操作锁。
+  await page.waitForFunction(({ x, y, id }) => {
+    const { st } = window.__game.war;
+    return !st.busy && st.sel?.id === id && st.sel.x === x && st.sel.y === y;
+  }, { ...c0, id: me }, { timeout: 10000 });
   assert.equal(await page.evaluate(() => window.__game.war.field.pool[window.__game.war.field.human]), pool, 'the move is undone');
   const back = await page.evaluate(() => { const s = window.__game.war.st.sel; return { x: s.x, y: s.y }; });
   assert.deepEqual(await cell(page), back);
   // RB: the next of ours.
   await padTap(page, 'rb', { wait: 300 });
-  assert.notEqual(await page.evaluate(() => window.__game.war.st.sel?.id), me);
+  assert.equal(await page.evaluate(() => window.__game.war.st.sel?.id), ids[(ids.indexOf(me) + 1) % ids.length]);
   // A short Y pins the enemy's threat range and unpins it (the long one ends the day).
   await padTap(page, 'y', { wait: 250 });
   assert.equal(await page.evaluate(() => document.body.classList.contains('threat-view')), true, 'Y shows the threat range');
