@@ -38,18 +38,18 @@ test('each row says what it does, or why it cannot be done', async () => {
   await openCmds(page, '町');
   assert.deepEqual((await rows()).map((r) => [r.name, r.note, r.off]), [
     ['买米', '在米市用金买米', false], ['卖米', '在米市卖米换金', false], ['卖宝', '没有宝物', true],
-    ['病院', '没有负伤的武将', true], ['学问所', '此城没有学问所', true], ['武器屋', '为武将购买武器与防具', false]]);
+    ['病院', '没有负伤的武将', true], ['书馆', '此城没有学问所', true], ['铁铺', '为武将购买武器与防具', false]]);
   await openCmds(page, '军');
   assert.deepEqual((await rows()).filter((r) => r.free).map((r) => r.name), ['分兵', '任命']);
   await tabBtn('军').click();
 });
 
 test('no row\'s note is cut short, in any group', async () => {
-  for (const t of ['城', '军', '仓', '町', '外交']) {
+  for (const t of ['城', '军', '仓', '町']) {
     await openCmds(page, t);
     assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.dock .acts .cmd small')].filter((s) => s.scrollWidth > s.clientWidth).map((s) => s.textContent)), [], t);
   }
-  await tabBtn('外交').click();
+  await tabBtn('町').click();
 });
 
 test('Esc and a press outside close it; the dialog of a command does not', async () => {
@@ -81,9 +81,9 @@ const focus = () => page.evaluate(() => { const a = document.activeElement; retu
 test('keys: 1–5 toggle a group, arrows walk the rows, Esc hands the focus back to the group', async () => {
   await page.keyboard.press('4'); assert.equal(await tabOn(), '町'); assert.equal(await focus(), '买米');
   await page.keyboard.press('ArrowDown'); assert.equal(await focus(), '卖米');
-  await page.keyboard.press('ArrowDown'); assert.equal(await focus(), '武器屋', 'the three that cannot be done are passed over');
+  await page.keyboard.press('ArrowDown'); assert.equal(await focus(), '铁铺', 'the three that cannot be done are passed over');
   await page.keyboard.press('ArrowDown'); assert.equal(await focus(), '买米', 'round to the first');
-  await page.keyboard.press('ArrowUp'); assert.equal(await focus(), '武器屋');
+  await page.keyboard.press('ArrowUp'); assert.equal(await focus(), '铁铺');
   await page.keyboard.press('Escape'); assert.equal(await shown(), false); assert.equal(await focus(), 'tab:町');
   await page.keyboard.press('4'); await page.keyboard.press('4'); assert.equal(await shown(), false, 'the same key closes it');
 });
@@ -103,7 +103,7 @@ test('a click on a group does not move the focus into its list', async () => {
 });
 
 test('opened by the mouse, ↑ or ↓ on the group goes into its list', async () => {
-  await tabBtn('町').click(); await page.keyboard.press('ArrowUp'); assert.equal(await focus(), '武器屋', '↑ to the row nearest the button');
+  await tabBtn('町').click(); await page.keyboard.press('ArrowUp'); assert.equal(await focus(), '铁铺', '↑ to the row nearest the button');
   await page.keyboard.press('Escape'); await tabBtn('町').click();
   await page.keyboard.press('ArrowDown'); assert.equal(await focus(), '买米');
   await page.keyboard.press('Escape');
@@ -113,9 +113,9 @@ test('opened by the mouse, ↑ or ↓ on the group goes into its list', async ()
 test('1–5 do nothing while a command picks a city on the map, or under the 系统 menu', async () => {
   await cmd(page, '城', '移动'); await page.waitForSelector('.mappick');
   await page.keyboard.press('2');
-  assert.equal(await tabOn(), '城', 'the list stays as it was'); assert.equal(await focus(), null, 'and the keys stay with the picker');
+  assert.equal(await tabOn(), '军', 'the list stays as it was'); assert.equal(await focus(), null, 'and the keys stay with the picker');
   await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.querySelector('.mappick'));
-  assert.equal(await shown(), true); assert.equal(await tabOn(), '城');
+  assert.equal(await shown(), true); assert.equal(await tabOn(), '军');
   await page.getByRole('button', { name: '☰ 系统', exact: true }).click(); // (a press elsewhere: the list closes)
   await page.keyboard.press('1'); assert.equal(await shown(), false, 'no group opens under the 系统 menu');
   await page.getByRole('button', { name: '☰ 系统', exact: true }).click();

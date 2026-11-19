@@ -46,6 +46,7 @@ test('赏赐: the one rewarded, 喜', async () => {
   await dock('仓', '赏赐'); await pick(me);
   await page.locator('.shade .btn', { hasText: '赏金' }).click();
   await yes();
+  await page.locator('.shade .btn', { hasText: '每人一次' }).click();
   const w = await nextWindow();
   assert.deepEqual([w.who, w.mood], [me, 'joy']); assert.match(w.text, /忠诚/);
   await closeWindow();

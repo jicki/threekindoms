@@ -140,7 +140,7 @@ body.phone .ruler .meta { padding: 16px 6px 4px; }
 body.phone .ruler b { font-size: 18px; letter-spacing: 1px; } body.phone .ruler small { font-size: 11px; line-height: 1.3; } body.phone .ruler small.towns { display: none; } body.phone .ruler .rstat { font-size: 11px; gap: 4px; }
 body.phone .setup-foot { position: fixed; right: var(--gr); bottom: var(--gb); width: 92px; margin: 0; padding: 0; flex-direction: column-reverse; gap: 8px; background: none; }
 body.phone .setup-foot .btn { min-height: var(--hit); width: 100%; padding-inline: 4px; }
-body.phone .dock .acts, body.phone .actpanel, body.phone .modal, body.phone .sysmenu-list, body.phone .mappick { background: color-mix(in srgb, var(--lacquer) 95%, transparent); }
+body.phone .dock .acts, body.phone .actpanel, body.phone .modal, body.phone .sysmenu-list, body.phone .mappick { background: var(--lacquer); background: color-mix(in srgb, var(--lacquer) 95%, transparent); }
 body.phone .ruler { height: clamp(124px, calc(var(--vh) - 232px), 250px); }
 
 /* ---------- 白兵 ---------- */
@@ -236,6 +236,9 @@ body.phone .tq-round { width: 40px; height: 40px; } body.phone .tq-round b { fon
 body.phone .tq-console { position: fixed; inset: 0; left: 0; right: 0; bottom: 0; transform: none; width: auto; display: block; padding: 0; background: none; border: 0; box-shadow: none; backdrop-filter: none; border-radius: 0; pointer-events: none; animation: none; }
 body.phone .tq-console::before, body.phone .tq-console::after { display: none; }
 body.phone .tq-orders, body.phone .tq-tactics, body.phone .tq-ctrl { position: fixed; pointer-events: auto; background: rgba(18, 12, 8, .66); border: 1px solid var(--tq-line, #6a5030); border-radius: 10px; padding: 3px; }
+body.phone .tq-orders.folded .tq-row, body.phone .tq-tactics.folded .tq-tac { display: none; }
+body.phone .tq-fold { min-width: 44px; min-height: 38px; }
+body.phone .tq-tactics .tq-fold { grid-column: 1 / -1; }
 body.phone .tq-orders { left: var(--g); bottom: calc(var(--gb) + 42px); flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 2px; }
 body.phone .tq-row { gap: 2px; } body.phone .tq-kind { font-size: 15px; min-width: 1.7em; text-align: center; } body.phone .tq-kind small { display: none; }
 body.phone .tq-seg { padding: 1px; gap: 1px; background: none; box-shadow: none; }
@@ -261,6 +264,7 @@ body.phone .vig-more { right: 10px; bottom: 6px; font-size: 12px; }
    - the city panel folded open and the command list do not stand together: opening one puts the other away;
    - on a narrow phone the folded city panel gives way to the open command list. */
 body.phone .toast { left: var(--g); transform: none; max-width: min(46vw, 360px); }
+body.phone:has(.actpanel) .toast { left: calc(var(--g) + 272px); max-width: max(70px, calc(100vw - var(--g) - var(--gr) - 280px)); }
 body.phone .toast.out { transform: translateY(-8px); }
 body.phone .aiturn { bottom: auto; top: calc(var(--gt) + 40px); }
 body.phone .qnotice { bottom: calc(var(--gb) + var(--hit) + 12px); }
@@ -360,6 +364,7 @@ body.phone .unitpanel .acts .btn.recast small { margin-left: 0; font-size: 11px;
 body.phone .sysmenu-list { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 6px; align-items: stretch; width: min(400px, calc(100vw - var(--g) - var(--gr))); padding: 6px; }
 body.phone .sysmenu-list[hidden] { display: none; }
 body.phone .sysmenu-col { display: contents; }
+body.phone .sysmenu-pair { display: contents; }
 body.phone .sysmenu-tabs { display: flex; gap: 4px; position: sticky; top: -6px; z-index: 1; margin: -6px -6px 0; padding: 6px 6px 4px; background: var(--lacquer); border-bottom: 1px solid rgba(220, 180, 110, .2); }
 body.phone .sysmenu-list .sysmenu-tabs .btn { flex: 1 1 0; min-width: 0; min-height: 40px; padding: 0 2px; font-size: 15px; text-align: center; opacity: .72; }
 body.phone .sysmenu-list .sysmenu-tabs .btn[aria-selected="true"] { opacity: 1; color: #ffe9b0; border-color: var(--gold); box-shadow: inset 0 -3px 0 var(--gold); }

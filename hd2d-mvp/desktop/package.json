@@ -29,6 +29,8 @@
     },
     "files": [
       "main.js",
+      "preload.cjs",
+      "window-state.cjs",
       "app/**/*",
       "package.json"
     ],

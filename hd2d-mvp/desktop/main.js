@@ -2,11 +2,12 @@
 // A fixed custom origin lets ES modules and fetch() work (file:// would not) and keeps localStorage saves
 // in the user's profile across reinstalls. F11 toggles fullscreen, Alt+Enter too.
 //   --smoke=<dir>  load, screenshot, log console errors and missing files to <dir>, then quit (for CI / checks)
-const { app, BrowserWindow, Menu, crashReporter, dialog, net, protocol, shell } = require('electron');
+const { app, BrowserWindow, Menu, crashReporter, dialog, ipcMain, net, protocol, screen, shell } = require('electron');
 const { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { fitBounds } = require('./window-state.cjs');
 
 const ROOT = path.join(__dirname, 'app');
 const ORIGIN = 'app://game';
@@ -130,10 +131,36 @@ function watchPage(win) {
 }
 
 function createWindow() {
+  const stateFile = path.join(app.getPath('userData'), 'window-state.json');
+  let saved = null;
+  try { saved = JSON.parse(readFileSync(stateFile, 'utf8')); } catch { /* 首次启动或状态文件损坏时使用默认位置 */ }
+  const { maximize, fullscreen, ...bounds } = fitBounds(saved, screen.getAllDisplays());
   const win = new BrowserWindow({
-    width: 1600, height: 900, minWidth: 1024, minHeight: 600, backgroundColor: '#000000',
+    ...bounds, minWidth: 1024, minHeight: 600, backgroundColor: '#000000',
     title: '三国 HD-2D', autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, sandbox: true, devTools, backgroundThrottling: false },
+    webPreferences: { contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.cjs'), devTools, backgroundThrottling: false },
+  });
+  if (maximize) win.maximize();
+  if (fullscreen) win.setFullScreen(true);
+  let closing = false, asking = false;
+  win.on('close', (event) => {
+    if (closing || smokeDir) return;
+    event.preventDefault(); if (asking) return; asking = true;
+    (async () => {
+      let active = true, war = false;
+      try { const state = await win.webContents.executeJavaScript('({active: !!window.__game?.g, screen: document.body?.dataset.screen})'); active = !!state.active; war = state.screen === 'war'; }
+      catch { /* 无法读取页面状态时保守确认，避免丢失进度 */ }
+      if (active) {
+        const choice = await dialog.showMessageBox(win, { type: 'question', buttons: ['取消', '退出游戏'], defaultId: 0, cancelId: 0,
+          message: '退出游戏？', detail: war ? '未保存的战斗进度将丢失。可先取消并使用「系统 → 中断战斗」。' : '未保存的进度将丢失。可先取消并记录进度。' });
+        if (choice.response !== 1) return;
+      }
+      try {
+        const state = { ...win.getNormalBounds(), maximize: win.isMaximized(), fullscreen: win.isFullScreen() };
+        writeFileSync(`${stateFile}.tmp`, JSON.stringify(state)); renameSync(`${stateFile}.tmp`, stateFile);
+      } catch (err) { log(`window state: ${err.message}`); }
+      closing = true; win.close();
+    })().catch((err) => log(`close confirmation: ${err.message}`)).finally(() => { asking = false; });
   });
   win.webContents.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown') return;
@@ -213,6 +240,12 @@ app.whenReady().then(() => {
   if (!existsSync(path.join(ROOT, 'index.html'))) { fail('游戏文件不完整', '找不到游戏页面。请把压缩包完整解压后，再运行解压目录里的程序。'); return app.exit(1); }
   app.getGPUInfo('basic').then((info) => log(`gpu ${JSON.stringify(info.gpuDevice)} features ${JSON.stringify(app.getGPUFeatureStatus())}`), (err) => log(`gpu info: ${err}`));
   protocol.handle('app', serve);
+  const validSender = (event) => {
+    if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame) return false;
+    try { const url = new URL(event.senderFrame.url); return url.protocol === 'app:' && url.host === 'game' && url.pathname === '/index.html'; } catch { return false; }
+  };
+  ipcMain.handle('game:fullscreen', (event) => { if (!validSender(event)) return false; const w = BrowserWindow.fromWebContents(event.sender); if (!w) return false; w.setFullScreen(!w.isFullScreen()); return w.isFullScreen(); });
+  ipcMain.handle('game:quit', (event) => { if (!validSender(event)) return false; BrowserWindow.fromWebContents(event.sender)?.close(); return true; });
   const win = createWindow();
   log('window created');
   if (smokeDir) { mkdirSync(smokeDir, { recursive: true }); smoke(win); }

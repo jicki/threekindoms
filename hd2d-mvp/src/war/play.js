@@ -207,6 +207,7 @@ export function makePlay(wv) {
     for (const [u, info] of [[a, res.a], [d, res.d]]) {
       if (info.fate === 'dead') ui.log(`　<em>${name(u.id)} 阵亡</em>`);
       if (info.fate === 'captured') ui.log(`　<em>${name(u.id)} 被俘</em>`);
+      if (info.fate === 'defected') { ui.log(`　<em>${name(u.id)} 转投${sideLabel(u.side)}</em>`); drop(views.get(u).g); views.delete(u); addUnit(u); }
       wv.tag(u);
     }
     if (res.duel?.retreated) ui.log(`　${name(res.duel.retreated)} 从单挑中退却`);
@@ -216,17 +217,18 @@ export function makePlay(wv) {
 
   // 布阵 (6.7 §6.5): the human side may move each unit to any free cell inside its rectangle, any terrain.
   const rect = human ? (human === 'att' ? field.dep.attacker_rect : field.dep.defender_rect) : null;
-  async function castOn(u, id, t) {
+  async function castOn(u, id, t, count = 1) {
     if (st.busy) return;
     if (!field.canCast(u, id, t)) return refuse(u, id);
     lock(); st.last = null;
-    const res = field.cast(u, id, t);
+    const results = field.castMany(u, id, t, count);
+    const res = count === 1 ? results[0] : { ...results[0], batch: true, hit: results.some((r) => r.hit), hits: results.flatMap((r) => r.hits), lines: [...results.flatMap((r, i) => [`第${i + 1}次：${r.hit ? '成功' : '失败'}`, ...r.lines]), ...(results.length < count ? [`执行${results.length}次后因战场状态或施计条件变化而停止`] : [])] };
     lastCast.set(u, { id, t });
     await playStrategy(u, t, id, res);
     // The 计略 is done and he stays selected, his commands back in his card, as after an attack: 再施 (X), a move or another 计略
     // follow without picking him again (2026-11-14; they used to be put away with the cast).
     // The input that closed the result acts on nothing here (stage()); he is let go only if he left the field or the war is over.
-    st.busy = false; if (u.gone || field.over || field.turn !== human) st.sel = null; stage(); showOptions(); hud(); check();
+    st.busy = false; if (u.gone || field.over || field.turn !== human) st.sel = null; else if (count > 1 && field.canCast(u, id, t)) st.cast = id; stage(); showOptions(); hud(); check();
   }
   async function playStrategy(u, t, id, res) {
     const name0 = STRATS[id].name;
@@ -245,7 +247,7 @@ export function makePlay(wv) {
     // The face the original's window wears (bank 12 $AACD / $AAE5, bank 13 $C0B6 / $C0C0): the player's caster, 喜 when
     // it works and 忧 when it fails; an enemy's 计略 is told by the one it was aimed at, the other way round.
     const mine = u.side === human, who = mine ? u.id : t?.id ?? res.hits?.[0]?.u.id ?? null;
-    const told = ui.stratResult?.(name0, res.hit ? res.lines.join('<br>') : mine ? '计略失败了，非常抱歉。' : `${name0}失败了。`, who, res.hit === mine ? 'joy' : 'grief');
+    const told = ui.stratResult?.(name0, res.hit || res.batch ? res.lines.join('<br>') : mine ? '计略失败了，非常抱歉。' : `${name0}失败了。`, who, res.hit === mine ? 'joy' : 'grief');
     const v = t && views.get(t);
     let effectSound = null;
     if (v && res.hit) {

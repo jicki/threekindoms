@@ -414,6 +414,17 @@ test('爆炎 still needs its 12 points while another tactic runs', () => {
   const t = blastField(); t.side.a.fx.bind = 3; t.side.a.tp = 11;
   assert.equal(t.tactic('a', 'blast').ok, false); assert.equal(t.side.a.tp, 11);
 });
+test('爆炎按将领最近移动方向落地，出界时不可施放且不消耗战术点', () => {
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const t = blastField(), u = t.gen('a'); t.map = Array.from({ length: GH }, () => Array(GW).fill(0));
+    const from = [u.x, u.y]; t.move(u, u.x + dx * 3, u.y + dy * 3, false);
+    assert.deepEqual(u.facing, [dx, dy]);
+    const center = [from[0] + 3 * dx, from[1] + 3 * dy];
+    assert.deepEqual(t.blastCenter('a'), center); assert.deepEqual(t.tactic('a', 'blast').center, center);
+  }
+  const t = blastField(), u = t.gen('a'); Object.assign(u, { x: 0, y: 4, facing: [-1, 0] });
+  assert.equal(t.canTactic('a', 'blast'), false); assert.equal(t.tactic('a', 'blast').ok, false); assert.equal(t.side.a.tp, 24);
+});
 test('the AI keeps the rule: no 爆炎 while its own tactic runs, the same field draws one when none does', () => {
   const free = blastField(); free.aiTactic('d');
   assert.equal(free.side.d.tp, 12, 'three squads in reach: the AI throws 爆炎');

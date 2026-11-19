@@ -263,7 +263,7 @@ export class Tactical {
         if (u.kind === 'gen') { this.side[u.side].fate = 'retreat'; this.over = { why: 'retreat', side: u.side }; ev.pursuit = this.pursue(u.side); }
         return ev;
       }
-      if (this.passable(u, nx, ny)) { const from = [u.x, u.y]; u.x = nx; u.y = ny; return { type: 'move', u, from, to: [nx, ny] }; }
+      if (this.passable(u, nx, ny)) { const from = [u.x, u.y]; u.x = nx; u.y = ny; if (u.kind === 'gen') u.facing = [sx, sy]; return { type: 'move', u, from, to: [nx, ny] }; }
     }
     return { type: 'idle', u };
   }
@@ -271,7 +271,12 @@ export class Tactical {
   // ---------- Tactics (S14–S18; AI order 2.8) ----------
   // The original lets no tactic through while one of the side's own runs (AAF0), and aiTactic keeps to that by asking
   // without an id. The player's 爆炎, an instant blow with no duration, may be thrown over a running effect (devblog #131).
-  canTactic(s, id) { const S = this.side[s]; return (id === 'blast' || !Object.values(S.fx).some((v) => v > 0)) && !S.usedThisRound; }
+  blastCenter(s) {
+    const u = this.gen(s); if (!u || u.dead || u.out) return null;
+    const [dx, dy] = u.facing ?? [s === 'a' ? 1 : -1, 0], x = u.x + 2 * dx, y = u.y + 2 * dy;
+    return this.inside(x, y) ? [x, y] : null;
+  }
+  canTactic(s, id) { const S = this.side[s]; return (id !== 'blast' || !!this.blastCenter(s)) && (id === 'blast' || !Object.values(S.fx).some((v) => v > 0)) && !S.usedThisRound; }
   tactic(s, id) {
     const S = this.side[s], F = S.foe, T = TACTICS.find((t) => t.id === id), r = this.r;
     if (!T || S.tp < T.cost || !this.canTactic(s, id)) return { type: 'tactic', side: s, id, ok: false, msg: '无法使用' };
@@ -290,7 +295,7 @@ export class Tactical {
         break;
       }
       case 'blast': {
-        const gu = this.gen(s), dir = s === 'a' ? 1 : -1, cx = gu.x + 2 * dir, cy = gu.y;
+        const [cx, cy] = this.blastCenter(s);
         ev.center = [cx, cy]; ev.hits = [];
         for (const e of this.live.filter((e) => e.side !== s && Math.abs(e.x - cx) <= 1 && Math.abs(e.y - cy) <= 1)) {
           const d = Math.max(0, S.o.int - r(10) - 2) + 1, dmg = e.kind === 'gen' ? Math.floor(d / 2) : e.kind === 'cav' ? 2 * Math.floor(d / 3) : d;
@@ -317,7 +322,7 @@ export class Tactical {
   aiTactic(s) {
     const S = this.side[s], F = S.foe, r = this.r, gu = this.gen(s);
     if (!this.canTactic(s) || gu.dead || gu.out) return;
-    const foeUnits = this.live.filter((e) => e.side !== s), dir = s === 'a' ? 1 : -1;
+    const foeUnits = this.live.filter((e) => e.side !== s);
     const tryT = (id, p) => {
       const T = TACTICS.find((t) => t.id === id); if (S.tp < T.cost) return false;
       if (r(100) >= p) return false;
@@ -331,7 +336,7 @@ export class Tactical {
       }
       (this.events ||= []).push(this.tactic(s, id)); return true;
     };
-    let n = 0; for (let d = 1; d <= 3; d++) n = Math.max(n, foeUnits.filter((e) => Math.abs(e.x - (gu.x + d * dir)) <= 1 && Math.abs(e.y - gu.y) <= 1).length);
+    const center = this.blastCenter(s), n = center ? foeUnits.filter((e) => Math.abs(e.x - center[0]) <= 1 && Math.abs(e.y - center[1]) <= 1).length : 0;
     if (n >= 2 && tryT('blast', n === 2 ? 40 : n === 3 ? 70 : 100)) return;
     const archers = this.live.filter((u) => u.side === s && u.kind === 'arc');
     let shots = 0; for (const a of archers) for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0]]) for (let d = 2; d <= 4; d++) if (foeUnits.some((e) => e.x === a.x + dx * d && e.y === a.y + dy * d)) shots++;
@@ -358,7 +363,13 @@ export class Tactical {
       const id = res.dead, how = this.fell(this.side.a.id === id ? 'a' : 'd');
       if (how === 'captured') { res.dead = null; res.captured = id; }
       else { const eq = duelLoot(this.g, res.winner, id, this.r); if (eq != null) res.loot = { id: res.winner, eq }; }
-    } else if (res.surrendered != null) { const s = this.side.a.id === res.surrendered ? 'a' : 'd'; this.gen(s).dead = true; this.side[s].fate = 'captured'; this.over = { why: 'capture', side: s }; }
+    } else if (res.surrendered != null) {
+      const s = this.side.a.id === res.surrendered ? 'a' : 'd';
+      // 袭扰战的临时山贼、海贼不属于正常势力，继续按袭扰战的俘虏规则结算。
+      const defect = res.persuaded && !this.g.raidBattle;
+      this.gen(s).dead = true; this.side[s].fate = defect ? 'defected' : 'captured';
+      this.over = { why: defect ? 'defection' : 'capture', side: s };
+    }
     else if (res.endSkirmish) this.over = { why: 'parley' };
     // A retreat and 说得's 结果 2 both leave result code 1 on the general who goes: his order turns to 退却, and he gets his
     // own next action to fall back before contact with him starts another duel (else the next step re-enters it at once).

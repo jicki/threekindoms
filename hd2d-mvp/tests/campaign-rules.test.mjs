@@ -26,6 +26,54 @@ const fieldFor = (g) => {
   return new Field(g, war, 'att');
 };
 
+test('连续计略逐次消耗机动力并保留随机及经验结果，效果生效或兵尽后停止', () => {
+  const g = setup(), f = fieldFor(g), u = f.side('att')[1], t = f.side('def')[1];
+  Object.assign(u, { x: 5, y: 5 }); Object.assign(t, { x: 6, y: 5 });
+  Object.assign(g.officers[u.id], { int: 90, war: 10, level: 4, soldiers: 800 });
+  Object.assign(g.officers[t.id], { soldiers: 1000, hp: 80 });
+  f.map = f.map.map((row) => [...row]); f.map[5][5] = f.map[5][6] = 0; f.turn = 'att'; f.pool.att = 40; f.r = () => 0;
+  const copy = Field.restore(structuredClone(g), structuredClone(f.war), f.snapshot()); copy.map = f.map; copy.r = () => 0;
+  const cu = copy.units.find((v) => v.id === u.id), ct = copy.units.find((v) => v.id === t.id);
+  const results = f.castMany(u, 3, t, 3), sequential = [copy.cast(cu, 3, ct), copy.cast(cu, 3, ct), copy.cast(cu, 3, ct)];
+  assert.equal(results.length, 3); assert.deepEqual(results.map((x) => x.lines), sequential.map((x) => x.lines));
+  assert.equal(f.pool.att, copy.pool.att); assert.deepEqual(g.officers[u.id], copy.g.officers[u.id]); assert.deepEqual(g.officers[t.id], copy.g.officers[t.id]);
+  f.pool.att = 40; delete t.stop; assert.equal(f.castMany(u, 2, t, 3).length, 1);
+  g.officers[t.id].soldiers = 1; f.pool.att = 40; assert.equal(f.castMany(u, 3, t, 3).length, 1);
+  G.setData(base);
+});
+
+test('两名护卫夹住主将时，前方护卫让行并消耗正常机动力', () => {
+  const g = setup(), f = fieldFor(g), [leader, front, other] = f.side('att'), foe = f.side('def')[0];
+  Object.assign(leader, { x: 5, y: 5 }); Object.assign(front, { x: 6, y: 5, role: 3 });
+  Object.assign(other, { x: 5, y: 4, role: 3 }); Object.assign(foe, { x: 10, y: 5 });
+  f.units = [leader, front, other, foe]; f.pool.att = 40;
+  const action = f.approach(front, leader);
+  assert.equal(action?.type, 'move'); assert.notDeepEqual([front.x, front.y], [6, 5]);
+  assert.equal(f.pool.att, 40 - action.cost); assert.equal(f.unitAt(6, 5), undefined);
+  G.setData(base);
+});
+
+test('绕开友军后不会立即走回头路，下一日仍可脱困', () => {
+  const g = setup(), f = fieldFor(g), [unit, blocker, blocker2] = f.side('att');
+  g.campaignRules = false; f.map = f.map.map((row) => row.map(() => PLAIN));
+  Object.assign(unit, { x: 2, y: 5, role: 1 }); Object.assign(blocker, { x: 3, y: 5 }); Object.assign(blocker2, { x: 3, y: 6 });
+  f.units = [unit, blocker, blocker2]; f.pool.att = 50;
+  const target = { x: 5, y: 5 }; assert.equal(f.approach(unit, target)?.type, 'move');
+  assert.deepEqual([unit.x, unit.y], [2, 6]); assert.equal(f.approach(unit, target), null);
+  f.day++; assert.equal(f.approach(unit, target)?.type, 'move'); assert.deepEqual([unit.x, unit.y], [2, 5]);
+  G.setData(base);
+});
+
+test('敌军策动通报选择我方最高智力部将，不使用已离开的武将', () => {
+  const g = setup(), ruler = g.factions[g.player].ruler;
+  const ours = g.cities.filter((c) => c.faction === g.player).flatMap((c) => c.officers).filter((id) => id !== ruler);
+  assert.ok(ours.length >= 2);
+  for (const id of ours) g.officers[id].int = 10;
+  g.officers[ours[0]].int = 98; g.officers[ours[1]].int = 80;
+  assert.equal(G.playerAdvisor(g), ours[0]); g.officers[ours[0]].status = G.RONIN;
+  assert.equal(G.playerAdvisor(g), ours[1]); G.setData(base);
+});
+
 test('十名君主有各自专属效果，新旧记录及关闭增强时正确隔离', () => {
   const g = setup();
   const effects = g.factions.map((f) => G.rulerPassive(g, f.id).combat.unique);

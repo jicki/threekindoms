@@ -210,7 +210,7 @@ export class Duel {
       // (`CDCF`) his general order turns to 退却 (Tactical.resolveDuel). He is not beaten, so no 败走 banner.
       if (out === 2) this.result = { dead: null, ended: true, withdrew: foe.id, winner: me.id };
       if (out === 3) this.result = { dead: null, ended: true, endSkirmish: true, winner: me.id };
-      if (out === 4) this.result = { dead: null, surrendered: foe.id, winner: me.id };
+      if (out === 4) this.result = { dead: null, surrendered: foe.id, winner: me.id, persuaded: true };
       return a;
     }
     if (cmd === 'retreat') {

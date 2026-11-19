@@ -99,7 +99,8 @@ export function makeInteract(wv) {
   function confirmInfo() {
     const c = st.confirm; if (!c) return null;
     const S = STRATS[c.id], chance = c.t ? field.odds(c.u, c.id, c.t) : null, left = field.pool[human] - S.cost;
-    return { id: c.id, name: S.name, t: c.t, cost: S.cost, pool: field.pool[human], left, attacks: Math.max(0, Math.floor(left / ATTACK_COST)), chance, loyalty: c.t && c.id === 8 ? field.O(c.t.id).loyalty : null };
+    const maxCount = Math.max(1, Math.min(c.id === 11 ? 1 : Infinity, Math.floor(field.pool[human] / S.cost), S.maxUses ? S.maxUses - (c.u.skillUses?.[c.id] ?? 0) : Infinity));
+    return { id: c.id, name: S.name, t: c.t, cost: S.cost, pool: field.pool[human], left, attacks: Math.max(0, Math.floor(left / ATTACK_COST)), chance, count: c.count ?? 1, maxCount, loyalty: c.t && c.id === 8 ? field.O(c.t.id).loyalty : null };
   }
   // The generals the 计略 in hand may be cast on, likeliest first then nearest, for the list beside the caster (feedback of
   // 2026-11-09, 张沐镕@bilibili: a target at 全景 was a 28×20 px cell): { name, target, rows: [{ u, o, chance, commander }] }, or null.
@@ -281,8 +282,14 @@ export function makeInteract(wv) {
     if (!fresh(e)) return false;
     st.confirm = null; st.ask = null; st.cast = null;
     if (c.u.gone || !field.canCast(c.u, c.id, c.t)) { refuse(c.u, c.id); return false; }
-    wv.castOn(c.u, c.id, c.t);
+    wv.castOn(c.u, c.id, c.t, c.count ?? 1);
     return true;
+  }
+  function setCastCount(count) {
+    if (!st.confirm || st.busy) return;
+    const max = confirmInfo().maxCount;
+    st.confirm.count = Math.max(1, Math.min(max, Math.floor(count) || 1));
+    showOptions();
   }
   // Undo rides back along the same route, a little quicker than the way out.
   async function undo() {
@@ -322,5 +329,5 @@ export function makeInteract(wv) {
 
   wv.done = undefined;
   const finished = new Promise((res) => (wv.done = res));
-  return { st, hud, sideLabel, syncCompare, compareTarget, showOptions, select, attackTargets, attackRows, strikeInfo, confirmInfo, castTargets, hot, attackable, castable, recastOf, lastCast, inRect, showDeploy, deployClick, finishDeploy, clickCell, openAttacks, askAttack, commitAttack, cancel, openStrategies, chooseStrategy, recast, refuse, askCast, commitCast, undo, retreat, hold, shop, service, finished };
+  return { st, hud, sideLabel, syncCompare, compareTarget, showOptions, select, attackTargets, attackRows, strikeInfo, confirmInfo, castTargets, hot, attackable, castable, recastOf, lastCast, inRect, showDeploy, deployClick, finishDeploy, clickCell, openAttacks, askAttack, commitAttack, setCastCount, cancel, openStrategies, chooseStrategy, recast, refuse, askCast, commitCast, undo, retreat, hold, shop, service, finished };
 }

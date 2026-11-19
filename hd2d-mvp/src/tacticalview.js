@@ -98,6 +98,10 @@ export function createTacticalView(T, sprites) {
   const env = seasonEnv(scene, { sun, back: rim, hemi, sunK: 0.8, hemiK: 0.95, snowH: 0.6, patch: 0.3, ring: [64, 3] });
   env.backdrop(sky);
   const blast = blastRig(scene); // 爆炎 (src/blastfx.js), made once and compiled with each field
+  const blastMark = new THREE.Group(), blastTile = new THREE.PlaneGeometry(0.94, 0.94);
+  const blastMarkMat = new THREE.MeshBasicMaterial({ color: '#ffb33b', transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide });
+  for (let i = 0; i < 9; i++) { const tile = new THREE.Mesh(blastTile, blastMarkMat); tile.rotation.x = -Math.PI / 2; blastMark.add(tile); }
+  blastMark.name = 'blast-preview'; blastMark.visible = false; scene.add(blastMark);
   let where = { month: 2, city: 12 }, place = env.set(where), loading = loadTacticalGround(2, 12).catch(() => null);
 
   let set = null, units = new Map(), battle = null, time = 0, shake = 0, speed = 1, shift = 0, fit = 1, billboards = [], corpses = [], water = null, cellH = () => H0;
@@ -219,7 +223,7 @@ export function createTacticalView(T, sprites) {
   function build(b, looks) {
     const T0 = performance.now(); // tools/scene_switch_trace.mjs (PERF-05): measures only
     stepAt = -Infinity;
-    blast.clear();
+    blast.clear(); blastMark.visible = false;
     if (set && sameField(b, looks)) {
       const gone = set.children.filter((o) => !laid.kids.has(o));
       for (const o of gone) { o.traverse((x) => x.isCSS2DObject && x.element.remove()); set.remove(o); }
@@ -585,6 +589,16 @@ export function createTacticalView(T, sprites) {
   return {
     scene, camera,
     build, play, tag, settle,
+    previewBlast(center) {
+      blastMark.visible = !!center;
+      if (!center) return;
+      let i = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const x = center[0] + dx, y = center[1] + dy, tile = blastMark.children[i++];
+        tile.visible = x >= 0 && x < GW && y >= 0 && y < GH;
+        if (tile.visible) tile.position.set(wx(x), groundY(wx(x), wz(y), H0) + 0.035, wz(y));
+      }
+    },
     // The war this 白兵 belongs to: { month, city } (the battlefield's seat sets the latitude).
     setPlace(p) { where = p; place = env.set(p); loading = loadTacticalGround(p.month, p.city).catch((e) => console.warn('白兵 ground', e)); },
     // The painted field's materials for the place set last (build() falls back to tiles without them).

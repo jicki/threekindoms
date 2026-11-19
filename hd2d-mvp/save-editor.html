@@ -577,7 +577,7 @@ function render() {
   if (!g) {
     $('tabs').replaceChildren();
     $('body').replaceChildren(h('div', { class: 'panel ed-box empty-state' }, h('h3', {}, '尚无记录'),
-      h('p', {}, '先在游戏里用「城 → 记录」存一次，或用下方「导入」读入导出过的记录文件。')));
+      h('p', {}, '先在游戏里用「录」存一次，或用下方「导入」读入导出过的记录文件。')));
     return;
   }
   renderTabs();

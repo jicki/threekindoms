@@ -306,7 +306,7 @@ export async function pickCity(title, cids, describe = () => '', { hover } = {})
 // until then 确定 waits, and leaving the box (or Enter) puts it right in sight: empty is the last amount, otherwise the nearest legal one.
 export function sliders(title, fields, { note = '', ok = '确定', validate, live } = {}) {
   return modal(title, (close) => {
-    const vals = Object.fromEntries(fields.map((f) => [f.key, f.value ?? f.min]));
+    const vals = Object.fromEntries(fields.map((f) => [f.key, Math.max(f.min, Math.min(f.max, f.value ?? f.min))]));
     const unsettled = new Set(), boxes = [];
     // A press on 确定 takes the focus from a box, which puts the amount right and would free the button before the release: a click
     // pressed while a box was unsettled only shows the corrected amount, it confirms nothing. So an unsettled box greys the button

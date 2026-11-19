@@ -151,5 +151,13 @@ export async function openCmds(page, tab) {
   if (await page.evaluate(() => document.querySelector('.dock .tabs .btn.on')?.textContent ?? null) !== tab) await page.locator('.dock .tabs .btn', { hasText: tab }).click();
   await page.waitForSelector('.dock .acts:not([hidden])');
 }
-export const cmdRow = (page, act) => page.locator('.dock .acts .cmd', { has: page.locator('b', { hasText: new RegExp(`^${act}$`) }) });
-export async function cmd(page, tab, act) { await openCmds(page, tab); await cmdRow(page, act).click(); }
+export const cmdRow = (page, act) => page.locator(`.dock .acts .cmd[data-act="${act}"]`);
+export async function cmd(page, tab, act) {
+  if (act === '记录') return page.locator('.dock .tabs [data-tab="录"]').click();
+  if (act === '移动') tab = '军';
+  if (tab === '外交') {
+    await openCmds(page, '城'); await cmdRow(page, '外交').click();
+    return page.locator('.shade .cities .btn', { hasText: act }).click();
+  }
+  await openCmds(page, tab); await cmdRow(page, act).click();
+}

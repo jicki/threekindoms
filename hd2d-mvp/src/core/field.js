@@ -260,6 +260,15 @@ export class Field {
       if (info.fate === 'dead') { o.status = DEAD; u.gone = true; u.fate = 'dead'; }
       if (info.fate === 'captured') { u.gone = true; u.fate = 'captured'; u.capturedBy = u.side === 'att' ? 'def' : 'att'; if (info.spared) u.spared = true; }
     }
+    for (const [u, info] of [[a, res.a], [d, res.d]]) if (info.fate === 'defected') {
+      const oldSide = u.side, newSide = oldSide === 'att' ? 'def' : 'att';
+      const wasCommander = u.commander, faction = this.faction(newSide), ruler = this.g.factions[faction]?.ruler;
+      u.side = newSide; u.role = u.home = 4; u.commander = false;
+      delete u.mission; delete u.aiDetour;
+      const o = this.O(u.id);
+      if (ruler != null) o.loyalty = recruitLoyaltyWithRelation(data(), this.g, faction, u.id, recruitLoyalty(this.O(ruler).virtue, o.loyalty));
+      if (wasCommander) this.end(oldSide, 'commander');
+    }
     this.checkCommanders();
   }
   // 武将不战死 keeps a ruler from being lost to an overflow after the war: an AI ruler 退却s only to a city with room,
@@ -432,6 +441,17 @@ export class Field {
     return !!u && !u.gone && !this.over && u.side === this.turn && this.pool[u.side] >= STRATS[id].cost
       && !(STRATS[id].custom && STRATS[id].maxUses && (u.skillUses?.[id] ?? 0) >= STRATS[id].maxUses)
       && this.strategies(u).some((s) => s.id === id) && (id === 11 ? this.legal(u, 11) : this.legal(u, id, t));
+  }
+  // 每次仍调用原有施计逻辑；中途目标或战场状态变化时立即停止。
+  castMany(u, id, t, count) {
+    const results = [], max = Math.max(1, Math.min(100, Math.floor(count) || 1));
+    for (let i = 0; i < max && this.canCast(u, id, t); i++) {
+      if (i && t && this.O(t.id).soldiers <= 0) break;
+      const result = this.cast(u, id, t); if (!result.ok) break;
+      results.push(result);
+      if (result.hit && ([2, 10, 11, 15].includes(id) || (STRATS[id].custom && (STRATS[id].stop > 0 || this.conditionalSkill(STRATS[id], u, t).stop > 0)))) break;
+    }
+    return results;
   }
   conditionalSkill(skill, caster, target) {
     if (this.g.campaignRules !== true) return { soldiers: 0, stop: 0, rice: 0 };
@@ -636,7 +656,7 @@ export class Field {
     for (let pass = 0; pass < 400; pass++) {
       let acted = false;
       for (const u of slots) {
-        if (this.over || u.gone) continue;
+        if (this.over || u.gone || u.side !== s) continue;
         const act = this.aiDecide(u);
         if (!act) continue;
         acted = true; yield act;
@@ -771,6 +791,24 @@ export class Field {
   }
   approach(u, target) {
     if (!target || this.pool[u.side] <= 0 || u.stop || u.qimen) return null;
+    // 贴身护卫不抢占主将另一侧；两名护卫堵住前路时，挡路的一人侧移让行。
+    if (u.role === 3 && target.commander && target.side === u.side && this.adjacent(u, target)) {
+      const guards = this.side(u.side).filter((v) => v.role === 3 && this.adjacent(v, target));
+      const foe = this.side(u.side === 'att' ? 'def' : 'att').find((v) => v.commander);
+      if (guards.length >= 2 && foe) {
+        const dx = foe.x - target.x, dy = foe.y - target.y;
+        const forward = Math.abs(dx) >= Math.abs(dy) && dx ? [Math.sign(dx), 0] : [0, Math.sign(dy)];
+        if (u.x === target.x + forward[0] && u.y === target.y + forward[1]) {
+          for (const [sx, sy] of [[-forward[1], forward[0]], [forward[1], -forward[0]]]) {
+            const x = u.x + sx, y = u.y + sy;
+            if (!this.inside(x, y) || this.unitAt(x, y) || (u.side === 'att' && x === this.castle()[0] && y === this.castle()[1])) continue;
+            const cost = this.cost(u, x, y);
+            if (cost <= this.pool[u.side]) { this.move(u, x, y, cost); return { type: 'move', u, path: [[x, y]], cost }; }
+          }
+        }
+      }
+      return null;
+    }
     // 绕路必须继续到选定的落点，不能下一步又按直线走回刚才的位置。
     const route = u.aiDetour;
     if (this.g.campaignRules === true && route) {
@@ -796,8 +834,14 @@ export class Field {
     if (!dx) cands = [vert]; else if (!dy) cands = [horz];
     cands = cands.map(([sx, sy]) => [u.x + sx, u.y + sy]).filter(([x, y]) => this.inside(x, y))
       .map(([x, y]) => ({ x, y, c: this.aiEstimate(u, x, y) })).sort((a, b) => a.c - b.c);
+    const avoid = u.aiAvoidReturn;
+    if (avoid && (avoid.day !== this.day || !Array.isArray(avoid.target) || avoid.target[0] !== target.x || avoid.target[1] !== target.y)) delete u.aiAvoidReturn;
     let first = cands.find((c) => c.c <= this.pool[u.side]);
     if (!first) return this.detour(u, target);
+    if (u.aiAvoidReturn && first.x === u.aiAvoidReturn.x && first.y === u.aiAvoidReturn.y) {
+      first = cands.find((c) => c.c <= this.pool[u.side] && (c.x !== avoid.x || c.y !== avoid.y) && !this.unitAt(c.x, c.y));
+      if (!first) return this.detour(u, target);
+    }
     const occ = this.unitAt(first.x, first.y);
     if (occ && occ.side !== u.side) return u.role === 1 && this.pool[u.side] >= ATTACK_COST ? this.doAttack(u, [occ]) : this.detour(u, target);
     // Remake deviation (player feedback N07): A60C waits when its own officer holds the first step, so two
@@ -807,8 +851,12 @@ export class Field {
       if (first.x === target.x && first.y === target.y) return null; // already beside the officer it walks to
       if (!dx || !dy) cands = [[u.x + (dx ? 0 : 1), u.y + (dy ? 0 : 1)], [u.x - (dx ? 0 : 1), u.y - (dy ? 0 : 1)]]
         .filter(([x, y]) => this.inside(x, y)).map(([x, y]) => ({ x, y, c: this.aiEstimate(u, x, y) })).sort((a, b) => a.c - b.c);
-      first = cands.find((c) => c !== first && c.c <= this.pool[u.side] && !this.unitAt(c.x, c.y));
+      first = cands.find((c) => c !== first && c.c <= this.pool[u.side] && !this.unitAt(c.x, c.y)
+        && !(u.aiAvoidReturn && c.x === u.aiAvoidReturn.x && c.y === u.aiAvoidReturn.y));
       if (!first) return this.detour(u, target);
+      u.aiAvoidReturn = { x: u.x, y: u.y, target: [target.x, target.y], day: this.day };
+    } else {
+      delete u.aiAvoidReturn;
     }
     this.move(u, first.x, first.y, first.c);
     return { type: 'move', u, path: [[first.x, first.y]], cost: first.c };

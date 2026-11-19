@@ -173,7 +173,7 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
   // alongside may take the general, so the player knows when to switch to 围 instead of striking him dead.
   const hpBar = (s, X, mine) => {
     // once his fate is settled (slain, taken, or gone over his edge) the card says so instead of the capture hint
-    const gu = battle.gen(s), fate = X.fate === 'dead' ? '阵亡' : X.fate === 'captured' ? '被俘' : gu?.out ? '撤出' : null;
+    const gu = battle.gen(s), fate = X.fate === 'dead' ? '阵亡' : X.fate === 'captured' ? '被俘' : X.fate === 'defected' ? '转投' : gu?.out ? '撤出' : null;
     const gate = battle.captureGate(s), low = !fate && gate != null && X.hp < gate;
     return h('div', { class: `tq-bar hp ${low ? 'low' : ''}`, style: gate != null ? `--gate:${gate}%` : null,
       title: gate == null ? '体力（忠诚 100，宁死不降）' : `体力：低于 ${gate} 时，第4回合起被两部以上相邻包围可能被擒` },
@@ -197,9 +197,16 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
   const drawTop = () => top.replaceChildren(card('a'),
     h('div', { class: 'tq-round' }, h('small', {}, '回合'), h('b', {}, battle.round), h('em', {}, ['林', '沙', '平原', '河', '山', '城'][battle.terrain] + '战')),
     card('d'));
-  let armed = null, armT = 0;
+  let armed = null, armT = 0, phoneMenu = null, phoneMenuTimer = 0;
+  const keepPhoneMenu = () => {
+    clearTimeout(phoneMenuTimer);
+    if (PHONE && phoneMenu) phoneMenuTimer = setTimeout(() => { phoneMenu = null; if (con.isConnected) drawConsole(); }, 6000);
+  };
+  const togglePhoneMenu = (menu) => { phoneMenu = phoneMenu === menu ? null : menu; keepPhoneMenu(); drawConsole(); };
+  if (PHONE) con.addEventListener('pointerdown', keepPhoneMenu);
   const arm = (id) => { armed = id; clearTimeout(armT); armT = setTimeout(() => { if (armed === id) { armed = null; if (con.isConnected) drawConsole(); } }, 4500); drawConsole(); };
   const drawConsole = () => {
+    view.previewBlast?.(PHONE && armed === 'blast' ? battle.blastCenter(hs) : null);
     const counts = Object.fromEntries(KINDS.map((k) => [k, battle.live.filter((u) => u.side === hs && u.kind === k).length]));
     const rows = KINDS.slice().reverse().map((k) => h('div', { class: `tq-row ${counts[k] ? '' : 'none'}` },
       h('span', { class: 'tq-kind' }, KIND_NAME[k], h('small', {}, k === 'gen' ? '' : `×${counts[k]}`)),
@@ -219,15 +226,16 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
     // Phone: a tactic's first tap only says what it does and costs (a mouse reads that off the button's tooltip) and the
     // second casts it; 全军撤退 asks the same way. Either lapses after a few seconds or when another is tapped.
     const told = PHONE && armed ? (armed === 'withdraw' ? '全军撤退：各队转身退出战场。' : `${TACTICS.find((t) => t.id === armed)?.name ?? ''}：${tacticTip(armed)}`) : null;
-    const tactics = h('div', { class: 'tq-tactics' }, ...TACTICS.map((t) => {
+    const tactics = h('div', { class: `tq-tactics${PHONE && phoneMenu !== 'tactics' ? ' folded' : ''}` },
+      PHONE ? h('button', { class: 'tq-btn tq-fold', 'aria-expanded': String(phoneMenu === 'tactics'), onclick: () => togglePhoneMenu('tactics') }, '战术') : null, ...TACTICS.map((t) => {
       const ok = S.tp >= t.cost && battle.canTactic(hs, t.id) && !auto && !battle.over && !queued && !casting && !battle.duel;
       const live = battle.untold(hs, t.id) ? 0 : Math.max(0, (fxHold?.fx ?? S.fx)[t.id] || 0); // ours running: the button wears the rounds left on its corner (not before a cast under 自动 is told)
-      return h('button', { class: `tq-tac ${live ? `live fx-${t.id}` : ''}${PHONE && armed === t.id ? ' armed' : ''}`, disabled: !ok, title: `${tacticTip(t.id)}\n需战术点${t.cost}${S.tp < t.cost ? `，现有${S.tp}（每场按智力×13÷100给出）` : ''}${live ? `\n生效中，还剩 ${live} 回合` : battle.canTactic(hs, t.id) ? '' : '\n已有战术生效中'}`, onclick: () => { if (queued || casting || battle.duel) return; if (PHONE && armed !== t.id) { arm(t.id); return; } armed = null; queued = t.id; drawConsole(); resume(); } },
+      return h('button', { class: `tq-tac ${live ? `live fx-${t.id}` : ''}${PHONE && armed === t.id ? ' armed' : ''}`, disabled: !ok, title: `${tacticTip(t.id)}\n需战术点${t.cost}${S.tp < t.cost ? `，现有${S.tp}（每场按智力×13÷100给出）` : ''}${live ? `\n生效中，还剩 ${live} 回合` : battle.canTactic(hs, t.id) ? '' : t.id === 'blast' && !battle.blastCenter(hs) ? '\n前方没有落点' : '\n已有战术生效中'}`, onmouseenter: () => { if (t.id === 'blast') view.previewBlast?.(battle.blastCenter(hs)); }, onmouseleave: () => { if (!PHONE) view.previewBlast?.(null); }, onfocus: () => { if (t.id === 'blast') view.previewBlast?.(battle.blastCenter(hs)); }, onblur: () => { if (!PHONE) view.previewBlast?.(null); }, onclick: () => { if (queued || casting || battle.duel) return; if (PHONE && armed !== t.id) { arm(t.id); return; } armed = null; queued = t.id; drawConsole(); resume(); } },
         h('b', {}, t.name), h('span', {}, t.cost), live ? h('u', { class: 'tq-tac-live', 'aria-label': `生效中，还剩 ${live} 回合` }, `${live}回合`) : null);
     }));
     // Two low rows (orders; tactics and controls), so the field keeps most of the screen's height.
     con.replaceChildren(
-      h('div', { class: 'tq-orders' }, h('div', { class: 'tq-label' }, '将令'), ...rows, all),
+      h('div', { class: `tq-orders${PHONE && phoneMenu !== 'orders' ? ' folded' : ''}` }, PHONE ? h('button', { class: 'tq-btn tq-fold', 'aria-expanded': String(phoneMenu === 'orders'), onclick: () => togglePhoneMenu('orders') }, '将令') : h('div', { class: 'tq-label' }, '将令'), ...rows, all),
       h('div', { class: 'tq-side' }, h('div', { class: 'tq-label' }, '战术'), tactics,
         h('div', { class: 'tq-ctrl' },
           h('button', { class: `tq-btn ${paused ? 'on' : ''}`, title: '暂停／继续（空格）', 'data-pad': 'start', onclick: (e) => (begun ? setPaused(!paused) : begin(e)) }, paused ? '▶ 继续' : '❚❚ 暂停', h('kbd', { class: 'pad-only' })),
@@ -416,7 +424,8 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
       dlog.prepend(h('p', { class: sideOf(r.winner) === hs ? 'me' : 'foe', html: `<b>${name(r.winner)}</b>：站住！临阵脱逃，卑鄙！` }));
       await sleep(900);
     }
-    const outcome = r.dead != null ? `${name(r.winner)} 斩 ${name(r.dead)}` : r.captured != null ? `${name(r.winner)} 擒 ${name(r.captured)}` : r.surrendered != null ? `${name(r.surrendered)} 投降` : r.retreated != null ? `${name(r.retreated)} 败走` : r.endSkirmish ? '双方收兵' : '单挑结束';
+    const defected = r.persuaded && r.surrendered != null && battle.side[sideOf(r.surrendered)].fate === 'defected';
+    const outcome = r.dead != null ? `${name(r.winner)} 斩 ${name(r.dead)}` : r.captured != null ? `${name(r.winner)} 擒 ${name(r.captured)}` : r.surrendered != null ? `${name(r.surrendered)} ${defected ? '转投' : '投降'}` : r.retreated != null ? `${name(r.retreated)} 败走` : r.endSkirmish ? '双方收兵' : '单挑结束';
     const endSound = duelEndSound(r, won); if (endSound) audio.sfx(endSound);
     await banner(outcome, won ? (looks[hs] === 'attacker' ? '#6ab8ff' : '#ff8a70') : '#a0a0a0');
     // 原版：斩杀特定武将或君主后，胜者得到宝物，留在单挑画面上以讯息窗告知（core/tactical.js duelLoot）；
@@ -434,7 +443,7 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
     if (r.dead != null) log(`<em>${name(r.dead)} 在单挑中阵亡</em>`);
     if (r.loot) log(`${name(r.loot.id)} 得到了${D.equipment[r.loot.eq].name}`);
     else if (r.captured != null) log(`<em>${name(r.captured)} 在单挑中被擒</em>`);
-    else if (r.surrendered != null) log(`<em>${name(r.surrendered)} 投降</em>`);
+    else if (r.surrendered != null) log(`<em>${name(r.surrendered)} ${defected ? '转投' : '投降'}</em>`);
     else if (r.retreated != null) log(`${name(r.retreated)} 退出单挑`);
     audio.playBgm('bgm-skirmish'); drawTop(); drawConsole();
   }
@@ -540,10 +549,10 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
     h('div', { class: 'tq-res-row' }, ...['a', 'd'].map((s) => h('div', { class: `tq-res ${looks[s]}` }, h('b', {}, name(battle.side[s].id)),
       h('span', {}, `损兵 ${s === 'a' ? res.lossA : res.lossD}`), h('span', {}, `余兵 ${res[s].soldiers}　体力 ${res[s].hp}`),
       battle.side[s].pursuit ? h('span', { class: 'tq-res-note' }, battle.side[s].pursuit.hit ? `撤退遭追击　体力 −${battle.side[s].pursuit.dmg}` : '撤退时成功脱身') : null,
-      res[s].fate ? h('em', {}, { dead: '阵亡', captured: '被俘' }[res[s].fate]) : null))),
+      res[s].fate ? h('em', {}, { dead: '阵亡', captured: '被俘', defected: '转投' }[res[s].fate]) : null))),
     h('button', { class: 'tq-btn primary', onclick: () => done?.() }, '返回战场'));
   root.append(sum);
   let done; await new Promise((r) => { done = r; setTimeout(r, auto ? 2500 : 60000); });
-  root.remove(); removeEventListener('resize', frame); view.setInsets?.(0, 0);
+  clearTimeout(phoneMenuTimer); view.previewBlast?.(null); root.remove(); removeEventListener('resize', frame); view.setInsets?.(0, 0);
   return res;
 }

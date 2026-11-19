@@ -133,7 +133,17 @@ export const isRuler = (g, id) => g.factions.some((f) => f.ruler === id);
 export const boundRulerWeapon = (g, id) => D.equipment[g.officers[id]?.weapon]?.exclusiveRuler === id;
 export const roads = (cid) => D.cities[cid].roads;
 export const name = (id) => D.officers[id].name;
-export const cityName = (cid) => D.cities[cid].name;
+// 仅改变展示名称，不修改城市数据、版本校验或存档中的编号。若新据点使用同名，保留原名避免歧义。
+const HISTORICAL_NAMES = { 幽州: '北平', 并州: '晋阳', 冀州: '邺', 兖州: '陈留', 豫州: '许昌', 青州: '北海', 徐州: '下邳', 扬州: '寿春', 荆州: '南郡', 凉州: '武威', 交州: '南海', 西平关: '金城', 西安阳: '五原' };
+let historicalNames = (() => { try { return localStorage.getItem('hd2d-place-names') === '1'; } catch { return false; } })();
+export const placeNames = () => historicalNames;
+export function setPlaceNames(on) { historicalNames = !!on; try { localStorage.setItem('hd2d-place-names', on ? '1' : '0'); } catch {} }
+export const cityName = (cid) => {
+  const city = D.cities[cid], alt = Object.hasOwn(HISTORICAL_NAMES, city.name) ? HISTORICAL_NAMES[city.name] : null;
+  return historicalNames && cid < 30 && alt && !D.cities.some((other) => other.id !== cid && other.name === alt) ? alt : city.name;
+};
+export const cityOrigName = (cid) => cityName(cid) === D.cities[cid].name ? null : D.cities[cid].name;
+export const placeNamePairs = () => D.cities.filter((c) => c.id < 30 && Object.hasOwn(HISTORICAL_NAMES, c.name)).map((c) => [c.name, HISTORICAL_NAMES[c.name]]);
 // 原版武器按每八件分组；新武器使用其显式类别，不依赖编号。
 export const weaponGroup = (id) => id < 24 ? Math.floor(id / 8) : ({ 剑: 0, 刀: 1, 枪: 2, 扇: 3, 弓: 4 }[D.equipment[id]?.cat] ?? -1);
 // A house goes by its ruler of the day; a fallen one by the ruler it fell under (the scenario's name for an older
@@ -442,6 +452,14 @@ export function evaluator(g) {
   let best = g.factions[g.player].ruler, top = -1;
   for (const c of g.cities) for (const id of c.officers) if (g.officers[id].int >= top) { top = g.officers[id].int; best = id; }
   return best;
+}
+
+// 敌方策动我军时由仍在本势力任职、智力最高的部将通报。
+export function playerAdvisor(g) {
+  const ruler = g.factions[g.player]?.ruler;
+  const officers = g.cities.filter((c) => c.faction === g.player).flatMap((c) => c.officers)
+    .filter((id) => id !== ruler && g.officers[id]?.status === SERVING);
+  return officers.reduce((best, id) => best == null || g.officers[id].int > g.officers[best].int ? id : best, null) ?? ruler ?? null;
 }
 
 // ---------- Turn loop (5.8) ----------

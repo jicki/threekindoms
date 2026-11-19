@@ -21,7 +21,7 @@ after(() => game?.close());
 const openMenu = async () => { if (await page.locator('.sysmenu-list').isHidden()) await page.click('.sysmenu-btn'); };
 const closeMenu = async () => { if (await page.locator('.sysmenu-list').isVisible()) await page.click('.sysmenu-btn'); };
 // Each row wholly inside the window, on top where it stands and showing all of its text, with nothing to scroll.
-const lostRows = () => page.evaluate((sel) => {
+const lostRows = (p = page) => p.evaluate((sel) => {
   const lost = [], list = document.querySelector('.sysmenu-list');
   for (const el of list.querySelectorAll(sel)) {
     const r = el.getBoundingClientRect(), name = el.textContent.trim();
@@ -73,15 +73,15 @@ test('on the title every row is in the window', async () => {
   await everySize(await (async () => { await openMenu(); return page.locator(ROWS).count(); })());
 });
 
-test('on the strategy map all 27 rows can be clicked at every window size', async () => {
+test('on the strategy map all 30 rows can be clicked at every window size', async () => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await newCampaign(page, '曹操');
-  await everySize(27);
+  await everySize(30);
   await tabThroughSmallWindow();
   await page.setViewportSize({ width: 1600, height: 900 });
 });
 
-test('in a war all 27 rows (中断战斗 too) can be clicked at every window size', async () => {
+test('in a war all 30 rows (中断战斗 too) can be clicked at every window size', async () => {
   await page.evaluate(() => {
     const { g, debug } = window.__game, c = g.cities[14], to = g.cities[12];
     for (const id of [...c.officers, ...to.officers]) g.officers[id].soldiers ||= 500;
@@ -95,7 +95,18 @@ test('in a war all 27 rows (中断战斗 too) can be clicked at every window siz
     await page.evaluate(() => window.__game.war.finishDeploy());
     await page.waitForFunction(() => { const f = window.__game.war.field; return f.turn === f.human && !document.querySelector('.banner, .panel.msg'); }, null, { timeout: 30000 });
   } finally { stop(); }
-  await everySize(27);
+  await everySize(30);
   await tabThroughSmallWindow();
   assert.deepEqual(page.errors, []);
+});
+
+test('桌面模式增加全屏和退出后，最小窗口仍可访问全部菜单', async () => {
+  const p = await game.open('', { setup: (ctx) => ctx.addInitScript(() => { window.desktopControls = { toggleFullscreen: async () => true, quit: async () => true }; }) });
+  try {
+    await p.setViewportSize({ width: 1024, height: 600 }); await newCampaign(p, '曹操');
+    await p.locator('.sysmenu-btn').click();
+    assert.equal(await p.locator('.sysmenu-list button', { hasText: '全屏' }).count(), 1);
+    assert.equal(await p.locator('.sysmenu-list button', { hasText: '退出游戏' }).count(), 1);
+    assert.deepEqual(await lostRows(p), []); assert.deepEqual(p.errors, []);
+  } finally { await p.context().close(); }
 });

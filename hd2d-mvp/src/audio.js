@@ -24,7 +24,7 @@ const store = (k, v) => { try { if (v === undefined) return localStorage.getItem
 
 export class Audio {
   constructor(files, music = {}) {
-    this.files = files; this.music = music; this.ctx = null; this.bgm = null; this.bgmKey = null; this.muted = false; this.cache = {}; this.bufs = new Map();
+    this.files = files; this.music = music; this.ctx = null; this.bgm = null; this.bgmKey = null; this.muted = store('hd2d-muted') === 'true'; this.cache = {}; this.bufs = new Map();
     this.sets = SETS.filter(([, , re]) => Object.entries(music).some(([key, urls]) => key.startsWith('bgm-') && urls.some((u) => re.test(u)))).map(([id, label]) => ({ id, label }));
     this.set = this.sets.find((t) => t.id === store('hd2d-music'))?.id ?? this.sets[0]?.id;
     this.volume = Math.min(1, Math.max(0, Number(store('hd2d-music-volume') ?? 1)));
@@ -51,7 +51,7 @@ export class Audio {
     if (this.bgmKey && !this.bgm) { const k = this.bgmKey; this.bgmKey = null; this.playBgm(k); }
   }
 
-  setMuted(m) { this.muted = m; if (this.master) this.master.gain.value = m ? 0 : 0.5; }
+  setMuted(m, persist = true) { this.muted = m; if (persist) store('hd2d-muted', String(m)); if (this.master) this.master.gain.value = m ? 0 : 0.5; }
   setVolume(v) { this.volume = v; store('hd2d-music-volume', String(v)); if (this.musicGain) this.musicGain.gain.setTargetAtTime(0.9 * level(v), this.ctx.currentTime, 0.03); }
   setSfxVolume(v) { this.sfxVolume = v; store('hd2d-sfx-volume', String(v)); if (this.sfxGain) this.sfxGain.gain.setTargetAtTime(level(v), this.ctx.currentTime, 0.03); }
   setMusicSet(id) {

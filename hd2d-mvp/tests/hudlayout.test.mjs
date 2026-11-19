@@ -46,7 +46,7 @@ for (const [width, height] of [[1024, 600], [1100, 650], [1101, 650], [1280, 720
   test(`${width}×${height}: no HUD panel covers another, whichever group is open`, async () => {
     await page.setViewportSize({ width, height });
     await page.waitForTimeout(100); // the resize event places the panels
-    for (const tab of ['城', '军', '仓', '町', '外交']) {
+    for (const tab of ['城', '军', '仓', '町']) {
       await openCmds(page, tab);
       await page.mouse.move(3, 3);
       const r = await look();
@@ -66,7 +66,7 @@ test('at 1600×900 the dock stays in the middle of the screen', async () => {
 
 test('resize while the list is open: it is placed again', async () => {
   await page.setViewportSize({ width: 1600, height: 900 }); await page.waitForTimeout(100);
-  await openCmds(page, '外交');
+  await openCmds(page, '军');
   await page.setViewportSize({ width: 1024, height: 600 }); await page.waitForTimeout(150);
   const r = await look();
   assert.deepEqual([r.overlaps, r.offscreen], [[], []]); assert.ok(r.caret != null && r.caret <= 2, String(r.caret));
@@ -77,7 +77,7 @@ test('the dock is as wide closed as with any group open', async () => {
   const w = () => page.evaluate(() => Math.round(document.querySelector('.dock').getBoundingClientRect().width));
   await openCmds(page, '城'); await page.locator('.dock .tabs .btn.on').click(); // closed
   const closed = await w();
-  for (const tab of ['城', '町', '外交']) { await openCmds(page, tab); assert.equal(await w(), closed, tab); }
+  for (const tab of ['城', '町', '军']) { await openCmds(page, tab); assert.equal(await w(), closed, tab); }
 });
 
 // The still of a command's 命令演出 stands beside the list, on the side with room, and over no panel.
