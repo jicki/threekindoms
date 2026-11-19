@@ -111,7 +111,7 @@ export function createWarView(ctx, field) {
     setThreatView(on) { wv.threatOn = !!on; },
     screenOf: wv.screenOf, screenAxes: wv.screenAxes, pan: wv.pan,
     centreOn: wv.centreOn, viewQuad: wv.viewQuad, // the minimap, the edge markers and a double click (src/warnav.js, src/app.js)
-    undo: wv.undo, endTurn: wv.endTurn, retreat: wv.retreat, hold: wv.hold, service: wv.service, shop: wv.shop, clickCell: wv.clickCell, chooseStrategy: wv.chooseStrategy, supportBreach: wv.supportBreach,
+    undo: wv.undo, endTurn: wv.endTurn, retreat: wv.retreat, hold: wv.hold, service: wv.service, shop: wv.shop, clickCell: wv.clickCell, chooseStrategy: wv.chooseStrategy,
     openStrategies: wv.openStrategies, commitCast: wv.commitCast, setCastCount: wv.setCastCount, openAttacks: wv.openAttacks, commitAttack: wv.commitAttack, attack: wv.commitAttack, locate: wv.locate,
     keepInView: wv.keepInView, recast: wv.recast, finishDeploy: wv.finishDeploy, cancel: wv.cancel, st: wv.st,
     playStrategy: wv.playStrategy, playAttack: wv.playAttack, // also driven by tests/war.test.mjs and tests/levelup.test.mjs

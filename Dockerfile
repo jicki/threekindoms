@@ -6,6 +6,12 @@ COPY hd2d-mvp/desktop/package.json hd2d-mvp/desktop/package-lock.json ./
 RUN npm ci --include=dev --omit=optional --ignore-scripts --no-audit --no-fund
 
 # FROM python:3.13-slim
+FROM reg.deeproute.ai/deeproute-public/zzh/python:3.13-slim AS assets
+WORKDIR /asset-root
+COPY ASSETS.lock.json ASSETS.sha256 ./
+COPY hd2d-mvp/tools/assets_pack.py /usr/local/bin/assets_pack.py
+RUN python3 /usr/local/bin/assets_pack.py --root /asset-root install
+
 FROM reg.deeproute.ai/deeproute-public/zzh/python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -14,19 +20,14 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 COPY LICENSE LICENSE-ART NOTICE /usr/share/licenses/threekindoms/
+COPY --from=assets /asset-root/hd2d-mvp/assets/ ./hd2d-mvp/assets/
+COPY hd2d-mvp/assets/ ./hd2d-mvp/assets/
 COPY hd2d-mvp/*.html ./hd2d-mvp/
 COPY hd2d-mvp/src/ ./hd2d-mvp/src/
 COPY hd2d-mvp/data/ ./hd2d-mvp/data/
-COPY hd2d-mvp/assets/ ./hd2d-mvp/assets/
 COPY hd2d-mvp/tools/serve.py hd2d-mvp/tools/scenario_store.py ./hd2d-mvp/tools/
 
-# 素材包不在 Git 中，避免构建出缺少关键画面的镜像。
-RUN for asset in hd2d-mvp/assets/ai/portraits/0.webp hd2d-mvp/assets/ai/sandtable/board/albedo.webp; do \
-      if [ ! -s "$asset" ] || [ "$(head -c 24 "$asset")" = 'version https://git-lfs.' ]; then \
-        echo '缺少游戏素材，请先按 README.md 将对应版本的 Releases 素材包解压到仓库根目录。' >&2; \
-        exit 1; \
-      fi; \
-    done && mkdir -p "$GAME_VERSION_DIR" /var/lib/threekindoms/admin \
+RUN mkdir -p "$GAME_VERSION_DIR" /var/lib/threekindoms/admin \
     && chown 65534:65534 "$GAME_VERSION_DIR" /var/lib/threekindoms/admin \
     && chmod 700 /var/lib/threekindoms/admin
 

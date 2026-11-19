@@ -333,13 +333,13 @@ port = int(sys.argv[1]) if len(sys.argv) > 1 else 8642
 if not mods.is_dir():
     print('Note: hd2d-mvp/desktop/node_modules is missing, so three.js and the fonts will not load;'
           ' run npm --prefix hd2d-mvp/desktop install', file=sys.stderr)
-# A clone of the open-source repository has no art until its Release asset pack is unzipped (and an old LFS clone only
+# A clone of the open-source repository has no art until make assets runs (and an old LFS clone only
 # pointer files): say so instead of a page of broken images.
 for probe in ('hd2d-mvp/assets/ai/portraits/0.webp', 'hd2d-mvp/assets/ai/sandtable/board/albedo.webp'):
     p = root / probe
     if not p.is_file() or p.read_bytes()[:24] == b'version https://git-lfs.':
         print('Note: the art is missing from hd2d-mvp/assets/;'
-              ' unzip the asset pack from the Releases page in the repository root (see README.md)', file=sys.stderr)
+              ' run make assets in the repository root (see README.md)', file=sys.stderr)
         break
 def terminate(_signum, _frame):
     raise SystemExit(0)

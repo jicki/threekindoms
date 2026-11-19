@@ -115,7 +115,8 @@ export class Field {
   snapshot() {
     const ambush = this.ambush && Object.fromEntries(Object.entries(this.ambush).map(([s, a]) => [s, a && { ...a, u: this.units.indexOf(a.u) }]));
     return structuredClone({ human: this.human, units: this.units, pool: this.pool, day: this.day, turn: this.turn, over: this.over, log: this.log,
-      commanderRetreat: this.commanderRetreat ?? null, ambush: ambush ?? null, ...(this.siege ? { siegeGates: this.siege.gates } : {}) });
+      commanderRetreat: this.commanderRetreat ?? null, ambush: ambush ?? null,
+      ...(this.siege ? { siegeGates: this.siege.gates, siegeRevision: this.siege.revision } : {}) });
   }
   // The field again from a snapshot, on the game and war it was taken with (both restored from the same record). Nothing is
   // drawn and no role is reassigned, so the battle goes on exactly where it stood. `resumed` tells the war view to skip 布阵.
@@ -128,7 +129,7 @@ export class Field {
     f.entryDirection = layout?.direction ?? null;
     const baseDep = layout?.dep ?? (D.deploy[war.city][war.from] || Object.values(D.deploy[war.city])[0]);
     const baseMap = layout?.map ?? D.maps[war.city], baseVillages = layout?.villages ?? D.villages[war.city] ?? [];
-    const siege = g.battlefields === 2 ? siegeLayout(baseMap, baseDep, baseVillages, layout?.direction, [30,31].includes(war.city)) : null;
+    const siege = g.battlefields === 2 ? siegeLayout(baseMap, baseDep, baseVillages, layout?.direction, [30,31].includes(war.city), s.siegeRevision ?? 1) : null;
     f.map = siege?.map ?? baseMap; f.dep = siege?.dep ?? baseDep; f.villages = siege?.villages ?? baseVillages; f.siege = siege?.siege ?? null; f.r = rng(g);
     if (f.siege && !restoreGates(f.siege, s.siegeGates)) throw new Error('无效的城门中断记录');
     Object.assign(f, { units: s.units, pool: s.pool, day: s.day, turn: s.turn, over: s.over, log: s.log ?? [], lastAmbush: null, resumed: true });
@@ -244,27 +245,8 @@ export class Field {
   }
   village(u) { return this.villages.find((v) => v.x === u.x && v.y === u.y); }
   // What a cell is to the player: a village (moved and judged as 平地) or its terrain's name.
-  ground(x, y) { const gate = gateAt(this.siege,x,y); if (gate) return `${gate.ring === 3 ? '外' : '内'}城门（${gate.open ? '已突破' : '封闭，攻方突破消耗＋2'}）`; if (wallAt(this.siege,x,y)) return '城墙（不可通行）'; const v = this.villages.find((q) => q.x === x && q.y === y); return v ? `村落（${v.kind}）` : TERRAIN_NAME[this.terr(x, y)]; }
+  ground(x, y) { const gate = gateAt(this.siege,x,y); if (gate) return `${gate.ring === this.siege.outer ? '外' : '内'}城门（${gate.open ? '已突破' : '封闭，攻方突破消耗＋2'}）`; if (wallAt(this.siege,x,y)) return '城墙（不可通行）'; const v = this.villages.find((q) => q.x === x && q.y === y); return v ? `村落（${v.kind}）` : TERRAIN_NAME[this.terr(x, y)]; }
   deployable(x,y) { return !wallAt(this.siege,x,y); }
-  // 军师可以从护城桥支援攻门。守军驻门时仍须先交战，内城只能由部队亲自突破。
-  gateSupport(u) {
-    if (!this.siege || this.g.siegeTactics !== true || this.over || u?.gone || u?.side !== 'att' || this.turn !== 'att') return null;
-    const o = this.O(u.id);
-    if (o.int < 85 || o.soldiers < 100 || u.stop || u.qimen) return null;
-    const { cx, cy, gates } = this.siege;
-    if (Math.max(Math.abs(u.x - cx), Math.abs(u.y - cy)) !== 4) return null;
-    const gate = gates.find(p => p.ring === 3 && !p.open && this.adjacent(u, p) && !this.unitAt(p.x, p.y));
-    return gate ? { gate, cost: 7 } : null;
-  }
-  supportBreach(u) {
-    const action = this.gateSupport(u);
-    if (!action || this.pool.att < action.cost) return false;
-    this.pool.att -= action.cost;
-    action.gate.open = true;
-    return true;
-  }
-
-  // 沿预计算路径移动；返回值表示本次是否突破了城门。
   move(u, x, y, spent, path = [[x,y]]) {
     let breached = false;
     if (u.side === 'att') for (const [px,py] of path) { const gate = gateAt(this.siege,px,py); if (gate && !gate.open) { gate.open = true; breached = true; } }

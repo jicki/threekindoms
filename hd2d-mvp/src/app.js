@@ -2908,7 +2908,6 @@ function warUi(field) {
       if (!info) { panelKey = null; $('.actpanel')?.remove(); return cardBoxTidy(); }
       const { u, o, mine, village, canRetreat, canUndoHim, strategies, recast, deploying, busy, flash, asking, targets, stage, confirm, canAttack } = info;
       const ours = mine && field.turn === human && !deploying;
-      const siegeSupport = stage === 'cmds' && ours ? field.gateSupport(u) : null;
       // His commands stand in his card, the same place whoever he is and wherever he stands, flat or 3D (D32: they used to stand
       // beside him and dock into the card when no spot was clear). While the field plays a move, attack or 计略 out they stay in
       // place but greyed, so the card does not reflow on every action and a list cannot open on a pool that is about to change.
@@ -2921,16 +2920,6 @@ function warUi(field) {
         // 攻击: the enemies beside him in the panel (one alone is asked about at once); a click on a red cell asks the same.
         canAttack ? h('button', { class: 'btn', disabled: !!busy, title: '攻击相邻的敌将（机动力 2），在左侧确认后进入白兵战', onclick: () => war.openAttacks() }, '攻击') : null,
         strategies.length ? h('button', { class: 'btn', disabled: !!busy, 'aria-haspopup': 'menu', 'data-key': 'f', title: '计略（F）', onclick: () => war.openStrategies() }, '计略', h('kbd', { class: 'keycap', 'data-label': 'F' })) : null,
-        siegeSupport ? h('button', { class: 'btn', disabled: !!busy || field.pool[human] < siegeSupport.cost,
-          title: `突破前方无人驻守的外城门，消耗 ${siegeSupport.cost} 机动力`, onclick: async () => {
-            const view = war;
-            if (!view || view.st.busy) return;
-            view.hold(true);
-            let confirmed;
-            try { confirmed = await confirmBox('策应攻门', `消耗 ${siegeSupport.cost} 机动力，突破前方外城门？`); }
-            finally { view.hold(false); }
-            if (confirmed && war === view) view.supportBreach(u);
-          } }, '策应攻门') : null,
         // 再施: the 计略 he cast last, straight to its targets (the one he cast it on first); greyed, with the reason, when it cannot be cast now.
         recast ? h('button', { class: 'btn recast', disabled: !!busy || !recast.usable, 'data-key': 'x', title: recast.usable ? `再施${recast.name}：机动力 ${recast.cost}，目标照常选择并确认（X）` : `现在不能再施${recast.name}：${recast.why || '无法施展'}`,
           onclick: () => war.recast() }, '再施', h('small', {}, recast.name), h('kbd', { class: 'keycap', 'data-label': 'X' })) : null,

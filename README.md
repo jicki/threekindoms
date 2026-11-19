@@ -30,19 +30,17 @@ hd2d-mvp/
 
 ## 获取代码与素材
 
-仓库包含代码、数据、已收录的音乐与音效，以及内置角色的美术素材。原有美术、3D 模型、其他音效和图标放在 [Releases](https://github.com/tianlin/threekindoms/releases) 的素材包 `threekindoms-assets-<版本>.zip` 里。
+代码库保留代码、规则数据和素材索引。美术、3D 模型、音乐、音效及桌面图标集中在 [GitHub Releases 素材包](https://github.com/jicki/threekindoms/releases/tag/assets-1)，安装后沿用 `hd2d-mvp/assets/` 及桌面图标原目录。
 
 ```bash
-git clone https://github.com/tianlin/threekindoms.git
+git clone https://github.com/jicki/threekindoms.git
 cd threekindoms
-# 从 Releases 下载与代码对应的素材包（跟进 main 就用最新的），解压到仓库根目录：
-unzip -o ~/Downloads/threekindoms-assets-0.3.6.zip
-shasum -a 256 -c ASSETS.sha256 | grep -v ': OK$'    # 没有输出就说明素材齐全
+make assets  # 本地开发、测试或桌面版打包前运行
 ```
 
-素材包中的文件已经写进 `.gitignore`，解压后不会出现在 `git status` 里。根目录的 `ASSETS.sha256` 列出了素材包中文件的哈希：
-- 解压后如果 git 显示 `ASSETS.sha256` 被修改，说明素材包和代码版本不一致，请换用对应版本的素材包。
-- 缺少素材时，开发服务器、`tests/lfs-pointer.test.mjs` 和桌面版打包都会提示你先解压素材包。
+`ASSETS.lock.json` 固定下载地址、大小和整包 SHA-256。`ASSETS.sha256` 固定每个素材文件的路径和 SHA-256。`make assets` 会先校验现有文件，缺少或不匹配时下载并校验整包。通过逐文件校验后安装清单里的素材。已提前下载 ZIP 时，可用 `python3 hd2d-mvp/tools/assets_pack.py install --archive /path/to/threekindoms-assets-1.zip` 离线安装。
+
+更新素材时先更新 `ASSETS.sha256`，再用 `python3 hd2d-mvp/tools/assets_pack.py pack /path/to/threekindoms-assets-2.zip` 打包。将 ZIP 发布到新的素材 Release，用打包工具输出的大小和 SHA-256 更新锁文件。旧的 Release 供旧版代码继续构建。
 
 ## 运行
 
@@ -65,7 +63,7 @@ python3 hd2d-mvp/tools/serve.py 8677      # 启动开发服务器
 
 跨越尚未突破的内外城墙时，计策及范围效果不能作用于另一侧；突破后仍须沿对应开启的城门施计，不能借其他方向的缺口穿墙。计策连线穿过墙格内部时受阻，仅擦过墙角不算穿墙，交换施术者和目标不会改变同一路径的阻隔判断。双方适用相同限制，白兵仍按交战地形结算，只有中央城格使用原有守城阵型。斜向阻隔修复也适用于已有多层攻城存档与中断战斗；原版和旧版战场不受影响。
 
-在启用新版攻城规则的战役中，攻方武将智力达到 85、带兵至少 100 且未受困时，可在护城桥上选择「策应攻门」。消耗 7 点全军机动力，打开正前方无人驻守的外城门。内城仍需由部队突破，普通计策仍受城墙和距离限制。城门状态随战斗中断记录保存。3D 战场的石墙、垛口、角楼、城门楼和桥面按地格绘制，突破时只收起门扇。战场仍采用 32×19 格，以便恢复已有战斗记录。
+新开始的多层攻城采用 9×9 格外城轮廓与 3×3 格内城庭院，护城河外沿为 11×11 格。守军可以在内院和内外墙之间部署。3D 城池显示砖石斜墙、券拱城门、重檐角楼、瓦面和铺装道路。攻方按普通移动规则进入城门并突破，城门守军仍受封闭城门和城墙保护。此前中断的战斗恢复原城墙、城门和部队位置，后续开战自动使用扩大的布局。全战场仍为 32×19 格。
 
 战略沙盘为襄阳使用较复杂的大城模型，江州、宛城、夷洲使用县城模型，关隘使用关楼模型。某类模型加载失败时会在对应据点绘制有城墙和屋顶的程序模型。
 
@@ -73,7 +71,7 @@ python3 hd2d-mvp/tools/serve.py 8677      # 启动开发服务器
 
 电脑会寻找城门绕行、攻击挡路守军。君主列传本次更新后的新开局进一步优化攻城：孤立的攻方总大将遇到实力相近的贴身敌军时，会在有安全退路及援军的情况下退开，并在当日避免立即折返；兵力占优且主将安全时，后援会随先锋推进，主将受威胁时仍优先保卫。优化使用原有移动、战斗及机动力规则，玩家守城与电脑守城使用相同规则；已有存档保留原来的电脑决策。电脑之间仍使用原有抽象结算，不逐格模拟城门。真实战场中断保存城门突破和主将当日避险状态。
 
-以九个新增据点的 19 条入口、每条八组相同种子，对修复阻隔后的旧电脑决策和新决策进行配对模拟。各将设定为 700 兵、武 70、智 60、三级，双方粮草均为 9999；两组攻方使用不同电脑角色配置，守方均为 3 将。3 将攻 3 将时，攻方胜场分别为 4→5 和 0→0（各 152 场）；6 将攻 3 将时分别为 36→61 和 12→28（各 152 场），所有战斗均发生白兵接触。部分据点仍偏难，样本及电脑配置有限，不能代表真人胜率或长期平衡。
+上一版城防布局曾用九个新增据点的 19 条入口、每条八组相同种子，对修复阻隔后的旧电脑决策和新决策进行配对模拟。各将设定为 700 兵、武 70、智 60、三级，双方粮草均为 9999；两组攻方使用不同电脑角色配置，守方均为 3 将。3 将攻 3 将时，攻方胜场分别为 4→5 和 0→0（各 152 场）；6 将攻 3 将时分别为 36→61 和 12→28（各 152 场），所有战斗均发生白兵接触。部分据点仍偏难，样本及电脑配置有限，不能代表真人胜率或长期平衡。
 
 ### 战场生死
 
@@ -85,7 +83,7 @@ python3 hd2d-mvp/tools/serve.py 8677      # 启动开发服务器
 
 游戏会自动检查本地可选音频。自带服务器会批量报告清单中可用的素材，减少启动时的逐项探测；静态托管或旧服务器自动回退到逐项检查。在标题页或游戏中的「☰ 系统 → 曲目」可以切换已提供的音乐版本，选择保存在当前浏览器中；浏览器可能要求先点击页面才能播放。没有可用音频时，部分场景使用合成音乐。已有的 `remix/` 素材仍显示为 Remix，不会误认为 PS 复刻版。
 
-原版和 PS 复刻版音频放在 `hd2d-mvp/assets/audio/original/` 和 `hd2d-mvp/assets/audio/ps/`，文件名与 `assets/manifest.json` 中的对应场景一致。已收录的 16 首背景音乐、事件短曲、单挑音效，以及爆炎和碰撞音效随 Git 仓库提供，无需另行下载；其他本地音频仍被忽略。音频保留现有的 M4A 和 MP3 格式，避免对有损素材重复转码。构建 Docker 镜像或桌面版时会打包这些音频；加入或更换音频后需要重新构建。
+原版和 PS 复刻版音频放在 `hd2d-mvp/assets/audio/original/` 和 `hd2d-mvp/assets/audio/ps/`，文件名与 `assets/manifest.json` 中的对应场景一致。已收录的 16 首背景音乐、事件短曲、单挑音效，以及爆炎和碰撞音效由锁定的 Release 素材包提供。其他本地音频文件仍被忽略。音频保留现有的 M4A 和 MP3 格式，避免对有损素材重复转码。构建 Docker 镜像或桌面版时会打包这些音频；加入或更换音频后需要重新构建。
 
 目前接入的场景及音源对应关系如下。FC 音频来自 [原版 NSF 曲目表](https://www.zophar.net/music/nintendo-nes-nsf/sangokushi-2-haou-no-tairiku)，PS 曲目编号来自 [Namco Anthology 1 音源](https://downloads.khinsider.com/game-soundtracks/album/namco-anthology-1-ps1-gamerip-1998)，结合[场景曲目资料](https://w.atwiki.jp/gamemusicbest100/pages/5645.html)及旋律特征比对；结局使用 [PSF 音源](https://ftpmirror2.infania.net/sites/modland/incoming/warehouse/PSF/HaounoTairiku_psf/HaounoTairiku_ezp104_PSF/)中标注为 Epilogue 的曲目。PS 版战后和失败暂未找到可可靠对应的文件，选择 PS 版时会回退到该场景的其他可用版本。
 
@@ -139,11 +137,12 @@ PS 结局的对应关系依据音源标签，尚未与原 PS 游戏的结局画�
 
 ### 使用 Docker Compose
 
-需要 Docker 和 Docker Compose。构建前先按「获取代码与素材」下载并解压与代码版本对应的素材包；素材会打包进镜像，更新素材或代码后重新运行 `make up` 即可重新构建。构建时只检查两个关键素材，完整性请使用上面的 SHA-256 校验命令确认。
+需要 Docker 和 Docker Compose。全新克隆后可直接运行 `make build` 或 `make up`。Docker 构建阶段自动下载锁定的 Release，校验整包及每个文件，再将运行素材复制到镜像内的 `hd2d-mvp/assets/`。下载或校验失败会中止构建。构建阶段可复用 Docker 素材缓存，镜像中的编辑器上传目录继续使用独立数据卷。
 
 Dockerfile 从 `reg.deeproute.ai` 拉取 Node 和 Python 基础镜像。本次验证的镜像为 `linux/amd64`；在 ARM 主机上运行需要支持 amd64 模拟。
 
 ```bash
+make build    # 下载校验素材并构建镜像
 make up       # 构建镜像并在后台启动
 make ps       # 查看服务状态
 make logs     # 查看服务日志，按 Ctrl+C 退出

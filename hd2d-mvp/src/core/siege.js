@@ -2,24 +2,31 @@
 const W = 32, H = 19, PLAIN = 2, RIVER = 3, CASTLE = 5;
 const RECTS = { n: [10,21,0,2], s: [10,21,16,18], w: [0,3,6,12], e: [28,31,6,12] };
 const ENTRY = { n: [15,1], s: [15,17], w: [1,9], e: [30,9] };
+const SIEGE_REVISION = 2;
 const key = (x,y) => `${x},${y}`;
 const cells = (rect, x, y) => {
   const out = []; for (let yy=rect[2]; yy<=rect[3]; yy++) for (let xx=rect[0]; xx<=rect[1]; xx++) out.push([xx,yy]);
   return out.sort((a,b) => Math.abs(a[0]-x)+Math.abs(a[1]-y)-Math.abs(b[0]-x)-Math.abs(b[1]-y) || a[1]-b[1] || a[0]-b[0]);
 };
-export function siegeLayout(map, dep, villages, direction, connectRiver = false) {
+export function siegeLayout(map, dep, villages, direction, connectRiver = false, revision = SIEGE_REVISION) {
+  if (revision !== 1 && revision !== SIEGE_REVISION) throw new Error('无效的城防布局版本');
+  const wide = revision === SIEGE_REVISION;
+  const inner = wide ? 2 : 1, outer = wide ? 4 : 3, moat = outer + 1;
   map = structuredClone(map); villages = structuredClone(villages);
-  const [ox,oy] = dep.defender[0], cx = Math.max(9,Math.min(22,ox)), cy = Math.max(7,Math.min(11,oy));
+  const [ox,oy] = dep.defender[0], cx = Math.max(9,Math.min(22,ox));
+  // 南北留三排部署区，旧中断战斗沿用保存时对应的城心。
+  const cy = wide ? Math.max(8,Math.min(10,oy)) : Math.max(7,Math.min(11,oy));
   const [ax,ay] = dep.attacker[0], dx=ax-ox, dy=ay-oy;
   direction ||= Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'w' : 'e') : (dy < 0 ? 'n' : 's');
   for (let y=0;y<H;y++) for (let x=0;x<W;x++) if (map[y][x] === CASTLE) map[y][x] = PLAIN;
   const walls=[], gates=[];
-  for (let y=cy-4;y<=cy+4;y++) for (let x=cx-4;x<=cx+4;x++) {
-    const r=Math.max(Math.abs(x-cx),Math.abs(y-cy));
-    if (r===4) map[y][x] = (x===cx || y===cy) ? PLAIN : RIVER;
-    else if (r<=3) {
+  const ring = (x, y) => Math.max(Math.abs(x-cx),Math.abs(y-cy));
+  for (let y=cy-moat;y<=cy+moat;y++) for (let x=cx-moat;x<=cx+moat;x++) {
+    const r=ring(x,y);
+    if (r===moat) map[y][x] = (x===cx || y===cy) ? PLAIN : RIVER;
+    else {
       map[y][x] = PLAIN;
-      if (r===3 || r===1) {
+      if (r===outer || r===inner) {
         if (x===cx || y===cy) gates.push({ x,y,ring:r,open:false });
         else walls.push({ x,y,ring:r });
       }
@@ -30,18 +37,23 @@ export function siegeLayout(map, dep, villages, direction, connectRiver = false)
   const used = new Set();
   for (const v of villages) {
     const options=[];
-    for (let y=0;y<H;y++) for (let x=0;x<W;x++) if (Math.max(Math.abs(x-cx),Math.abs(y-cy))>4 && !reserved(x,y) && !used.has(key(x,y))) options.push([x,y]);
+    for (let y=0;y<H;y++) for (let x=0;x<W;x++) if (ring(x,y)>moat && !reserved(x,y) && !used.has(key(x,y))) options.push([x,y]);
     options.sort((a,b) => Math.abs(a[0]-v.x)+Math.abs(a[1]-v.y)-Math.abs(b[0]-v.x)-Math.abs(b[1]-v.y));
-    if (Math.max(Math.abs(v.x-cx),Math.abs(v.y-cy))<=4 || reserved(v.x,v.y) || used.has(key(v.x,v.y))) [v.x,v.y]=options[0];
+    if (ring(v.x,v.y)<=moat || reserved(v.x,v.y) || used.has(key(v.x,v.y))) [v.x,v.y]=options[0];
     used.add(key(v.x,v.y)); map[v.y][v.x]=PLAIN;
   }
-  const attacker_rect=RECTS[direction], [ex,ey]=ENTRY[direction], defender_rect=[cx-2,cx+2,cy-2,cy+2];
+  const edge = outer - 1;
+  const attacker_rect=RECTS[direction], [ex,ey]=ENTRY[direction], defender_rect=[cx-edge,cx+edge,cy-edge,cy+edge];
   const attacker=cells(attacker_rect,ex,ey).slice(0,17);
-  const defender=cells(defender_rect,cx,cy).filter(([x,y]) => !walls.some(w => w.x===x && w.y===y)).slice(0,16);
+  const available=cells(defender_rect,cx,cy).filter(([x,y]) => !walls.some(w => w.x===x && w.y===y));
+  // 分散守军阵位，让城内可展开驻防。旧布局保留此前的顺序。
+  const courtyard = wide ? available.filter(([x,y]) => ring(x,y) < inner) : [];
+  const defender = (wide ? [...courtyard.slice(0,4), ...available.filter(([x,y]) => ring(x,y) > inner),
+    ...courtyard.slice(4), ...available.filter(([x,y]) => ring(x,y) === inner)] : available).slice(0,16);
   for (const [x,y] of attacker) map[y][x]=PLAIN;
   // 天然河道被新城防截断时绕过城墙，护城河四座桥仍保持可通行。
   if (connectRiver) {
-    const outside=(x,y) => Math.max(Math.abs(x-cx),Math.abs(y-cy))>4;
+    const outside=(x,y) => ring(x,y)>moat;
     const neighbours=(x,y) => [[x-1,y],[x+1,y],[x,y-1],[x,y+1]].filter(([a,b]) => a>=0 && a<W && b>=0 && b<H && outside(a,b));
     const forbidden=(x,y) => reserved(x,y) || villages.some(v=>v.x===x && v.y===y);
     for (;;) {
@@ -59,7 +71,8 @@ export function siegeLayout(map, dep, villages, direction, connectRiver = false)
       for(let k=end;k;k=prev.get(k)) {const [x,y]=k.split(',').map(Number);map[y][x]=RIVER;}
     }
   }
-  return { map,villages,dep:{attacker,attacker_rect:[...attacker_rect],defender,defender_rect}, siege:{cx,cy,walls,gates,direction} };
+  return { map,villages,dep:{attacker,attacker_rect:[...attacker_rect],defender,defender_rect},
+    siege:{cx,cy,walls,gates,direction,inner,outer,moat,revision} };
 }
 export const wallAt = (siege,x,y) => siege?.walls.some(w => w.x===x && w.y===y) ?? false;
 export const gateAt = (siege,x,y) => siege?.gates.find(g => g.x===x && g.y===y);

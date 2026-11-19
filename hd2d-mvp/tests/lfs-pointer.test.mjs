@@ -1,5 +1,5 @@
 // The art must be real files. The open-source repository keeps it out of git: ASSETS.sha256 at its root lists every
-// file of the Release asset pack, which a fresh clone lacks until the pack is unzipped (an old LFS clone has small
+// file of the Release asset pack, which a fresh clone lacks until make assets runs (an old LFS clone has small
 // text pointers instead). This fails at once with the fix, instead of a game full of broken images.
 // ASSETS_DIR points it at another tree (tests of this test), ASSETS_SUMS at another list. Plain Node, no browser.
 import { test } from 'node:test';
@@ -12,9 +12,9 @@ import { fileURLToPath } from 'node:url';
 const DIR = process.env.ASSETS_DIR || fileURLToPath(new URL('../assets', import.meta.url));
 const SUMS = process.env.ASSETS_SUMS || fileURLToPath(new URL('../../ASSETS.sha256', import.meta.url));
 const ROOT = join(DIR, '../..');
-const BINARY = /\.(webp|png|jpg|glb|bin|mp3)$/;
+const BINARY = /\.(webp|png|jpg|glb|bin|mp3|m4a)$/;
 const MAGIC = 'version https://git-lfs';
-const FIX = 'unzip the asset pack from the Releases page in the repository root (see README.md)';
+const FIX = 'run make assets in the repository root (see README.md)';
 
 test('assets are real files, not LFS pointers', () => {
   const pointers = [], head = Buffer.alloc(MAGIC.length);

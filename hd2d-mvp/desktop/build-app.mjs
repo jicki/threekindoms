@@ -38,7 +38,7 @@ for (const f of listed) {
   cpSync(src, join(out, f));
   files++; bytes += statSync(src).size;
 }
-// The open-source repository keeps its art out of git (a Release asset pack, unzipped over the clone, so git ignores
+// The open-source repository keeps its art out of git (make assets installs the pinned Release pack, so git ignores
 // it): ASSETS.sha256 at the repository root lists those files. Copy them too, and stop with the fix when one is missing.
 const sumsFile = join(game, '..', 'ASSETS.sha256');
 if (existsSync(sumsFile)) {
@@ -53,7 +53,7 @@ if (existsSync(sumsFile)) {
     files++; bytes += statSync(src).size;
   }
   if (missing.length) {
-    console.error(`${missing.length} files of ASSETS.sha256 are missing (first: ${missing[0]}): unzip the asset pack from the Releases page in the repository root (see README.md)`);
+    console.error(`${missing.length} files of ASSETS.sha256 are missing (first: ${missing[0]}): run make assets in the repository root (see README.md)`);
     process.exit(1);
   }
 }

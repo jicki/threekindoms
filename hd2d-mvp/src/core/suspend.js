@@ -76,7 +76,8 @@ function valid(rec) {
     try {
       const D=data(), w=rec.war, layout=battlefieldLayout(D,rec.g,w.city,w.from);
       const dep=layout?.dep ?? (D.deploy[w.city][w.from] || Object.values(D.deploy[w.city])[0]);
-      const siege=siegeLayout(layout?.map ?? D.maps[w.city],dep,layout?.villages ?? D.villages[w.city] ?? [],layout?.direction,[30,31].includes(w.city)).siege;
+      const siege=siegeLayout(layout?.map ?? D.maps[w.city],dep,layout?.villages ?? D.villages[w.city] ?? [],
+        layout?.direction,[30,31].includes(w.city),rec.field.siegeRevision ?? 1).siege;
       if (!restoreGates(siege,rec.field.siegeGates)) return null;
     } catch { return null; }
   }

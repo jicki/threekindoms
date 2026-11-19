@@ -45,7 +45,7 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
       else {
         assert.equal(state.flat, false); assert.equal(state.pass.length, 1); assert.equal(state.pass[0], -Math.PI/2);
         assert.deepEqual(state.doors, Array(8).fill(1));
-        assert.ok(state.masonry.length <= 6 && state.masonry.reduce((sum, n) => sum + n, 0) > 3000);
+        assert.ok(state.masonry.length <= 7 && state.masonry.reduce((sum, n) => sum + n, 0) > 3000);
       }
       await p.locator('.deploybtn .btn', { hasText: '布阵完成' }).click();
       await p.waitForFunction(() => !window.__game.war.st.deploying);
@@ -58,9 +58,9 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
         await tap(p.locator('.war-roster button').first());
         await p.waitForFunction(() => window.__game.war.st.sel?.id === 40);
         const gate = await p.evaluate(() => {
-          const w=window.__game.war, f=w.field, u=f.side('att')[0], {cx,cy}=f.siege;
-          u.x=cx-4; u.y=cy; f.pool.att=100; w.cancel(); w.clickCell(u.x,u.y); w.centreOn(cx-3,cy);
-          return {x:cx-3,y:cy};
+          const w=window.__game.war, f=w.field, u=f.side('att')[0], {cx,cy,moat,outer}=f.siege;
+          u.x=cx-moat; u.y=cy; f.pool.att=100; w.cancel(); w.clickCell(u.x,u.y); w.centreOn(cx-outer,cy);
+          return {x:cx-outer,y:cy};
         });
         await p.waitForTimeout(600);
         const tapCell = async () => {
@@ -72,23 +72,15 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
         await tapCell(); await p.waitForFunction(({x,y})=>{const w=window.__game.war; return !w.st.busy && w.field.siege.gates.find(g=>g.x===x&&g.y===y)?.open;},gate);
         assert.equal(await p.evaluate(()=>window.__game.war.st.last),null,'突破城门后不能撤销');
         await p.evaluate(() => {
-          const w = window.__game.war, f = w.field, u = f.side('att')[0], { cx, cy } = f.siege;
-          f.O(u.id).int = 85; f.pool.att = 20;
-          Object.assign(u, { x: cx + 4, y: cy }); w.cancel(); w.clickCell(u.x, u.y);
+          const w = window.__game.war, f = w.field, u = f.side('att')[0], { cx, cy, moat } = f.siege;
+          f.O(u.id).int = 99; f.pool.att = 20;
+          Object.assign(u, { x: cx + moat, y: cy }); w.cancel(); w.clickCell(u.x, u.y);
         });
-        const support = p.getByRole('button', { name: '策应攻门', exact: true });
-        await tap(support);
-        const dialog = p.getByRole('dialog', { name: '策应攻门' });
-        await dialog.waitFor();
-        await tap(dialog.getByRole('button', { name: '取消', exact: true }));
-        await dialog.waitFor({ state: 'hidden' });
-        assert.equal(await p.evaluate(() => window.__game.war.field.pool.att), 20);
-        await tap(support);
-        await tap(dialog.getByRole('button', { name: '确定', exact: true }));
-        await p.waitForFunction(() => {
-          const f = window.__game.war.field, { cx, cy, gates } = f.siege;
-          return f.pool.att === 13 && gates.find(g => g.x === cx + 3 && g.y === cy)?.open;
-        });
+        assert.equal(await p.getByRole('button', { name: '策应攻门', exact: true }).count(), 0);
+        assert.equal(await p.evaluate(() => {
+          const f = window.__game.war.field, { cx, cy, outer, gates } = f.siege;
+          return f.pool.att === 20 && !gates.find(g => g.x === cx + outer && g.y === cy).open;
+        }), true);
         const castChoices=await p.evaluate(()=>{
           const w=window.__game.war, f=w.field, u=f.side('att')[0], [enemy,...others]=f.side('def');
           others.forEach(v=>{v.gone=true;}); f.O(u.id).int=99; f.pool.att=100;
@@ -97,7 +89,8 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
             for(let i=0;i<6;i++) w.cancel(); Object.assign(u,{x:sx,y:sy}); Object.assign(enemy,{x:tx,y:ty});
             w.clickCell(sx,sy); w.openStrategies(); w.chooseStrategy(0); return w.st.cast===0;
           };
-          return [choose(13,3,11,7),choose(11,7,13,3),choose(3,3,4,3)];
+          const {cx,cy,moat,outer} = f.siege;
+          return [choose(cx+moat,cy,cx+outer,cy),choose(cx+outer,cy,cx+moat,cy),choose(3,3,4,3)];
         });
         assert.deepEqual(castChoices,[false,false,true],'手机战场计策目标应在两个方向一致，并允许无遮挡目标');
       }

@@ -304,7 +304,7 @@ export function flatten(war, G, blankScene) {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
     if (field.siege) {
-      for (const p of field.siege.walls) { g.fillStyle=p.ring===3?'#746a58':'#aa9673'; g.fillRect(ox+p.x*c,oy+p.y*ch,c,ch); g.strokeStyle='#423a2b'; g.strokeRect(ox+p.x*c,oy+p.y*ch,c,ch); }
+      for (const p of field.siege.walls) { g.fillStyle=p.ring===field.siege.outer?'#746a58':'#aa9673'; g.fillRect(ox+p.x*c,oy+p.y*ch,c,ch); g.strokeStyle='#423a2b'; g.strokeRect(ox+p.x*c,oy+p.y*ch,c,ch); }
       for (const p of field.siege.gates) { g.fillStyle=p.open?'#d6c495':'#7b4226'; g.fillRect(ox+p.x*c+c*0.12,oy+p.y*ch+ch*0.12,c*0.76,ch*0.76); g.strokeStyle='#e5c16c'; g.strokeRect(ox+p.x*c+c*0.12,oy+p.y*ch+ch*0.12,c*0.76,ch*0.76); }
     }
     // The range, as the 3D board draws it (src/war/overlay.js, 2026-11-13): the reach is one region, a faint fill the painted ground

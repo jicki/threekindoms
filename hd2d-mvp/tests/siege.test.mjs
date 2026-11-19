@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import * as G from '../src/core/game.js';
 import { Field } from '../src/core/field.js';
 import { battlefieldLayout } from '../src/core/battlefields.js';
-import { blockedStrategy, wallAt } from '../src/core/siege.js';
+import { blockedStrategy, siegeLayout, wallAt } from '../src/core/siege.js';
 import { applyScenario } from '../src/core/scenario.js';
 import { loadScenario } from '../src/core/scenario-store.js';
 import { SOVEREIGN_SCENARIO_ID } from '../src/core/visuals.js';
@@ -42,43 +42,57 @@ test('每个城市和入口布阵无重叠，城墙不可通过，城门可到�
 });
 
 test('城门消耗、突破和中断恢复一致，计策只能穿过对应已突破城门',() => {
-  const g=game(), f=new Field(g,war(),'att'), a=f.side('att')[0], d=f.side('def')[0], {cx,cy,gates}=f.siege;
-  Object.assign(a,{x:cx-4,y:cy}); Object.assign(d,{x:cx,y:cy}); f.units=[a,d];
-  const outer=gates.find(p=>p.x===cx-3&&p.y===cy), inner=gates.find(p=>p.x===cx-1&&p.y===cy);
+  const g=game(), f=new Field(g,war(),'att'), a=f.side('att')[0], d=f.side('def')[0], {cx,cy,gates,moat,outer:edge,inner:keep}=f.siege;
+  Object.assign(a,{x:cx-moat,y:cy}); Object.assign(d,{x:cx,y:cy}); f.units=[a,d];
+  const outer=gates.find(p=>p.x===cx-edge&&p.y===cy), inner=gates.find(p=>p.x===cx-keep&&p.y===cy);
   assert.equal(blockedStrategy(f.siege,a,d),true); assert.equal(f.legal(a,0,d),false);
   const cost=f.cost(a,outer.x,outer.y); f.pool.att=100; assert.equal(f.move(a,outer.x,outer.y,cost),true); assert.equal(outer.open,true);
   assert.equal(blockedStrategy(f.siege,a,d),true); f.move(a,inner.x,inner.y,1); assert.equal(inner.open,true);
   assert.equal(blockedStrategy(f.siege,a,d),false);
-  const other={x:cx+4,y:cy}; assert.equal(blockedStrategy(f.siege,other,d),true,'不能从另一侧穿过未突破的城墙');
-  assert.equal(blockedStrategy(f.siege,{x:cx-2,y:cy},{x:cx+2,y:cy}),true,'不能从同一外城区横穿未突破的内城');
+  const other={x:cx+moat,y:cy}; assert.equal(blockedStrategy(f.siege,other,d),true,'不能从另一侧穿过未突破的城墙');
+  assert.equal(blockedStrategy(f.siege,{x:cx-(edge-1),y:cy},{x:cx+(edge-1),y:cy}),true,'不能从同一外城区横穿未突破的内城');
   const restored=Field.restore(g,war(),f.snapshot()); assert.deepEqual(restored.siege.gates,gates);
   const bad=f.snapshot(); bad.siegeGates[0].x=999; assert.throws(()=>Field.restore(g,war(),bad));
 });
 
-test('智将从护城桥策应外城门，消耗机动力并保留内城与守军保护', () => {
+test('内院扩到九格，驻门守军受闭门保护且普通移动负责突破', () => {
   const g = game(), f = new Field(g, war(), 'att'), [a] = f.side('att'), [d] = f.side('def');
-  const { cx, cy, gates } = f.siege, outer = gates.find(p => p.x === cx - 3 && p.y === cy);
-  const inner = gates.find(p => p.x === cx - 1 && p.y === cy), o = f.O(a.id);
-  Object.assign(a, { x: cx - 4, y: cy }); Object.assign(d, { x: outer.x, y: outer.y });
-  f.turn = 'att'; f.pool.att = 20; f.units = [a, d];
-  Object.assign(o, { int: 85, soldiers: 100 });
-  assert.equal(f.supportBreach(a), false, '驻守的门必须先交战');
-  Object.assign(d, { x: cx, y: cy });
-  o.int = 84; assert.equal(f.supportBreach(a), false); o.int = 85;
-  a.stop = 1; assert.equal(f.supportBreach(a), false); a.stop = 0;
-  f.pool.att = 6; assert.equal(f.supportBreach(a), false); assert.equal(f.pool.att, 6);
-  f.pool.att = 20;
-  const before = { ...f.O(d.id) };
-  assert.equal(f.supportBreach(a), true);
-  assert.equal(f.pool.att, 13);
-  assert.equal(outer.open, true); assert.equal(inner.open, false);
-  assert.deepEqual(f.O(d.id), before);
-  assert.equal(blockedStrategy(f.siege, a, d), true);
-  assert.equal(f.supportBreach(a), false, '已开的门不能重复扣费');
-  Object.assign(a, { x: cx - 2, y: cy }); assert.equal(f.supportBreach(a), false);
-  const resumed = Field.restore(g, war(), f.snapshot());
-  assert.deepEqual(resumed.siege.gates, gates);
-  assert.equal(resumed.pool.att, 13);
+  const { cx, cy, inner, outer, moat, gates } = f.siege;
+  assert.deepEqual([inner, outer, moat], [2, 4, 5]);
+  for (let y = cy - 1; y <= cy + 1; y++) for (let x = cx - 1; x <= cx + 1; x++) {
+    assert.ok(f.deployable(x, y), `内院布阵格 ${x},${y}`);
+  }
+  const gate = gates.find(p => p.x === cx - outer && p.y === cy);
+  Object.assign(a, { x: cx - moat, y: cy }); Object.assign(d, { x: gate.x, y: gate.y });
+  f.pool.att = 100; f.units = [a, d]; f.O(a.id).int = 99;
+  assert.equal(f.legal(a, 0, d), false);
+  assert.equal(f.legal(d, 0, a), false, '闭门阻隔适用于双方');
+  assert.equal(f.reach(a).dist.has(`${gate.x},${gate.y}`), false, '驻门敌将阻止进入');
+  Object.assign(d, { x: cx + 1, y: cy });
+  const cost = f.cost(a, gate.x, gate.y);
+  assert.equal(f.move(a, gate.x, gate.y, cost), true);
+  assert.equal(gate.open, true);
+  assert.equal(cost, f.cost(a, gate.x, gate.y) + 2);
+  assert.equal(blockedStrategy(f.siege, a, d), true, '内城仍封闭');
+});
+
+test('旧版中断在原坐标恢复，再次中断也保留城门、站位及布局标记', () => {
+  const g = game(), w = war(), f = new Field(g, w, 'att');
+  const layout = battlefieldLayout(expanded, g, w.city, w.from);
+  const old = siegeLayout(layout.map, layout.dep, layout.villages, layout.direction, false, 1);
+  const snapshot = f.snapshot();
+  delete snapshot.siegeRevision;
+  old.siege.gates[0].open = true;
+  snapshot.siegeGates = old.siege.gates;
+  const unit = snapshot.units.find(u => u.side === 'att');
+  Object.assign(unit, { x: old.siege.gates[0].x, y: old.siege.gates[0].y });
+  const resumed = Field.restore(g, w, snapshot);
+  assert.equal(resumed.siege.revision, 1);
+  assert.deepEqual(resumed.siege.gates, old.siege.gates);
+  assert.deepEqual(resumed.map, old.map);
+  assert.deepEqual(resumed.units, snapshot.units);
+  assert.deepEqual(Field.restore(g, w, resumed.snapshot()).siege, resumed.siege);
+  assert.throws(() => Field.restore(g, w, { ...snapshot, siegeRevision: 99 }));
 });
 
 test('斜向计策阻隔与施放方向无关，门、墙和拐角均遵循同一规则',()=>{
@@ -97,17 +111,17 @@ test('斜向计策阻隔与施放方向无关，门、墙和拐角均遵循同�
     }
   }
   s.gates.forEach(g=>{g.open=false;});
-  const outside={x:cx-4,y:cy}, court={x:cx-2,y:cy}, center={x:cx,y:cy};
-  const westOuter=s.gates.find(g=>g.x===cx-3&&g.y===cy), westInner=s.gates.find(g=>g.x===cx-1&&g.y===cy);
+  const outside={x:cx-s.moat,y:cy}, court={x:cx-s.inner-1,y:cy}, center={x:cx,y:cy};
+  const westOuter=s.gates.find(g=>g.x===cx-s.outer&&g.y===cy), westInner=s.gates.find(g=>g.x===cx-s.inner&&g.y===cy);
   assert.equal(blockedStrategy(s,outside,court),true);
   westOuter.open=true; assert.equal(blockedStrategy(s,outside,court),false);
   assert.equal(blockedStrategy(s,outside,center),true);
   westInner.open=true; assert.equal(blockedStrategy(s,outside,center),false);
-  assert.equal(blockedStrategy(s,{x:cx+4,y:cy},center),true,'不能借另一侧的缺口穿墙');
+  assert.equal(blockedStrategy(s,{x:cx+s.moat,y:cy},center),true,'不能借另一侧的缺口穿墙');
   westOuter.open=false;
-  assert.equal(blockedStrategy(s,{x:cx-3,y:cy},court),false,'守军站在封闭门内侧时可向城内施计');
-  assert.equal(blockedStrategy(s,outside,{x:cx-3,y:cy}),true,'城外不能隔着封闭城门施计');
-  assert.equal(blockedStrategy(s,{x:cx-4,y:cy-3},{x:cx-3,y:cy-4}),false,'仅擦过墙角时不算穿墙');
+  assert.equal(blockedStrategy(s,{x:cx-s.outer,y:cy},court),false,'守军站在封闭门内侧时可向城内施计');
+  assert.equal(blockedStrategy(s,outside,{x:cx-s.outer,y:cy}),true,'城外不能隔着封闭城门施计');
+  assert.equal(blockedStrategy(s,{x:cx-s.moat,y:cy-s.outer},{x:cx-s.outer,y:cy-s.moat}),false,'仅擦过墙角时不算穿墙');
 });
 
 test('实际战场中双方专属计策对同一斜线路径得到相同阻隔',()=>{
@@ -134,8 +148,8 @@ test('真实战场中断存取保留城门状态，损坏的城门记录不能�
 });
 
 test('范围计策不能通过可命中的城外目标波及城墙后的守军',() => {
-  const g=game(), f=new Field(g,war(),'att'), a=f.side('att')[0], [d,guard]=f.side('def'), {cx,cy}=f.siege;
-  Object.assign(a,{x:cx+2,y:cy-1}); Object.assign(d,{x:cx+2,y:cy}); Object.assign(guard,{x:cx+1,y:cy});
+  const g=game(), f=new Field(g,war(),'att'), a=f.side('att')[0], [d,guard]=f.side('def'), {cx,cy,inner}=f.siege;
+  Object.assign(a,{x:cx+inner+1,y:cy-1}); Object.assign(d,{x:cx+inner+1,y:cy}); Object.assign(guard,{x:cx+inner,y:cy});
   f.units=[a,d,guard]; f.r=()=>0; f.pool.att=100; f.O(d.id).soldiers=700; f.O(guard.id).soldiers=700;
   assert.equal(f.legal(a,14,d),true); const result=f.cast(a,14,d,true);
   assert.equal(result.hit,true); assert.ok(f.O(d.id).soldiers<700); assert.equal(f.O(guard.id).soldiers,700);
@@ -185,7 +199,7 @@ test('襄阳和江州新版天然河道四向连通，上一版保持不变',() 
     const seen=new Set([cells[0].join(',')]), queue=[cells[0]];
     for (let i=0;i<queue.length;i++) for (const [dx,dy] of [[0,1],[0,-1],[1,0],[-1,0]]) { const x=queue[i][0]+dx,y=queue[i][1]+dy,k=`${x},${y}`; if (layout.map[y]?.[x]===3&&!seen.has(k)) {seen.add(k);queue.push([x,y]);} }
     assert.equal(seen.size,cells.length,`${city}河道断开`);
-    const f=new Field(g,war(city,from),'att'), outside=(x,y)=>Math.max(Math.abs(x-f.siege.cx),Math.abs(y-f.siege.cy))>4;
+    const f=new Field(g,war(city,from),'att'), outside=(x,y)=>Math.max(Math.abs(x-f.siege.cx),Math.abs(y-f.siege.cy))>f.siege.moat;
     const natural=[]; for(let y=0;y<19;y++) for(let x=0;x<32;x++) if(outside(x,y)&&f.map[y][x]===3) natural.push([x,y]);
     const actualSeen=new Set([natural[0].join(',')]), actualQueue=[natural[0]];
     for(let i=0;i<actualQueue.length;i++) for(const [dx,dy] of [[0,1],[0,-1],[1,0],[-1,0]]) {const x=actualQueue[i][0]+dx,y=actualQueue[i][1]+dy,k=`${x},${y}`;if(f.map[y]?.[x]===3&&outside(x,y)&&!actualSeen.has(k)){actualSeen.add(k);actualQueue.push([x,y]);}}
