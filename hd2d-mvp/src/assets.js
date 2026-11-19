@@ -4,25 +4,28 @@ import * as THREE from 'three';
 import { data } from './core/game.js';
 import { equipmentIconUrl } from './core/equipment.js';
 import { BOW_CLIP, BOW_POSES, FAN_CLIP, FAN_POSES } from './weapon-motion.js';
+import { readResource } from './resource.js';
 
 // One HEAD per URL: the music sets below ask again for the BGM and phrases the audio list already looked for.
 const seen = new Map();
 function exists(url, availability) {
   if (typeof availability?.[url] === 'boolean') return Promise.resolve(availability[url]);
-  if (!seen.has(url)) seen.set(url, fetch(url, { method: 'HEAD' }).then((r) => r.ok, () => false));
+  if (!seen.has(url)) seen.set(url, readResource(url, () => true, { method: 'HEAD', timeout: 2500 }).catch(() => false));
   return seen.get(url);
 }
 
 export async function loadManifest() {
   // 自带服务器一次返回可用素材；静态托管或旧服务器无接口时仍逐项检查。
-  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 2000);
   const index = /^https?:$/.test(location.protocol)
-    ? fetch('/api/asset-availability', { signal: controller.signal, cache: 'no-store' })
-      .then((r) => r.ok ? r.json() : null).catch(() => null).finally(() => clearTimeout(timer))
-    : Promise.resolve(null).finally(() => clearTimeout(timer));
-  const m = await (await fetch('assets/manifest.json')).json();
-  const availability = await index;
+    ? readResource('/api/asset-availability', (r) => r.json(), { timeout: 2000, cache: 'no-store' }).catch(() => null)
+    : null;
   const found = { portraits: {}, sprites: {}, audio: {}, music: {} };
+  const m = await readResource('assets/manifest.json', (r) => r.json()).catch((error) => {
+    console.warn('素材清单无法读取，使用默认素材', error);
+    return null;
+  });
+  if (!m) return found;
+  const availability = await index;
   const jobs = [];
   // A list means "first existing wins": generated asset, then the local original-game placeholder.
   for (const group of ['portraits', 'sprites', 'audio']) for (const [k, urls] of Object.entries(m[group] || {})) {

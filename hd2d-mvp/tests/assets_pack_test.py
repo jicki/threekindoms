@@ -94,6 +94,52 @@ class AssetsPackTest(unittest.TestCase):
         self.assertEqual(self.asset.read_bytes(), self.data)
         self.assertEqual(list(self.root.glob(".asset-pack-*")), [])
 
+    def test_matching_project_archive_is_used_without_network(self):
+        self.archive = self.root / "threekindoms-assets-1.zip"
+        pack(self.root, self.archive)
+        self.lock()
+        lock_path = self.root / "ASSETS.lock.json"
+        lock = json.loads(lock_path.read_text())
+        lock["url"] = f"https://example.invalid/{self.archive.name}"
+        lock_path.write_text(json.dumps(lock))
+        self.asset.unlink()
+        with patch("assets_pack.download") as download:
+            install(self.root, None)
+        download.assert_not_called()
+        self.assertEqual(self.asset.read_bytes(), self.data)
+
+    def test_invalid_project_archive_falls_back_and_verifies_cached_download(self):
+        pack(self.root, self.archive)
+        self.lock()
+        lock_path = self.root / "ASSETS.lock.json"
+        lock = json.loads(lock_path.read_text())
+        name = "threekindoms-assets-1.zip"
+        lock["url"] = f"https://example.invalid/{name}"
+        lock_path.write_text(json.dumps(lock))
+        correct = self.archive.read_bytes()
+        bad = bytes([correct[0] ^ 1]) + correct[1:]
+        (self.root / name).write_bytes(bad)
+        cache = self.root / "cache"
+        cached = cache / f"{lock['sha256']}.zip"
+        for payload, downloads in [(bad, 1), (correct, 1), (None, 0), (correct, 1)]:
+            with self.subTest(downloads=downloads, payload=payload is not None):
+                self.asset.write_bytes(b"existing")
+                with patch("assets_pack.download", side_effect=lambda _url, path, _size: path.write_bytes(payload)) as download:
+                    if payload == bad:
+                        with self.assertRaisesRegex(ValueError, "SHA-256"):
+                            install(self.root, None, cache)
+                        self.assertFalse(cached.exists())
+                        self.assertEqual(self.asset.read_bytes(), b"existing")
+                    else:
+                        install(self.root, None, cache)
+                        self.assertEqual(self.asset.read_bytes(), self.data)
+                        self.assertEqual(cached.read_bytes(), correct)
+                self.assertEqual(download.call_count, downloads)
+                self.assertEqual((self.root / name).read_bytes(), bad)
+                self.assertEqual(list(cache.glob(".asset-download-*")), [])
+                if payload is None:
+                    cached.write_bytes(bad)
+
     def test_per_file_sha_and_member_type_are_checked_before_install(self):
         for content, file_type in [(b"unexpected", stat.S_IFREG), (self.data, stat.S_IFLNK)]:
             with self.subTest(file_type=file_type):

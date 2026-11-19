@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import hashlib
 from http.client import IncompleteRead
 import json
@@ -109,7 +110,14 @@ def unpack(archive: Path, staging: Path, entries: dict[str, str]) -> None:
                 raise ValueError(f"素材文件的 SHA-256 不匹配：{file.filename}")
 
 
-def install(root: Path, archive: Path | None) -> None:
+def archive_matches(path: Path, size: int, digest: str) -> bool:
+    try:
+        return path.is_file() and path.stat().st_size == size and sha256(path) == digest
+    except OSError:
+        return False
+
+
+def install(root: Path, archive: Path | None, cache_dir: Path | None = None) -> None:
     entries = manifest(root)
     lock = json.loads((root / "ASSETS.lock.json").read_text(encoding="utf-8"))
     digest, size = lock["sha256"], lock["size"]
@@ -119,18 +127,41 @@ def install(root: Path, archive: Path | None) -> None:
     if archive is None and all(path.is_file() and sha256(path) == entries[name] for name, path in targets.items()):
         print(f"素材已通过校验，共 {len(entries)} 个文件")
         return
-    with TemporaryDirectory(prefix=".asset-pack-", dir=root) as temp:
-        staging = Path(temp).resolve()
-        if archive is None:
-            archive = staging / "bundle.zip"
+    if archive is not None and not archive_matches(archive, size, digest):
+        raise ValueError("素材包的大小或 SHA-256 与锁定值不匹配")
+    cache_file = cache_dir / f"{digest}.zip" if cache_dir is not None else None
+    if archive is None:
+        name = PurePosixPath(urlsplit(lock["url"]).path).name
+        local = root / name
+        if name.startswith("threekindoms-assets-") and name.endswith(".zip") and local.is_file():
+            if archive_matches(local, size, digest):
+                archive = local
+                print(f"复用项目素材包 {name}", flush=True)
+            else:
+                print(f"项目素材包 {name} 校验失败，将查找缓存或下载", flush=True)
+        if archive is None and cache_file is not None and archive_matches(cache_file, size, digest):
+            archive = cache_file
+            print("复用已校验的构建缓存素材包", flush=True)
+
+    with ExitStack() as temporary:
+        staging = Path(temporary.enter_context(TemporaryDirectory(prefix=".asset-pack-", dir=root))).resolve()
+        downloaded = archive is None
+        if downloaded:
+            download_dir = staging
+            if cache_dir is not None:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                download_dir = Path(temporary.enter_context(TemporaryDirectory(prefix=".asset-download-", dir=cache_dir)))
+            archive = download_dir / "bundle.zip"
             print(f"下载素材包 {lock['url']}", flush=True)
             download(lock["url"], archive, size)
-        if archive.stat().st_size != size or sha256(archive) != digest:
+        if downloaded and not archive_matches(archive, size, digest):
             raise ValueError("素材包的大小或 SHA-256 与锁定值不匹配")
         unpack(archive, staging, entries)
         for name, target in targets.items():
             target.parent.mkdir(parents=True, exist_ok=True)
             os.replace(staging / name, target)
+        if downloaded and cache_file is not None:
+            os.replace(archive, cache_file)
     print(f"已校验并安装 {len(entries)} 个素材文件")
 
 
@@ -139,13 +170,15 @@ def main() -> None:
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     commands = parser.add_subparsers(dest="action", required=True)
     commands.add_parser("pack").add_argument("output", type=Path)
-    commands.add_parser("install").add_argument("--archive", type=Path)
+    installer = commands.add_parser("install")
+    installer.add_argument("--archive", type=Path)
+    installer.add_argument("--cache-dir", type=Path)
     args = parser.parse_args()
     try:
         if args.action == "pack":
             pack(args.root.resolve(), args.output)
         else:
-            install(args.root.resolve(), args.archive)
+            install(args.root.resolve(), args.archive, args.cache_dir)
     except (KeyError, ValueError, OSError) as error:
         parser.exit(1, f"素材处理失败：{error}\n")
 

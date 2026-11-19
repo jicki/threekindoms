@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { U, SEASON_GLSL, SAND_REF, seasonalPiece, seasonalWater } from './seasons.js';
 import { NONE } from './core/game.js';
+import { readResource } from './resource.js';
 
 const DIR = 'assets/ai/sandtable/board';
 const STAGED_DIR = 'assets/ai/sandtable/source/ranges-board'; // ?board=staged: review the mountain side bake before installation
@@ -46,17 +47,23 @@ export async function loadSandtable() {
   if (board != null && board !== 'sand' && board !== 'staged') return null;
   const dir = board === 'staged' ? STAGED_DIR : DIR;
   try {
-    const meta = await (await fetch(`${dir}/board.json`)).json();
-    const tex = (f, srgb) => new THREE.TextureLoader().loadAsync(`${dir}/${f}`).then((t) => {
-      t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.anisotropy = 8; return t;
-    });
+    const meta = await readResource(`${dir}/board.json`, (r) => r.json());
+    const tex = async (f, srgb) => {
+      const blob = await readResource(`${dir}/${f}`, (r) => r.blob());
+      const url = URL.createObjectURL(blob);
+      try {
+        const t = await new THREE.TextureLoader().loadAsync(url);
+        t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.anisotropy = 8; return t;
+      } finally { URL.revokeObjectURL(url); }
+    };
     const loader = new GLTFLoader();
     const kinds = [...new Set([...Object.keys(meta.pieces), 'city-capital', 'city-major', 'city-county', 'pass'])];
     const farKinds = (meta.far ?? []).filter((k) => meta.pieces[k]?.length); // no LOD download for a piece absent from this board
-    const model = (f) => loader.loadAsync(`${dir}/models/${f}.glb`).then((g) => g.scene).catch(() => null);
+    const model = (f) => readResource(`${dir}/models/${f}.glb`, (r) => r.arrayBuffer())
+      .then((buffer) => loader.parseAsync(buffer, `${dir}/models/`)).then((g) => g.scene).catch(() => null);
     const [albedo, light, mask, sea, frame, height, ...models] = await Promise.all([
       tex('albedo.webp', true), tex('light.webp'), tex('mask.png'), tex('sea.png'), tex('frame.jpg', true),
-      fetch(`${dir}/height.bin`).then((r) => r.arrayBuffer()),
+      readResource(`${dir}/height.bin`, (r) => r.arrayBuffer()),
       ...kinds.map(model), ...farKinds.map((k) => model(`${k}-far`)),
     ]);
     return { meta, albedo, light, mask, sea, frame, height: new Uint16Array(height), models: Object.fromEntries(kinds.map((k, i) => [k, models[i]])),

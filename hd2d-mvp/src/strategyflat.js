@@ -10,6 +10,7 @@ import { createSky2d } from './skyfx2d.js';
 import { layoutTags, measureTags } from './citytags.js';
 import { NONE, cityName, factionName } from './core/game.js';
 import { expandedFlatBoard } from './core/expanded-map.js';
+import { readResource } from './resource.js';
 
 const DIR = 'assets/ai/sandtable/flat';
 const SEASONS = ['spring', 'summer', 'autumn', 'winter'], seasonOf = (m) => Math.floor(m / 3);
@@ -45,7 +46,7 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 // (the title's 季春 unless a switch brings it in mid-game); ctx.onPicturesFailed: no picture could be had, and there is none to keep showing.
 export async function createStrategyFlat(ctx) {
   const { data, month: start = 2 } = ctx;
-  let board = await (await fetch(`${DIR}/board.json`)).json();
+  let board = await readResource(`${DIR}/board.json`, (r) => r.json());
   if (data.expandedMap) board = expandedFlatBoard(board, data.frontierMap);
   const [W, H] = board.size, B = board.bounds, cities = [];
   for (const c of board.cities) cities[c.id] = c;
@@ -117,7 +118,7 @@ export async function createStrategyFlat(ctx) {
   const load = (s) => {
     if (pics.has(s)) return Promise.resolve(pics.get(s));
     if (!loading.has(s)) {
-      loading.set(s, fetch(`${DIR}/${SEASONS[s]}.webp`).then((r) => { if (!r.ok) throw new Error(`${r.status}`); return r.blob(); }).then((b) => createImageBitmap(b))
+      loading.set(s, readResource(`${DIR}/${SEASONS[s]}.webp`, (r) => r.blob()).then((b) => createImageBitmap(b))
         .then((p) => { if (asleep) { p.close(); throw new Error('released'); } pics.set(s, p); return p; }).finally(() => loading.delete(s)));
     }
     return loading.get(s);

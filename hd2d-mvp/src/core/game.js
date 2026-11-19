@@ -13,6 +13,7 @@ import { EXPANDED_MAP_ID, EXPANDED_NODES, expandMap, applyExpandedOpening } from
 import { SOVEREIGN_SCENARIO_ID } from './visuals.js';
 import { chooseCampaignEvent, applyCampaignEvent } from './campaign-events.js';
 import { FAMOUS_ROSTER, FAMOUS_ROSTER_START, activateFamousRoster, extraSearchIds, famousRosterTemplate, hasFamousRoster, rosterRecordName, staticRosterSize } from './famous-roster.js';
+import { readResource } from '../resource.js';
 // 原版无主为 7；扩展剧本将无主编号放在实际势力编号之后。
 export let NONE = 7;
 export const DEAD = 3, SERVING = 2, UNAPPEARED = 1, RONIN = 0;
@@ -24,9 +25,7 @@ export const data = () => D;
 export const currentScenario = () => scenarioId;
 export const scenarioKey = (key) => scenarioId === ORIGINAL_SCENARIO ? key : `${key}:scenario:${scenarioId}`;
 export async function loadData(url = 'data/game-data.json') {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error('无法读取游戏基础数据');
-  const base = await response.json(), id = selectedScenario();
+  const base = await readResource(url, (r) => r.json()), id = selectedScenario();
   if (id === ORIGINAL_SCENARIO) return setData(base, id);
   const scenario = await loadScenario(id === EXPANDED_MAP_ID ? SOVEREIGN_SCENARIO_ID : id, base);
   let next = applyScenario(base, scenario);

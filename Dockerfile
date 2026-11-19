@@ -8,9 +8,10 @@ RUN npm ci --include=dev --omit=optional --ignore-scripts --no-audit --no-fund
 # FROM python:3.13-slim
 FROM reg.deeproute.ai/deeproute-public/zzh/python:3.13-slim AS assets
 WORKDIR /asset-root
-COPY ASSETS.lock.json ASSETS.sha256 ./
+COPY ASSETS.lock.json ASSETS.sha256 threekindoms-assets-*.zip ./
 COPY hd2d-mvp/tools/assets_pack.py /usr/local/bin/assets_pack.py
-RUN python3 /usr/local/bin/assets_pack.py --root /asset-root install
+RUN --mount=type=cache,id=threekindoms-assets,target=/asset-cache,sharing=locked \
+    python3 /usr/local/bin/assets_pack.py --root /asset-root install --cache-dir /asset-cache
 
 FROM reg.deeproute.ai/deeproute-public/zzh/python:3.13-slim
 

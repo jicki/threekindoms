@@ -51,7 +51,7 @@ npm --prefix hd2d-mvp/desktop install     # 首次：安装 three.js、字体和
 python3 hd2d-mvp/tools/serve.py 8677      # 启动开发服务器
 ```
 
-然后用浏览器打开 http://localhost:8677/hd2d-mvp/ 。在网址后面加 `?mute` 可以静音。
+然后用浏览器打开 http://127.0.0.1:8677/hd2d-mvp/ 。在网址后面加 `?mute` 可以静音。
 
 ### 战场操作
 
@@ -137,7 +137,7 @@ PS 结局的对应关系依据音源标签，尚未与原 PS 游戏的结局画�
 
 ### 使用 Docker Compose
 
-需要 Docker 和 Docker Compose。全新克隆后可直接运行 `make build` 或 `make up`。Docker 构建阶段自动下载锁定的 Release，校验整包及每个文件，再将运行素材复制到镜像内的 `hd2d-mvp/assets/`。下载或校验失败会中止构建。构建阶段可复用 Docker 素材缓存，镜像中的编辑器上传目录继续使用独立数据卷。
+需要 Docker 和 Docker Compose。全新克隆后可直接运行 `make build` 或 `make up`。构建优先使用项目根目录中与 `ASSETS.lock.json` 下载地址同名的 ZIP，例如 `threekindoms-assets-1.zip`。素材包大小及 SHA-256 一致时直接解压。没有匹配的项目 ZIP 时，构建会检查 BuildKit 缓存，必要时才从锁定的 Release 下载。每个解压后的文件仍会逐一校验。ZIP 和构建缓存只在构建阶段使用，运行镜像只包含解压后的素材，编辑器上传目录继续使用独立数据卷。
 
 Dockerfile 从 `reg.deeproute.ai` 拉取 Node 和 Python 基础镜像。本次验证的镜像为 `linux/amd64`；在 ARM 主机上运行需要支持 amd64 模拟。
 
@@ -145,10 +145,10 @@ Dockerfile 从 `reg.deeproute.ai` 拉取 Node 和 Python 基础镜像。本次�
 
 执行 `cat ASSETS.lock.json` 查看当前工作区构建所用的素材版本。下载地址中的 Release 标签即素材版本，`sha256` 和 `size` 是精确的校验值。也可以执行 `git show HEAD:ASSETS.lock.json` 查看已提交的锁文件，将 `HEAD` 换成目标提交号即可查询历史版本。只更新游戏代码且素材安装器、锁文件和素材清单未改变时，Docker 可以复用素材层。
 
-网络中断或下载校验失败时，检查网络和锁定的 Release 后，重新执行 `make build` 或 `make up` 即可。失败的构建不会更新镜像，重试会重新下载失败的素材层。直接在本地运行游戏时，可用 `make assets` 安装或重试。
+本地 ZIP 损坏、版本不匹配或被移走时，构建会尝试已校验的缓存或重新下载。首次下载成功的 ZIP 会保存在当前 BuildKit 构建器的缓存中，供后续正常构建复用。清理缓存、使用 `--no-cache` 或更换构建器时，放回项目 ZIP 仍可直接校验解压。下载中断或远程包校验失败会中止构建，保留已有镜像。网络恢复后可用 `make build` 或 `make up` 重试。`make assets` 也可直接使用项目根目录中的 ZIP。
 
 ```bash
-make build    # 下载校验素材并构建镜像
+make build    # 校验素材并构建镜像
 make up       # 构建镜像并在后台启动
 make ps       # 查看服务状态
 make logs     # 查看服务日志，按 Ctrl+C 退出
@@ -157,7 +157,7 @@ make down     # 停止并移除容器
 
 客户端提前断开连接时，日志会保留一条简短提示；其他服务端异常仍会输出完整堆栈。
 
-打开 http://localhost:8677/hd2d-mvp/ 。默认只监听本机的 8677 端口；可以通过环境变量修改监听地址和宿主机端口，例如：
+打开 http://127.0.0.1:8677/hd2d-mvp/ 。默认只监听本机的 8677 端口；可以通过环境变量修改监听地址和宿主机端口，例如：
 
 ```bash
 GAME_BIND_ADDRESS=0.0.0.0 GAME_PORT=8080 make up

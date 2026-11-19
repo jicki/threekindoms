@@ -17,7 +17,8 @@ const freePort = () => new Promise((resolve, reject) => {
 // record from saveCampaign) is put in the page's save slot 1 before the game boots, for resumeCampaign; `setup(context)` runs before
 // that boot too (stored settings, network routes, listeners).
 export async function startGame({ width = 1280, height = 800, scenario = null } = {}) {
-  const port = await freePort(), url = `http://localhost:${port}/hd2d-mvp/?mute`;
+  // 开发服务器监听 IPv4。localhost 还会解析为 ::1，macOS 上可能误连到客户端自己的临时端口。
+  const port = await freePort(), url = `http://127.0.0.1:${port}/hd2d-mvp/?mute`;
   // 浏览器测试使用临时服务，不应读取或覆盖调用者的持久管理员配置。
   const server = spawn('python3', ['hd2d-mvp/tools/serve.py', String(port)], {
     cwd: ROOT, stdio: 'ignore', env: { ...process.env, GAME_ADMIN_TOKEN_FILE: '' },
@@ -29,7 +30,6 @@ export async function startGame({ width = 1280, height = 800, scenario = null } 
   }
   let browser;
   try { browser = await launchChrome(url); } catch (e) { server.kill(); throw e; }
-  const contexts = [];
   // A killed test run (Ctrl-C, SIGTERM from a timeout) must not leave serve.py and Chrome running.
   const onKill = (sig) => { server.kill(); browser.close().catch(() => {}).finally(() => process.exit(sig === 'SIGINT' ? 130 : 143)); };
   const onTerm = () => onKill('SIGTERM'), onInt = () => onKill('SIGINT');
@@ -37,20 +37,43 @@ export async function startGame({ width = 1280, height = 800, scenario = null } 
   return {
     url,
     async open(query = '', { save, setup, clock = false } = {}) {
-      const ctx = await browser.newContext({ viewport: { width, height } }); contexts.push(ctx);
-      if (clock) await ctx.addInitScript(fastClock);
-      if (scenario) await ctx.addInitScript((id) => sessionStorage.setItem('haou-hd2d-scenario', id), scenario);
-      await setup?.(ctx);
-      if (save) await ctx.addInitScript((s) => {
-        const id = JSON.parse(s).scenarioId ?? 'original';
-        sessionStorage.setItem('haou-hd2d-scenario', id);
-        localStorage.setItem(id === 'original' ? 'haou-hd2d-save:1' : `haou-hd2d-save:scenario:${id}:1`, s);
-      }, save);
-      const page = await ctx.newPage(), errors = [];
-      page.on('pageerror', (e) => errors.push(e.message));
-      page.errors = errors;
-      await page.goto(url + query); await page.waitForFunction(() => window.__game?.debug, null, { timeout: 60000 });
-      return page;
+      const ctx = await browser.newContext({ viewport: { width, height } });
+      const errors = [], pending = new Map(), failed = [];
+      const describe = (r) => `${r.method()} ${new URL(r.url()).pathname}`;
+      let phase = '浏览器上下文设置';
+      try {
+        if (clock) await ctx.addInitScript(fastClock);
+        if (scenario) await ctx.addInitScript((id) => sessionStorage.setItem('haou-hd2d-scenario', id), scenario);
+        await setup?.(ctx);
+        if (save) await ctx.addInitScript((s) => {
+          const id = JSON.parse(s).scenarioId ?? 'original';
+          sessionStorage.setItem('haou-hd2d-scenario', id);
+          localStorage.setItem(id === 'original' ? 'haou-hd2d-save:1' : `haou-hd2d-save:scenario:${id}:1`, s);
+        }, save);
+        const page = await ctx.newPage();
+        const requested = (r) => pending.set(r, describe(r));
+        const finished = (r) => pending.delete(r);
+        const interrupted = (r) => { pending.delete(r); failed.push(`${describe(r)} ${r.failure()?.errorText}`); };
+        const rejected = (r) => { if (r.status() >= 400) failed.push(`${describe(r.request())} HTTP ${r.status()}`); };
+        page.on('pageerror', (e) => errors.push(e.message));
+        page.on('request', requested);
+        page.on('requestfinished', finished);
+        page.on('requestfailed', interrupted);
+        page.on('response', rejected);
+        page.errors = errors;
+        phase = '页面导航'; await page.goto(url + query);
+        phase = '游戏初始化';
+        const ready = await page.waitForFunction(() => window.__game?.debug ? true : document.querySelector('.boot-error')?.textContent, null, { timeout: 60000 });
+        const status = await ready.jsonValue();
+        await ready.dispose();
+        if (status !== true) throw new Error(status);
+        page.off('request', requested).off('requestfinished', finished).off('requestfailed', interrupted).off('response', rejected);
+        return page;
+      } catch (error) {
+        const detail = [...errors.slice(-4), ...failed.slice(-8), ...[...pending.values()].slice(0, 8).map((r) => `等待 ${r}`)];
+        await ctx.close().catch(() => {});
+        throw new Error(`${phase}失败：${[error.message, ...detail].join('\n')}`, { cause: error });
+      }
     },
     async close() { process.off('SIGTERM', onTerm); process.off('SIGINT', onInt); await browser.close().catch(() => {}); server.kill(); },
   };

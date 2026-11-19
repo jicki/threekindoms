@@ -7,6 +7,7 @@ import { createPost } from './post.js';
 import { createQuality, savedQuality, warView } from './quality.js';
 import { frameCap, pacer } from './framecap.js';
 import { loadManifest, loadPixelTexture, equipIcon, packSpriteStrip, loadGridMotion } from './assets.js';
+import { readResource } from './resource.js';
 import { authoredGridWeapon, replacementWeaponMotion } from './weapon-motion.js';
 import { Audio } from './audio.js';
 import { SPECIAL_TROOPS, officerSpecialty, officerSquadLimit } from './core/troop-specialties.js';
@@ -54,7 +55,7 @@ const factionName = (f) => G.factionName(g, f);
 const serverVersions = location.protocol === 'http:' || location.protocol === 'https:';
 // Everything the title waits for is asked for at once; each optional list fails on its own (an empty list), as when they were
 // fetched one after another, and is applied in the same order (the portrait list over the manifest's).
-const json = (url) => fetch(url, { cache: 'no-store' }).then((r) => r.json());
+const json = (url) => readResource(url, (r) => r.json(), { cache: 'no-store' });
 const optional = (p) => p.catch(() => null);
 // 头像索引失败会令整批人物退回同一张图，短暂网络故障时先重试一次。
 const artIndex = async (url) => {
@@ -72,15 +73,16 @@ const artIndex = async (url) => {
   catch { await new Promise((resolve) => setTimeout(resolve, 200)); return read(); }
 };
 const gameData = G.loadData().catch((error) => {
-  const reset = h('button', { class: 'btn primary', onclick: () => { selectScenario(ORIGINAL_SCENARIO); location.reload(); } }, '切换到原版');
-  document.body.replaceChildren(h('main', { style: { padding: '3rem', color: 'white' } },
-    h('h1', {}, '游戏版本无法读取'), h('p', {}, error.message), reset));
+  const retry = h('button', { class: 'btn primary', onclick: () => location.reload() }, '重新加载');
+  const reset = h('button', { class: 'btn', onclick: () => { selectScenario(ORIGINAL_SCENARIO); location.reload(); } }, '切换到原版');
+  document.body.replaceChildren(h('main', { class: 'boot-error', role: 'alert' },
+    h('h1', {}, '游戏版本无法读取'), h('p', {}, error.message), h('div', {}, retry, reset)));
   return new Promise(() => {});
 });
 const [D, files, portraitList, faceList, halfbodyList, titleArt, officerList, duelList, marchList, troopList] = await Promise.all([
   gameData, loadManifest(),
   optional(artIndex('assets/ai/portraits/index.json')), optional(artIndex('assets/ai/faces/index.json')), optional(artIndex('assets/ai/halfbody/index.json')),
-  fetch('assets/ai/title.webp', { method: 'HEAD' }).then((r) => r.ok, () => false),
+  readResource('assets/ai/title.webp', () => true, { method: 'HEAD', timeout: 2500 }).catch(() => false),
   optional(json('assets/ai/sprites/officers/index.json')), optional(json('assets/ai/sprites/duel/index.json')),
   optional(json('assets/ai/sprites/march/index.json')), optional(json('assets/ai/sprites/troops/index.json')),
 ]);
