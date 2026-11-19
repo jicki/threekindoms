@@ -1,5 +1,5 @@
 # Docker 命令：默认从 PATH 查找，支持外部覆盖
-DOCKER ?= docker
+DOCKER ?= /bin/docker
 
 # Docker Compose 命令
 COMPOSE ?= $(DOCKER) compose
