@@ -1,6 +1,11 @@
-COMPOSE ?= docker compose
+# Docker 命令：默认从 PATH 查找，支持外部覆盖
+DOCKER ?= docker
+
+# Docker Compose 命令
+COMPOSE ?= $(DOCKER) compose
 
 .DEFAULT_GOAL := help
+
 .PHONY: help assets build up down logs ps
 
 help:
