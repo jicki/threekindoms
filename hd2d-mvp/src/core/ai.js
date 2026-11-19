@@ -2,7 +2,8 @@
 // faction/difficulty/situation weights (`10:A19C` uses D4AD, so sums above 16 never reach the last
 // branches), then attack/vacant expansion, inner moves + BD7A reinforcement, diplomacy, or domestic work.
 import { data, currentScenario, rng, NONE, SERVING, UNAPPEARED, RONIN, roads, citiesOf, holdingsOf, isPass, troopsOf, recruitLoyalty, books, isRuler, officerCity, searchOrder, maxHp, weaponGroup, equipBlock, wearEquip } from './game.js';
-import { setupWar, occupyEmpty, autoBattle } from './warcore.js';
+import { setupWar, occupyEmpty, autoBattle, defenseCandidates, joinDefense } from './warcore.js';
+import { advancedBattle, officerPassive } from './battle-rules.js';
 import { phantomWar } from './ahuinan.js';
 import { FEMALE_SCENARIO_ID } from './visuals.js';
 import { recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
@@ -312,7 +313,8 @@ async function attackBranch(g, f, r, io, spend) {
       // 守将数之外兼顾实际兵力、出发城粮草及关隘价值；不额外消耗随机数。
       const score = t.officers.length * 20 + Math.floor(troopsOf(g, t) / 100)
         - Math.min(30, Math.floor(troopsOf(g, c) / 200)) - Math.min(6, c.officers.length) * 5
-        + (c.rice < 240 ? 20 : 0) + (c.gold < 100 ? 10 : 0) - (isPass(t.id) ? 4 : 0);
+        + (c.rice < 240 ? 20 : 0) + (c.gold < 100 ? 10 : 0) - (isPass(t.id) ? 4 : 0)
+        + (advancedBattle(g) ? frontierScore(g, c, t) : 0);
       if (score < bestScore || (score === bestScore && c.officers.length >= (source == null ? 0 : g.cities[source].officers.length))) {
         target = n; source = c.id; bestScore = score;
       }
@@ -361,11 +363,27 @@ async function attackBranch(g, f, r, io, spend) {
   const ids = pool.slice(0, n).map((p) => p.id);
   if (!ids.length || ids.length >= src.officers.length) return false;
   const war = setupWar(g, { from: source, to: target, ids, commander: ids[0], gold, rice });
-  if (!g.factions[war.defender].ai) { await io.war(war); return 'war'; }
+  const relief = defenseCandidates(g, f, war.defender, war.city, war.def.ids.length);
+  const player = relief.find(c => c.faction === g.player);
+  if (player && await io.offerSupport?.(war, player)) joinDefense(g, war, player);
+  else joinDefense(g, war, relief.find(c => c.faction !== g.player));
+  if (!g.factions[war.defender].ai || war.support?.faction === g.player) { await io.war(war); return 'war'; }
   const res = autoBattle(g, war);
   await io.event({ type: 'autobattle', war, res });
   await io.afterWar(war);
   return 'war'; // one expedition per turn
+}
+
+function frontierScore(g, source, target) {
+  const support = defenseCandidates(g, source.faction, target.faction, target.id)[0];
+  const relief = support?.ids.reduce((n, id) => n + g.officers[id].soldiers, 0) ?? 0;
+  const pressure = roads(source.id).filter(id => {
+    const c = g.cities[id];
+    return c.faction !== target.faction && c.faction !== source.faction && c.faction !== NONE &&
+      !g.factions[source.faction].alliance[c.faction] && troopsOf(g, c) > troopsOf(g, source);
+  }).length;
+  const leader = citiesOf(g, target.faction).length >= citiesOf(g, source.faction).length + 3;
+  return Math.min(32, Math.floor(relief / 100)) + pressure * 18 - (leader ? 12 : 0);
 }
 
 function vacant(g, f, r, spend) {
@@ -516,6 +534,7 @@ function reinforce(g, f, spend) {
 // One BEC7 action in the selected city: faction threshold out of 80, then the sub-draw.
 function domestic(g, f, c, r, spend) {
   const D = data(), K = D.rules.ai_domestic.development_multiplier_tenths[g.level];
+  const passive = officerPassive(D, g, c.officers[0]);
   if (r(80) < D.rules.ai_domestic.faction_development_threshold_out_of_80[aiProfile(f)]) {
     const x = r(100);
     if (x < 70) {
@@ -526,16 +545,21 @@ function domestic(g, f, c, r, spend) {
       if (x < 40) {
         const field = g.month >= 3 && g.month <= 7 ? 'land' : 'industry';
         c.gov = Math.min(100, c.gov + (gain >= 31 ? 2 : 1));
-        c[field] = Math.min(999, c[field] + gain);
-      } else { c.gov = Math.min(100, c.gov + 1); c.pop = Math.min(9999, c.pop + Math.floor(gain / 2)); }
+        c[field] = Math.min(999, c[field] + gain + (passive?.development ?? 0));
+      } else { c.gov = Math.min(100, c.gov + 1); c.pop = Math.min(9999, c.pop + Math.floor(gain / 2) + (passive?.development ?? 0)); }
     } else if (x < 90) {
       const cost = 10 + r(10);
       if (c.gold < cost) return false;
-      c.gold -= cost; c.disaster = Math.min(99, c.disaster + Math.floor((cost * D.rules.ai_domestic.disaster_multiplier_tenths[g.level]) / 10));
+      c.gold -= cost;
+      c.disaster = Math.min(99, c.disaster + Math.floor((cost * D.rules.ai_domestic.disaster_multiplier_tenths[g.level]) / 10) + (passive?.prevention ?? 0));
     } else {
-      const gc = 30 + r(30); if (c.gold < gc) return false; c.gold -= gc;
-      const rc = 30 + r(30); if (c.rice < rc) return false; c.rice -= rc; // gold already spent is not refunded
-      c.gov = Math.min(99, c.gov + Math.floor((gc + rc) / [25, 20, 15][g.level]));
+      const gc = 30 + r(30); if (c.gold < gc) return false;
+      const rc = 30 + r(30);
+      if (advancedBattle(g) && c.rice < rc) return false;
+      c.gold -= gc; // 旧战役保留扣金后才检查米的顺序。
+      if (c.rice < rc) return false;
+      c.rice -= rc;
+      c.gov = Math.min(99, c.gov + Math.floor((gc + rc) / [25, 20, 15][g.level]) + (passive?.charity ?? 0));
     }
     return spend(5) || true;
   }
@@ -661,17 +685,27 @@ async function ally(g, f, r, io) {
   if (!holdings.some((c) => c.officers.some((id) => id !== fac.ruler))) return; // B619 needs a non-ruler envoy
   for (const c of holdings) for (const n of roads(c.id)) { const o = g.cities[n].faction; if (o !== f && o !== NONE) adj.add(o); }
   if (adj.size < 2) return;
-  const target = maxBy([...adj], (o) => citiesOf(g, o).length);
+  const strength = (o) => citiesOf(g, o).length;
+  const threat = maxBy([...adj], strength);
+  let target = threat;
+  if (advancedBattle(g) && strength(threat) > mine.length + 1) {
+    // 邻国既能从前线驰援，又受同一个大势力威胁时，共守边境更有价值。
+    const candidates = [...adj].filter(o => o !== threat && strength(o) <= strength(threat) && !g.factions[o].alliance[threat]);
+    const border = (o) => holdingsOf(g, o).reduce((score, c) => score + roads(c.id).filter(id => g.cities[id].faction === threat).length, 0);
+    const partner = maxBy(candidates, o => border(o) * 3 + Math.min(strength(o), 3));
+    if (partner != null && border(partner) > 0) target = partner;
+  }
   const tc = citiesOf(g, target).length;
-  if (tc <= mine.length + 2) return;
+  if (target === threat && tc <= mine.length + 2) return;
   const gold = r(100) < 50, amount = (3 * tc + 7) * (gold ? 4 : 6), kind = gold ? 'gold' : 'rice';
   const home = officerCity(g, fac.ruler);
   if (!home || home[kind] < amount) return;
   // 原版保留低字节截断；新版按完整报价支付，避免超过 255 后出现零价同盟。
   const paid = g.campaignRules === true ? amount : amount & 255;
-  const accepted = g.factions[target].ai ? true : await io.allianceOffer(f, kind, paid);
+  const duration = advancedBattle(g) ? 14 : 10;
+  const accepted = g.factions[target].ai ? true : await io.allianceOffer(f, kind, paid, duration);
   if (!accepted) return;
   home[kind] -= paid; const dst = officerCity(g, g.factions[target].ruler); if (dst) dst[kind] = Math.min(9999, dst[kind] + paid);
-  fac.alliance[target] = 10; g.factions[target].alliance[f] = 10;
+  fac.alliance[target] = g.factions[target].alliance[f] = duration;
   await io.event({ type: 'aiAlliance', faction: f, target });
 }

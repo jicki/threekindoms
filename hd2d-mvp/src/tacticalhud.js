@@ -54,7 +54,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // warm: run once the field is first laid, before anything shows on it (app.js: its shaders compile while the cut-in covers it).
 export async function runTactical({ battle, hs, looks, view, duel: stage, audio, face, name, D, banner, message, profiles = null, warm = null }) {
   const S = battle.side[hs], E = S.foe, es = hs === 'a' ? 'd' : 'a';
-  const tacticTip = (id) => (TACTIC_TIP[id] ?? '').replace(/([34])回合/, (_, n) => `${Number(n) + (S.tacticRounds ?? 0)}回合`);
+  const wet = (s) => battle.weather === 'rain' && !battle.side[s].passive?.weatherproof;
+  const tacticWeather = (tip, id, s) => !wet(s) ? tip
+    : id === 'xbow' ? tip.replace('6格', '5格')
+    : ['fire', 'blast'].includes(id) ? `${tip}，雨天威力较低` : tip;
+  const tacticTip = (id) => tacticWeather((TACTIC_TIP[id] ?? '').replace(/([34])回合/, (_, n) => `${Number(n) + (S.tacticRounds ?? 0)}回合`), id, hs);
   const root = h('div', { class: 'tq', 'data-side': looks[hs] });
   document.body.append(root);
   // The battle opens paused: orders and tactics (定身 first, say) can be set before anything moves, and
@@ -119,7 +123,7 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
         // From the keys: Enter on another card picks it (the click above); a new Enter on the picked one deploys it (held: refused).
         onkeydown: (e) => { if (e.key === 'Enter' && !e.fromPad && i === selected) { e.preventDefault(); go(e); } } }, // the pad's A comes as an Enter too: it only picks, X deploys
         h('i', { class: 'tq-picked' }, '已选'),
-        h('div', { class: 'tq-form-svg', html: formationSvg(D.formations[i], kinds, hs) }), h('b', {}, n),
+        h('div', { class: 'tq-form-svg', html: formationSvg(D.formations[i], battle.formationKinds(hs, i), hs) }), h('b', {}, n),
         h('small', {}, ['横列绵长，可左右绕袭，中央较薄', '两翼前出，包抄敌阵', '尖锋突进，正面冲击力强', '层层叠阵，正面坚守'][i])));
       const peek = h('p', { class: 'tq-peeknote' });
       const go = (e) => {
@@ -191,7 +195,7 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
         h('div', { class: 'tq-bar tr', title: '兵数' }, h('i', { style: { width: `${Math.min(100, troops / 10)}%` } }), h('span', {}, `兵 ${troops}`)),
         h('div', { class: 'tq-tp', title: '战术点' }, ...Array.from({ length: Math.max(X.tp, 0) }, () => h('i')), h('em', {}, `战术 ${X.tp}`)),
         // what works on this general's side (core/tactical.js effects()): a foe's 咒缚 shows on the bound one's card, not the caster's
-        h('div', { class: 'tq-fx' }, ...(fxHold?.[s] ?? battle.effects(s)).map((e) => h('span', { class: `fx-${e.id} ${e.bad ? 'bad' : ''}`, title: `${FX_INFO[e.id][2]}（还剩 ${e.n} 回合）` }, h('b', {}, FX_INFO[e.id][0]), `${FX_INFO[e.id][1]} ${e.n}回合`)))));
+        h('div', { class: 'tq-fx' }, ...(fxHold?.[s] ?? battle.effects(s)).map((e) => h('span', { class: `fx-${e.id} ${e.bad ? 'bad' : ''}`, title: `${tacticWeather(FX_INFO[e.id][2], e.id, s)}（还剩 ${e.n} 回合）` }, h('b', {}, FX_INFO[e.id][0]), `${FX_INFO[e.id][1]} ${e.n}回合`)))));
   };
   // The cards stand over their own troops, as in the original: the attacker's on the left, the defender's on the right.
   const drawTop = () => top.replaceChildren(card('a'),

@@ -4,6 +4,8 @@ import { WEAPON_CATEGORIES, validEquipmentIcon } from './equipment.js';
 import { DUEL_SKILLS } from './duel-skills.js';
 import { SPECIAL_TROOPS } from './troop-specialties.js';
 import { SKILL_VISUALS } from './skill-visuals.js';
+import { expandedNodes } from './expanded-map.js';
+import { PASSIVES } from './battle-rules.js';
 export const SCENARIO_FORMAT = 1;
 export const ORIGINAL_SCENARIO = 'original';
 export const RELATION_KINDS = ['亲属', '夫妻', '朋友', '对手', '师徒', '父子', '兄弟', '姐妹', '结义', '君臣', '同僚', '姻亲', '宿敌'];
@@ -76,10 +78,19 @@ export function newScenarioId() {
   return `v-${Array.from(bytes, (n) => n.toString(16).padStart(2, '0')).join('')}`;
 }
 
+// 扩展据点只追加编号，关隘没有武器屋或搜索登场队列。
+export function scenarioCities(base, scenario) {
+  if (scenario.map !== 'expanded') return base.cities;
+  const extra = expandedNodes(scenario.frontierMap === true).filter((node) => node.kind === 'city');
+  return [...base.cities, ...extra.map(({ id, name, template }) => ({
+    id, name, faction: base.factions.length, facilities: base.cities[template].facilities,
+  }))];
+}
+
 // 只接受已知结构；读取时也要验证，不能假定本地存储或导入文件可信。
 export function validateScenario(s, base, { draft = false } = {}) {
   obj(s, '版本');
-  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'focusedRulerPassives', 'battleRulerPassives', 'expandedOpening', 'frontierMap', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops', 'campaignRules', 'campaignRelations', 'map'], '版本');
+  keys(s, ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'focusedRulerPassives', 'battleRulerPassives', 'expandedOpening', 'frontierMap', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops', 'campaignRules', 'campaignRelations', 'map', 'startYear', 'newBattleRules'], '版本');
   if (s.format !== SCENARIO_FORMAT) fail('不支持的版本文件格式');
   if (!(draft && s.id === null) && s.id !== FEMALE_SCENARIO_ID && s.id !== HERO_SCENARIO_ID && s.id !== ROSTER_SCENARIO_ID && s.id !== WARLORD_SCENARIO_ID && s.id !== SOVEREIGN_SCENARIO_ID && (typeof s.id !== 'string' || !ID.test(s.id))) fail('版本编号无效');
   text(s.name, '版本名称', 40);
@@ -108,6 +119,11 @@ export function validateScenario(s, base, { draft = false } = {}) {
   if (s.cityRaids !== undefined && typeof s.cityRaids !== 'boolean') fail('守城事件设置无效');
   if (s.campaignRules !== undefined && typeof s.campaignRules !== 'boolean') fail('新版玩法设置无效');
   if (s.map !== undefined && !['standard', 'expanded'].includes(s.map)) fail('地图设置无效');
+  if (s.startYear !== undefined) integer(s.startYear, '开局年份', 189, 236);
+  if (s.newBattleRules !== undefined && typeof s.newBattleRules !== 'boolean') fail('战场玩法设置无效');
+  if (s.newBattleRules && s.map !== 'expanded') fail('新版战场玩法需要扩展地图');
+  const cities = new Map(scenarioCities(base, s).map((c) => [c.id, c]));
+  const validCity = (id, label) => { if (!cities.has(id)) fail(`${label}不在当前版本地图中`); };
   if (s.rulers !== undefined) array(s.rulers, '君主候选', base.officers.length + 100);
   const maxOfficer = base.officers.length + s.officers.filter((o) => Number.isInteger(o?.id) && o.id >= base.officers.length).length - 1;
   if (s.specialTroops !== undefined) {
@@ -155,8 +171,8 @@ export function validateScenario(s, base, { draft = false } = {}) {
     equipmentKinds.set(item.id, kind);
   }
   const shops = (item) => {
-    array(item.shops, '售卖城市', base.cities.length);
-    for (const city of item.shops) { integer(city, '售卖城市', 0, base.cities.length - 1); if (!base.cities[city].facilities.weapons) fail('只能在设有武器屋的城市售卖'); }
+    array(item.shops, '售卖城市', cities.size);
+    for (const city of item.shops) { validCity(city, '售卖城市'); if (!cities.get(city).facilities.weapons) fail('只能在设有武器屋的城市售卖'); }
     if (new Set(item.shops).size !== item.shops.length) fail('售卖城市重复');
   };
   const requirements = (item) => {
@@ -206,7 +222,7 @@ export function validateScenario(s, base, { draft = false } = {}) {
     if (!skill.soldiers && !skill.hp && !skill.stop && !skill.rice) fail('技能至少需要一种效果');
   }
   for (const o of s.officers) {
-    obj(o, '武将'); keys(o, ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'portraitData', 'appear', 'city', 'faction', 'skills', 'duelSkill', 'visual', 'searchPriority'], '武将');
+    obj(o, '武将'); keys(o, ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'portraitData', 'appear', 'city', 'faction', 'skills', 'duelSkill', 'visual', 'searchPriority', 'passive'], '武将');
     integer(o.id, '武将编号', 0, maxOfficer);
     if (seenOfficers.has(o.id)) fail('武将编号重复'); seenOfficers.add(o.id);
     text(o.name, '武将姓名');
@@ -221,7 +237,8 @@ export function validateScenario(s, base, { draft = false } = {}) {
       }
     }
     if (o.birthYear !== null) integer(o.birthYear, '出生年份', 0, 9999);
-    if (o.birthCity !== null) integer(o.birthCity, '出生地', 0, base.cities.length - 1);
+    if (o.birthCity !== null) validCity(o.birthCity, '出生地');
+    if (o.passive !== undefined && (typeof o.passive !== 'string' || !Object.hasOwn(PASSIVES, o.passive))) fail('人物被动无效');
     if (o.birthYear !== null && o.birthYear > o.year) fail('出生年份不能晚于登场年份');
     if (o.death < o.year) fail('寿命年份不能早于登场年份');
     const lastEquipment = base.equipment.length + equipment.length - 1;
@@ -238,12 +255,12 @@ export function validateScenario(s, base, { draft = false } = {}) {
       if (o.city !== null) fail('自动出仕的武将不能指定登场城市');
       integer(o.faction, '出仕势力', 0, allFactions.length - 1);
     } else {
-      integer(o.city, '登场城市', 0, base.cities.length - 1);
+      validCity(o.city, '登场城市');
       if (o.appear === 'search_city') { if (o.faction !== null) fail('搜索登场的武将不能预设势力'); }
       else {
         integer(o.faction, '所属势力', 0, allFactions.length - 1);
         if (ownerForCity(o.city) !== o.faction) fail('开局城市不属于所选势力');
-        if (o.year > 189) fail('开局登场的年份不能晚于 189 年');
+        if (o.year > (s.startYear ?? 189)) fail('开局登场的年份不能晚于剧本开局年份');
       }
     }
     const ruler = allFactions.find((f) => f.ruler === o.id);
@@ -313,6 +330,8 @@ export function applyScenario(base, scenario, { draft = false } = {}) {
   d.smartAiReinforcement = scenario.smartAiReinforcement === true;
   d.cityRaids = scenario.cityRaids === true;
   d.campaignRules = scenario.campaignRules === true;
+  if (scenario.startYear !== undefined) d.startYear = scenario.startYear;
+  if (scenario.newBattleRules) d.newBattleRules = true;
   d.relationships = clone(scenario.relations);
   d.campaignRelationships = clone(scenario.campaignRelations ?? []);
   d.rulerCandidates = clone(scenario.rulers ?? []);
@@ -323,9 +342,13 @@ export function applyScenario(base, scenario, { draft = false } = {}) {
       ...(item.grade !== undefined ? { grade: item.grade } : {}), ...(item.requirements !== undefined ? { requirements: clone(item.requirements) } : {}),
       ...(item.exclusiveRuler !== undefined ? { exclusiveRuler: item.exclusiveRuler } : {}) });
     for (const city of item.shops) {
-      d.cities[city].shop.push(item.id); d.cities[city].field_shop.push(item.id); d.cities[city].ai_shop.push(item.id);
+      if (!d.cities[city]) ((d.expandedShops ??= {})[city] ??= []).push(item.id);
+      else {
+        d.cities[city].shop.push(item.id); d.cities[city].field_shop.push(item.id); d.cities[city].ai_shop.push(item.id);
+      }
     }
   }
+  if (scenario.newBattleRules || d.expandedShops) d.originalEquipmentCount = base.equipment.length;
   for (const o of [...scenario.officers].sort((a, b) => a.id - b.id)) {
     const prior = base.officers[o.id], moves = !prior || prior.appear !== o.appear || prior.city !== o.city || prior.faction !== o.faction;
     if (moves) {

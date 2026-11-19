@@ -17,6 +17,23 @@ export const SPECIAL_TROOPS = {
 };
 const BY_SPRITE = new Map(Object.entries(SPECIAL_TROOPS).map(([key, troop]) => [troop.sprite, key]));
 export const troopBySprite = (sprite) => SPECIAL_TROOPS[BY_SPRITE.get(sprite)] ?? null;
+export function troopGroup(unit) {
+  const type = BY_SPRITE.get(unit.special);
+  if (['spear', 'heavyspear'].includes(type)) return 'spear';
+  if (['lightshield', 'shield'].includes(type)) return 'shield';
+  if (['hammer', 'doublehammer'].includes(type)) return 'hammer';
+  return type === 'horsebow' ? 'arc' : unit.kind;
+}
+
+export function counterBonus(attacker, target, ranged) {
+  const a = troopGroup(attacker), t = troopGroup(target);
+  if (a === 'spear' && target.kind === 'cav' && !ranged) return 10;
+  if (a === 'cav' && t === 'arc' && !ranged) return 12;
+  if (a === 'arc' && t === 'shield' && ranged) return -12;
+  if (a === 'hammer' && t === 'shield' && !ranged) return 10;
+  if (a === 'arc' && t === 'spear' && ranged) return 8;
+  return 0;
+}
 
 // 依据历史及演义中的人物形象作游戏适配；名称和属性不代表史实编制。
 export const FAMOUS_TROOPS = {

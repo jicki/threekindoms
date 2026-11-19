@@ -119,7 +119,7 @@ export function makeCamera(wv) {
   function fitBoard() {
     const opening = view.size == null, framing = wholeView();
     view.panned = false; view.dist = framing.dist; view.distGoal = null; view.atFit = true; view.zoom = 'whole'; view.targetGoal.copy(framing.target);
-    if (opening && field.siege?.revision === 2) view.target.copy(framing.target);
+    if (opening && field.siege?.revision >= 2) view.target.copy(framing.target);
   }
   // The corner an attacking army starts nearest the viewer's bottom left from (it marches up and to the right).
   function pickYaw() {

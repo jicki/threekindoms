@@ -45,7 +45,7 @@ export function seasonEnv(scene, { sun, back, hemi, sunK = 1, hemiK = 1, snowH =
   return {
     // The procedural ridges (fx.js backdrop) stand in until the plate has loaded, or for good without one.
     backdrop(b) { ridges = b.ridges; if (ring.visible && ridges) ridges.visible = false; },
-    set({ month, city }) {
+    set({ month, city, battleWeather }) {
       look = lookOf(month);
       sun.color.copy(look.sun); sun.intensity = look.si * sunK;
       back.color.copy(look.back); hemi.color.copy(look.hemi); hemi.groundColor.copy(look.hg); hemiBase = hemi.intensity = look.hi * hemiK;
@@ -53,6 +53,11 @@ export function seasonEnv(scene, { sun, back, hemi, sunK = 1, hemiK = 1, snowH =
       const lat = siteOfCity(city)?.lat ?? 33, key = plateKey(month, lat), snowing = lat > MONTHS[month].snow - 0.6;
       // Weather follows the place: snow falls only north of the snow line, blossom only south of the 黄河.
       const sky_ = { rain: look.rain, snowfall: snowing ? Math.max(look.snowfall, 0.25) : 0, petals: lat < 38.5 ? look.petals : 0, fall: look.fall, thunder: look.thunder };
+      if (battleWeather) Object.assign(sky_, {
+        rain: battleWeather === 'rain' ? Math.max(0.36, look.rain) : 0,
+        snowfall: battleWeather === 'snow' ? Math.max(0.25, look.snowfall) : 0,
+        thunder: battleWeather === 'rain' ? look.thunder : 0,
+      });
       weather.set({ ...look, ...sky_ });
       want = key;
       plate(key).then((t) => {
@@ -60,7 +65,7 @@ export function seasonEnv(scene, { sun, back, hemi, sunK = 1, hemiK = 1, snowH =
         ring.visible = !!t; if (t) { ring.material.map = t; ring.material.needsUpdate = true; }
         if (ridges) ridges.visible = !t;
       });
-      return { lat, snowH, patch, snowMax, calm, bloom, month, plate: key, snowing, weather: sky_ };
+      return { lat, snowH, patch, snowMax, calm, bloom, month, plate: key, snowing: battleWeather ? battleWeather === 'snow' : snowing, weather: sky_ };
     },
     update(dt, t, center, dist) {
       U.uTime.value = t; // the strategy map's loop, which normally drives it, is paused during a battle

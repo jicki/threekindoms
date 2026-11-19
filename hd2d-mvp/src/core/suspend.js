@@ -7,8 +7,9 @@
 // player's own turn ({ kind: 'att' }), or the rest of the attacking AI's turn ({ kind: 'def', faction, pts }: ai.js aiDomestic).
 import { upgrade, registerClones, SAVE_VERSION, scenarioKey, data, futureVersion } from './game.js';
 import { validRaidRecord, registerRaidTemplates } from './raids.js';
-import { battlefieldLayout } from './battlefields.js';
+import { battlefieldLayout, battlefieldProfile } from './battlefields.js';
 import { siegeLayout, restoreGates } from './siege.js';
+import { validDefenseSupport } from './warcore.js';
 
 export const SUSPEND_KEY = 'haou-hd2d-suspend';
 export const SUSPEND_VERSION = 1;
@@ -72,12 +73,13 @@ function valid(rec) {
   if (!rec.war || !rec.field || !Array.isArray(rec.field.units) || !['att', 'def'].includes(rec.side) || !rec.after) return null;
   if (rec.war.raid ? !validRaidRecord(rec.g, rec.war) || rec.side !== 'def' || rec.after.kind !== 'raid' : !!rec.g?.raidBattle) return null;
   if (!upgrade(rec.g)) return null;
+  if (!validDefenseSupport(rec.g, rec.war, rec.side)) return null;
   if (rec.g.battlefields === 2) {
     try {
       const D=data(), w=rec.war, layout=battlefieldLayout(D,rec.g,w.city,w.from);
       const dep=layout?.dep ?? (D.deploy[w.city][w.from] || Object.values(D.deploy[w.city])[0]);
       const siege=siegeLayout(layout?.map ?? D.maps[w.city],dep,layout?.villages ?? D.villages[w.city] ?? [],
-        layout?.direction,[30,31].includes(w.city),rec.field.siegeRevision ?? 1).siege;
+        layout?.direction,[30,31].includes(w.city),rec.field.siegeRevision ?? 1,battlefieldProfile(rec.g,w.city)).siege;
       if (!restoreGates(siege,rec.field.siegeGates)) return null;
     } catch { return null; }
   }

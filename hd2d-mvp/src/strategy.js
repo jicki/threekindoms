@@ -151,6 +151,9 @@ export function createStrategy(ctx) {
     select(cid) {
       visualMarks.clearSelection(cid); selected = cid; visualMarks.select(cid);
     },
+    supplyRoute(route) {
+      visualMarks.clearSelection(selected); visualMarks.select(selected, route);
+    },
     // A ring that spreads from a city once, to mark where a command just took effect.
     pulse(cid, color) {
       visualMarks.pulse(cid, color, time);

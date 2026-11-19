@@ -6,8 +6,9 @@ import { makeSquads, officerSpecialty, officerSquadLimit } from './troop-special
 import { passiveRiceUse } from './ruler-passives.js';
 import { relationshipAffinity } from './relationships.js';
 import { CROSSING_ROADS } from './expanded-map.js';
-import { battlefieldLayout } from './battlefields.js';
+import { battlefieldLayout, battlefieldProfile } from './battlefields.js';
 import { siegeLayout } from './siege.js';
+import { advancedBattle, officerPassive } from './battle-rules.js';
 
 // 旧版已中断的战斗仍可沿当时的出阵路线撤回，不恢复这条路线的出阵资格。
 const legacyCrossing = (a, b) => data().expandedMap && CROSSING_ROADS.some(({ road: [x, y] }) => (a === x && b === y) || (a === y && b === x));
@@ -32,6 +33,45 @@ export function setupWar(g, { from, to, ids, commander, gold, rice }) {
   };
   dst.officers = []; dst.gold = 0; dst.rice = 0;
   return war;
+}
+
+const allied = (g, a, b) => g.factions[a]?.alliance[b] > 0 && g.factions[b]?.alliance[a] > 0;
+
+export function defenseCandidates(g, attacker, defender, city, occupancy = g.cities[city].officers.length) {
+  if (!advancedBattle(g) || occupancy >= 10) return [];
+  const candidates = [];
+  for (const id of roads(city)) {
+    const c = g.cities[id], f = c.faction;
+    if (f === attacker || f === defender || g.factions[f]?.ruler == null || !allied(g, f, defender) || allied(g, f, attacker)) continue;
+    const ids = c.officers.filter((id, i) => i > 0 && !isRuler(g, id) && g.officers[id].soldiers >= 250 && g.officers[id].hp >= 40)
+      .sort((a, b) => g.officers[b].soldiers - g.officers[a].soldiers);
+    const count = Math.min(2, 10 - occupancy, Math.floor(c.rice / 60), ids.length);
+    if (count > 0) candidates.push({ faction: f, city: id, ids: ids.slice(0, count) });
+  }
+  return candidates.sort((a, b) => b.ids.reduce((sum, id) => sum + g.officers[id].soldiers, 0) - a.ids.reduce((sum, id) => sum + g.officers[id].soldiers, 0) || a.city - b.city);
+}
+
+export function joinDefense(g, war, plan) {
+  if (!plan || war.raid || war.support || !war.def.ids.length) return false;
+  const match = defenseCandidates(g, war.attacker, war.defender, war.city, war.def.ids.length).find(c => c.city === plan.city);
+  if (!match || match.faction !== plan.faction) return false;
+  const c = g.cities[match.city], rice = Math.min(9999 - war.def.rice, match.ids.length * 60);
+  c.officers = c.officers.filter(id => !match.ids.includes(id));
+  c.rice -= rice;
+  war.def.ids.push(...match.ids); war.def.rice += rice; war.support = match;
+  if (g.cityRaids) (g.raidWars ??= {})[match.faction] = g.year * 12 + g.month;
+  return true;
+}
+
+export function validDefenseSupport(g, war, human) {
+  const s = war.support;
+  if (s == null) return true;
+  return advancedBattle(g) && !war.raid && Number.isInteger(s.faction) && Number.isInteger(s.city)
+    && Array.isArray(s.ids) && s.ids.length >= 1 && s.ids.length <= 2 && new Set(s.ids).size === s.ids.length
+    && s.faction !== war.attacker && s.faction !== war.defender && g.cities[s.city]?.faction === s.faction && roads(war.city).includes(s.city)
+    && war.def.ids.length <= 10 && s.ids.every(id => Number.isInteger(id) && id >= 0 && g.officers[id] && !isRuler(g, id)
+      && war.def.ids.indexOf(id) > 0 && !war.att.ids.includes(id) && !g.cities.some(c => c.officers.includes(id)))
+    && (human !== 'def' || [s.faction, war.defender].includes(g.player));
 }
 
 // Empty-city capture (`$B670`): no battle.
@@ -96,6 +136,17 @@ export function resolveWar(g, war, res) {
     toRoninAt(g, id, cid);
     if (protectedRuler(id)) g.officers[id].warRulerRonin = true;
   };
+  if (war.support) {
+    const { ids, faction, city: home } = war.support;
+    const returning = res.survivors.def.filter(id => ids.includes(id));
+    res.survivors.def = res.survivors.def.filter(id => !returning.includes(id));
+    res.retreated = res.retreated.filter(o => !returning.includes(o.id));
+    for (const id of returning) {
+      const c = g.cities[home];
+      const dest = c.faction === faction && c.officers.length < 10 ? c : holdingsOf(g, faction).find(v => v.officers.length < 10);
+      if (dest) place(g, faction, [id], dest.id); else roninAt(id, home);
+    }
+  }
   for (const id of res.dead) if (g.officers[id].status !== DEAD) g.officers[id].status = DEAD;
   // Occupation losses (`$BF0A`, only when the defender loses).
   if (res.loser === 'def' && !res.skipCut && !isPass(war.city)) {
@@ -228,7 +279,10 @@ export function fight(g, war) {
   const r = rng(g), O = (id) => g.officers[id];
   const strength = (ids, faction) => {
     const bonus = rulerPassive(g, faction)?.combat?.war ?? 0;
-    return Math.floor(ids.reduce((a, id) => a + Math.max(O(id).war, Math.min(99, O(id).war + bonus)), 0) / 10) + Math.floor(ids.reduce((a, id) => a + O(id).soldiers, 0) / 100) + 10 * (O(ids[0])?.exp >> 12 || 0);
+    const base = Math.floor(ids.reduce((a, id) => a + Math.max(O(id).war, Math.min(99, O(id).war + bonus)), 0) / 10) + Math.floor(ids.reduce((a, id) => a + O(id).soldiers, 0) / 100) + 10 * (O(ids[0])?.exp >> 12 || 0);
+    if (!advancedBattle(g) || war.phantom) return base;
+    const qualified = ids.filter(id => O(id).soldiers >= 100 && O(id).hp > 0 && ['troops', 'guard', 'strategy', 'duel', 'tacticRecovery'].some(key => officerPassive(data(), g, id)?.[key]));
+    return base + Math.min(4, qualified.length, Math.floor(base / 20));
   };
   const baseA = strength(war.att.ids, war.attacker), baseD = war.def.ids.length ? strength(war.def.ids, war.defender) : 0;
   const bonus = war.phantom ? { att: 0, def: 0 } : {
@@ -268,7 +322,8 @@ export function fight(g, war) {
     if (!riverMap) {
       const D=data(), layout=battlefieldLayout(D,g,war.city,war.from);
       const dep=g.battlefields===2 ? layout?.dep ?? (D.deploy[war.city]?.[war.from] || Object.values(D.deploy[war.city] ?? {})[0]) : null;
-      riverMap=dep ? siegeLayout(layout?.map ?? D.maps[war.city],dep,layout?.villages ?? D.villages[war.city] ?? [],layout?.direction,[30,31].includes(war.city)).map : layout?.map ?? D.maps[war.city];
+      riverMap=dep ? siegeLayout(layout?.map ?? D.maps[war.city],dep,layout?.villages ?? D.villages[war.city] ?? [],layout?.direction,
+        [30,31].includes(war.city), advancedBattle(g) ? 3 : 2, battlefieldProfile(g,war.city)).map : layout?.map ?? D.maps[war.city];
     }
     return riverMap?.some(row => row.includes(3));
   };

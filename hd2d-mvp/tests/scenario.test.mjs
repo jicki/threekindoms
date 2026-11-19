@@ -315,7 +315,7 @@ test('custom skill range and explanations match the five-cell legal boundary', (
     target.x = caster.x + 6; assert.equal(f.legal(caster, 16, target), false);
     assert.equal(STRAT_INFO[16].where, '5格内敌军');
     assert.match(f.whyNot(caster, 16), /^5格内没有/);
-    assert.match(f.whyNot(caster, 0), /^6格内没有/, '原版计略说明保持不变');
+    assert.match(f.whyNot(caster, 0), /^5格内没有/, '原版计略提示应与五格有效距离一致');
   } finally { G.setData(base); }
 });
 

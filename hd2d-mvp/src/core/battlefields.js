@@ -41,6 +41,14 @@ const rectCells = ([x0, x1, y0, y1], x, y) => {
   return out.sort((a, b) => (Math.abs(a[0] - x) + Math.abs(a[1] - y)) - (Math.abs(b[0] - x) + Math.abs(b[1] - y)) || a[1] - b[1] || a[0] - b[0]);
 };
 const ENTRY = { n: [15, 1], s: [15, 17], w: [1, 9], e: [30, 9] };
+export function battleEntryDirection(data, city, from) {
+  const dir = DIRECTIONS[city]?.[from];
+  if (dir) return dir;
+  const dep = data.deploy[city]?.[from];
+  if (!dep) return null;
+  const [ax, ay] = dep.attacker[0], [dx, dy] = dep.defender[0], x = ax - dx, y = ay - dy;
+  return Math.abs(x) > Math.abs(y) ? (x < 0 ? 'w' : 'e') : (y < 0 ? 'n' : 's');
+}
 function deployment(direction) {
   const rect = RECTS[direction], [x, y] = ENTRY[direction];
   return { attacker: rectCells(rect, x, y).slice(0, 17), attacker_rect: [...rect],

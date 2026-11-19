@@ -48,12 +48,13 @@ export function createStrategyMarks({ scene, data, sand, world, cityPos, cityRea
     if (flowGhost) { scene.remove(flowGhost); flowGhost.dispose(); flowGhost = null; }
     selRing.visible = cid != null;
   }
-  function select(cid) {
+  function select(cid, route) {
     if (cid == null) return;
     selGhost.geometry = selRing.geometry = ringOf(cid, 'sel'); selRing.position.copy(cityPos[cid]); selRing.position.y += 0.06;
-    for (const n of data.cities[cid].roads) {
+    const links = route ? route.slice(1).map((n, i) => [route[i], n]) : data.cities[cid].roads.map((n) => [cid, n]);
+    for (const [from, to] of links) {
       // Beads along the road as drawn, from this city outward.
-      const pts = pathOf(cid, n);
+      const pts = pathOf(from, to);
       let run = 0, next = 0.3;
       pts.forEach((p, k) => {
         if (k) run += p.distanceTo(pts[k - 1]);

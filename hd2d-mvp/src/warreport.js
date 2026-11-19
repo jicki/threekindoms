@@ -12,6 +12,7 @@ export function warFate(g, war, res, id) {
   if (o.status === RONIN) return [`下野（${cityName(o.loc)}）`, 'bad'];
   const city = officerCity(g, id), captured = res.captured.byAtt.includes(id) || res.captured.byDef.includes(id);
   if (captured) return [`被俘归顺${city ? `（${cityName(city.id)}）` : ''}`, 'bad'];
+  if (war.support?.ids.includes(id) && city?.faction === war.support.faction) return [`归队（${cityName(city.id)}）`, 'good'];
   if (city && (city.id !== war.city || res.retreated.some((x) => x.id === id))) {
     const retreat = res.survivors[res.loser].includes(id) || res.retreated.some((x) => x.id === id);
     return [`${retreat ? '退往' : '前往'}${cityName(city.id)}`, ''];

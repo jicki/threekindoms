@@ -1,4 +1,5 @@
-import { applyScenario, MAX_PORTRAIT_BYTES, MAX_PORTRAIT_SIDE, newDraft, newScenarioId, RELATION_KINDS, validateScenario } from './core/scenario.js';
+import { applyScenario, MAX_PORTRAIT_BYTES, MAX_PORTRAIT_SIDE, newDraft, newScenarioId, RELATION_KINDS, scenarioCities, validateScenario } from './core/scenario.js';
+import { PASSIVES } from './core/battle-rules.js';
 import { addScenario, addPresetAbilities, listScenarios, loadScenario, uploadVisualAsset, readVisualAsset } from './core/scenario-store.js';
 import { VISUAL_PRESETS, OFFICER_PRESETS, FEMALE_SCENARIO_ID, HERO_SCENARIO_ID, ROSTER_SCENARIO_ID, WARLORD_SCENARIO_ID, SOVEREIGN_SCENARIO_ID, SOVEREIGN_SCENARIO_NAME, MOODS, femaleOfficer, presetVisual, visualRefs, visualUrl } from './core/visuals.js';
 import { EQUIPMENT_ICONS, ensureFemaleGear, equipmentIconUrl } from './core/equipment.js';
@@ -109,7 +110,8 @@ if (base) {
   const editFields = ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'appear', 'city', 'faction'];
   const editable = (o) => ({ ...Object.fromEntries(editFields.map((key) => [key, o[key]])), birthYear: o.birthYear ?? null, birthCity: o.birthCity ?? null,
     portraitId: o.portraitId ?? (o.id < base.officers.length ? o.id : 0), portraitData: o.portraitData ?? null, skills: [...(o.skills ?? [])],
-    ...(o.duelSkill ? { duelSkill: o.duelSkill } : {}), ...(o.searchPriority ? { searchPriority: true } : {}), visual: clone(o.visual ?? {}) });
+    ...(o.duelSkill ? { duelSkill: o.duelSkill } : {}), ...(o.passive ? { passive: o.passive } : {}),
+    ...(o.searchPriority ? { searchPriority: true } : {}), visual: clone(o.visual ?? {}) });
   const currentData = () => applyScenario(base, draft, { draft: true });
   const hasChanges = () => formDirty || draftDirty || $('version-name').value !== draft.name;
   const abandonForm = () => !formDirty || confirm('当前表单尚未应用，确定放弃这些输入吗？');
@@ -189,10 +191,11 @@ if (base) {
     specialTroop.addEventListener('change', syncTroopLimit); syncTroopLimit();
     const appearance = select('appear', [['initial', '开局已有'], ['search_city', '城市搜索'], ['automatic_faction', '自动出仕']], o.appear);
     const ownerForCity = (id) => {
-      const home = (draft.factions ?? []).find((f) => f.city === id), owner = base.cities[id]?.faction;
+      const home = (draft.factions ?? []).find((f) => f.city === id), owner = base.cities[id]?.faction ?? base.factions.length;
       return home?.id ?? (owner === base.factions.length ? data.factions.length : owner);
     };
-    const city = select('city', base.cities.map((c) => [c.id, `${c.name}${ownerForCity(c.id) === data.factions.length ? '（无主）' : ''}`]), o.city ?? 0);
+    const cities = scenarioCities(base, draft);
+    const city = select('city', cities.map((c) => [c.id, `${c.name}${ownerForCity(c.id) === data.factions.length ? '（无主）' : ''}`]), o.city ?? 0);
     const faction = select('faction', data.factions.map((f) => [f.id, f.name]), o.faction ?? 0);
     const cityField = field('登场城市', city), factionField = field('自动出仕势力', faction);
     const priorityField = field('登场后优先搜索', el('input', { type: 'checkbox', name: 'searchPriority', checked: !!o.searchPriority }));
@@ -285,16 +288,18 @@ if (base) {
       field('兵种', select('army', [['平', '平军'], ['山', '山军'], ['水', '水军']], o.army)),
       field('特色兵队', specialTroop), field('特色队个人上限', troopLimit),
       field('武器', select('weapon', weapons, o.weapon)), field('防具', select('armor', armors, o.armor)),
-      field('专属单挑技', select('duelSkill', [['', '无'], ...Object.entries(DUEL_SKILLS).map(([key, skill]) => [key, `${skill.name}（命中${skill.hit >= 0 ? '+' : ''}${skill.hit}，伤害${skill.damage}%）`])], o.duelSkill ?? '')),
+      draft.newBattleRules
+        ? field('人物被动', select('passive', [['', '按人物自动分配'], ...Object.entries(PASSIVES).map(([key, p]) => [key, `${p.name} · ${p.text}`])], o.passive ?? ''))
+        : field('专属单挑技', select('duelSkill', [['', '无'], ...Object.entries(DUEL_SKILLS).map(([key, skill]) => [key, `${skill.name}（命中${skill.hit >= 0 ? '+' : ''}${skill.hit}，伤害${skill.damage}%）`])], o.duelSkill ?? '')),
       ...stats.map(([key, label, lo, hi]) => field(label, input(key, o[key], lo, hi))),
-      field('出生年份', born), field('出生地', select('birthCity', [['', '未知'], ...base.cities.map((c) => [c.id, c.name])], o.birthCity ?? '')),
+      field('出生年份', born), field('出生地', select('birthCity', [['', '未知'], ...cities.map((c) => [c.id, c.name])], o.birthCity ?? '')),
       field('登场方式', appearance), cityField, factionField, priorityField,
       el('div', { class: 'wide portrait-editor' }, preview, el('div', {}, field('上传人物图片', upload), note, clearImage)),
       el('div', { class: 'wide' }, el('h3', {}, '立绘、表情与动作'), el('div', { class: 'actions' }, stylePreset, applyPreset),
         el('p', { class: 'intro' }, '可选择内置素材或上传；上传前请填写管理员令牌。动作图为透明 4×4 网格，包含行军、转向、攻击与受伤帧。'),
         el('div', { class: 'form-grid' }, ...assetFields)),
-      el('div', { class: 'wide' }, '分配新技能', checks)),
-      el('p', { class: 'intro' }, '单挑技每场单挑仅能使用一次。自定义图片会随版本发布，最大 64 KB；各表情共用该图。开局武将必须放在所属势力的城市；原君主的开局位置保持不变。移走城中最后一名武将后，该城开局无主。'), buttons);
+      draft.newBattleRules ? null : el('div', { class: 'wide' }, '分配新技能', checks)),
+      el('p', { class: 'intro' }, '开局武将须在所属势力的城市。无主扩展城市可用于搜索登场。自定义图片会随版本发布，最大 64 KB。'), buttons);
     markForm(form);
     form.addEventListener('submit', (event) => {
       event.preventDefault(); if (imageBusy) return; const fd = new FormData(form), mode = fd.get('appear'), cid = number(fd, 'city');
@@ -308,7 +313,11 @@ if (base) {
         army: fd.get('army'), weapon: number(fd, 'weapon'), armor: number(fd, 'armor'), appear: mode,
         city: mode === 'automatic_faction' ? null : cid,
         faction: mode === 'automatic_faction' ? number(fd, 'faction') : mode === 'initial' ? ownerForCity(cid) : null,
-        skills: fd.getAll('skills').map(Number), ...(mode === 'search_city' && fd.get('searchPriority') ? { searchPriority: true } : {}), ...(fd.get('duelSkill') ? { duelSkill: fd.get('duelSkill') } : {}), ...(customImage ? { portraitData: customImage } : {}), ...(Object.keys(visual).length ? { visual } : {}) };
+        skills: draft.newBattleRules ? o.skills : fd.getAll('skills').map(Number),
+        ...(mode === 'search_city' && fd.get('searchPriority') ? { searchPriority: true } : {}),
+        ...((draft.newBattleRules ? o.duelSkill : fd.get('duelSkill')) ? { duelSkill: draft.newBattleRules ? o.duelSkill : fd.get('duelSkill') } : {}),
+        ...((draft.newBattleRules ? fd.get('passive') : o.passive) ? { passive: draft.newBattleRules ? fd.get('passive') : o.passive } : {}),
+        ...(customImage ? { portraitData: customImage } : {}), ...(Object.keys(visual).length ? { visual } : {}) };
       update((d) => {
         const at = d.officers.findIndex((item) => item.id === o.id); if (at < 0) d.officers.push(next); else d.officers[at] = next;
         d.specialTroops = (d.specialTroops ?? []).filter((entry) => entry.officer !== o.id);
@@ -331,7 +340,7 @@ if (base) {
     const w = items.find((item) => item.id === selected.weapons) ?? items[0];
     if (!w) return workspace(side, panel('detail', el('h2', {}, '新武器'), el('p', { class: 'empty' }, '创建新武器后设置属性和售卖城市。')));
     selected.weapons = w.id;
-    const form = el('form'), shops = el('div', { class: 'checks' }, base.cities.filter((c) => c.facilities.weapons).map((c) => el('label', {},
+    const form = el('form'), shops = el('div', { class: 'checks' }, scenarioCities(base, draft).filter((c) => c.facilities.weapons).map((c) => el('label', {},
       el('input', { type: 'checkbox', name: 'shops', value: c.id, checked: w.shops.includes(c.id), disabled: w.exclusiveRuler !== undefined }), c.name)));
     const icon = select('icon', iconChoices('weapon'), w.icon);
     const iconPreview = el('img', { class: 'weapon-preview', alt: '武器图标预览' });
@@ -365,7 +374,7 @@ if (base) {
     const a = items.find((item) => item.id === selected.armors) ?? items[0];
     if (!a) return workspace(side, panel('detail', el('h2', {}, '新防具'), el('p', { class: 'empty' }, '创建新防具后设置属性和售卖城市。')));
     selected.armors = a.id;
-    const form = el('form'), shops = el('div', { class: 'checks' }, base.cities.filter((c) => c.facilities.weapons).map((c) => el('label', {},
+    const form = el('form'), shops = el('div', { class: 'checks' }, scenarioCities(base, draft).filter((c) => c.facilities.weapons).map((c) => el('label', {},
       el('input', { type: 'checkbox', name: 'shops', value: c.id, checked: a.shops.includes(c.id) }), c.name)));
     const icon = select('icon', iconChoices('armor'), a.icon), preview = el('img', { class: 'weapon-preview', alt: '防具图标预览' });
     const showIcon = () => { preview.src = equipmentIconUrl(iconValue(icon.value)); };
@@ -462,7 +471,7 @@ if (base) {
     const map = select('map', [['standard', '标准地图（30城）'], ['expanded', draft.frontierMap ? '扩展地图（34城和5处关隘）' : '扩展地图（33城和4处关隘）']], draft.map ?? 'standard');
     map.addEventListener('change', () => {
       if (!abandonForm()) { map.value = draft.map ?? 'standard'; return; }
-      update((d) => { if (map.value === 'expanded') d.map = 'expanded'; else delete d.map; }, '地图设置已应用到草稿');
+      if (!update((d) => { if (map.value === 'expanded') d.map = 'expanded'; else { delete d.map; delete d.newBattleRules; } }, '地图设置已应用到草稿')) map.value = draft.map ?? 'standard';
     });
     const expandedOpening = el('input', { type: 'checkbox', checked: !!draft.expandedOpening });
     expandedOpening.addEventListener('change', () => {
@@ -472,9 +481,19 @@ if (base) {
     const frontierMap = el('input', { type: 'checkbox', checked: !!draft.frontierMap });
     frontierMap.addEventListener('change', () => {
       if (!abandonForm()) { frontierMap.checked = !!draft.frontierMap; return; }
-      update((d) => { if (frontierMap.checked) d.frontierMap = true; else delete d.frontierMap; }, '边地据点设置已应用到草稿');
+      if (!update((d) => { if (frontierMap.checked) d.frontierMap = true; else delete d.frontierMap; }, '边地据点设置已应用到草稿')) frontierMap.checked = !!draft.frontierMap;
     });
     const campaignRules = el('input', { type: 'checkbox', checked: !!draft.campaignRules });
+    const newRules = el('input', { type: 'checkbox', checked: !!draft.newBattleRules, disabled: draft.map !== 'expanded' });
+    newRules.addEventListener('change', () => {
+      if (!abandonForm()) { newRules.checked = !!draft.newBattleRules; return; }
+      if (!update((d) => { if (newRules.checked) d.newBattleRules = true; else delete d.newBattleRules; }, '战场规则已应用到草稿')) newRules.checked = !!draft.newBattleRules;
+    });
+    const startYear = input('startYear', draft.startYear ?? 189, 189, 236);
+    const applyYear = el('button', { type: 'button', onclick: () => {
+      if (!startYear.reportValidity() || !abandonForm()) return;
+      update((d) => { d.startYear = startYear.valueAsNumber; }, '开局年份已应用到草稿');
+    } }, '应用年份');
     campaignRules.addEventListener('change', () => {
       if (!abandonForm()) { campaignRules.checked = !!draft.campaignRules; return; }
       update((d) => { if (campaignRules.checked) d.campaignRules = true; else { delete d.campaignRules; delete d.focusedRulerPassives; delete d.battleRulerPassives; } }, '新版玩法设置已应用到草稿');
@@ -559,7 +578,9 @@ if (base) {
     const rows = items.map((r, i) => el('div', { class: 'relation' },
       el('span', {}, `${data.officers[r.officer].name} · ${data.officers[data.factions[r.faction].ruler].name}势力 · ${data.cities[data.officers[r.officer].city].name}`),
       el('button', { type: 'button', onclick: () => { if (abandonForm()) update((d) => d.rulers.splice(i, 1), '君主候选已移除'); } }, '移除')));
-    return panel('detail', el('h2', {}, '君主候选'), field('地图', map), el('p', { class: 'intro' }, '基础扩展地图增加三城与四处关隘，可另启用边地据点；人物登场和装备商店仍按原有三十城配置。发布后各版本存档独立。'),
+    return panel('detail', el('h2', {}, '君主候选'), field('地图', map), el('p', { class: 'intro' }, '启用扩展地图后，可在新增城市设置出身、搜索登场和装备销售。发布后各版本存档独立。'),
+      el('div', { class: 'actions' }, field('开局年份', startYear), applyYear),
+      field('启用新版战场', newRules), el('p', { class: 'intro' }, '新开局启用天气、编队克制、同盟援军和人物被动。人物被动可在人物页配置。'),
       field('新增边地据点', frontierMap), el('p', { class: 'intro' }, '扩展地图增加望垣峡和夷洲；标准地图不受影响。'),
       field('扩展地图开局补给与保护', expandedOpening), el('p', { class: 'intro' }, '仅对扩展地图的新开局生效：为董卓、袁术补给，并在开局五年保护电脑君主城；已有记录不补发。'),
       field('启用新版玩法', campaignRules), el('p', { class: 'intro' }, '新开局启用改进的电脑决策、同盟和战斗规则；设置随记录保存。'),

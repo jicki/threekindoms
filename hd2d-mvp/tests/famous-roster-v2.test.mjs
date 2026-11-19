@@ -8,6 +8,7 @@ import { SOVEREIGN_SCENARIO_ID } from '../src/core/visuals.js';
 import { EXPANDED_MAP_ID, expandMap } from '../src/core/expanded-map.js';
 import { abilityDuel, abilityStrategy, abilityStrategyIds, famousLabel, strategySpecs } from '../src/core/famous-skills.js';
 import { Field } from '../src/core/field.js';
+import { officerPassive } from '../src/core/battle-rules.js';
 import { Tactical } from '../src/core/tactical.js';
 import { Duel } from '../src/core/skirmish.js';
 import { autoSkillBonus } from '../src/core/warcore.js';
@@ -22,7 +23,7 @@ const advisers='诸葛亮 庞统 姜维 法正 荀彧 荀攸 郭嘉 贾诩 司�
 const byName=(n)=>D.officers.find(o=>o?.name===n && !o.clone);
 
 test('指定名单全部存在，名将和名臣有各自专属技能；重复人物不重复配置',()=>{
-  const g=game(); assert.equal(g.famousSkills,2); assert.equal(g.famousRoster,1); assert.ok(G.upgrade(structuredClone(g)));
+  const g=game(); g.campaignRevision=1; assert.equal(g.famousSkills,2); assert.equal(g.famousRoster,1); assert.ok(G.upgrade(structuredClone(g)));
   for(const name of generals) { const o=byName(name); assert.ok(o,`${name}不存在`); assert.ok(abilityDuel(D,g,o.id),`${name}缺少单挑技`); assert.ok(famousLabel(D,g,o.id)); }
   for(const name of advisers) { const o=byName(name); assert.ok(o,`${name}不存在`); assert.equal(abilityStrategyIds(D,g,o.id).length,1,`${name}缺少计策`); assert.ok(famousLabel(D,g,o.id)); }
   assert.equal(generals.filter(n=>n==='周瑜').length,1); assert.equal(advisers.filter(n=>n==='贾诩').length,1);
@@ -45,7 +46,8 @@ test('新人物按照各自年份、城市进入真实搜索队列',()=>{
 });
 
 test('新版计策和单挑通过实际战斗、电脑估算及次数限制生效',()=>{
-  const g=game(), a=byName('法正'), b=byName('关羽'), w={city:34,from:8,attacker:5,defender:4,
+  const g=game(); g.campaignRevision=1;
+  const a=byName('法正'), b=byName('关羽'), w={city:34,from:8,attacker:5,defender:4,
     att:{ids:[a.id],gold:100,rice:3000},def:{ids:[b.id],gold:100,rice:3000}};
   const f=new Field(g,w,'att'),u=f.side('att')[0],v=f.side('def')[0]; Object.assign(u,{x:3,y:3});Object.assign(v,{x:4,y:3});
   f.pool.att=100; f.turn='att'; f.r=()=>0; g.officers[a.id].soldiers=1000; g.officers[b.id].soldiers=700;
@@ -120,7 +122,8 @@ test('战役升级保留已有进度和开关，并启用新增人物、计策�
   assert.equal(g.siegeTactics, true);
   assert.equal(g.autoBattleSkills, true);
   assert.equal(g.safeStrategyChance, true);
-  assert.equal(abilityDuel(D, g, 264).name, '宛城突袭');
+  assert.equal(abilityDuel(D, g, 264), null);
+  assert.equal(officerPassive(D, g, 264).name, '锐进');
   assert.equal(g.officers[262].status, G.UNAPPEARED);
   assert.ok(G.searchOrder(g, 15).includes(262));
   assert.ok(G.searchOrder(g, 32).includes(264));

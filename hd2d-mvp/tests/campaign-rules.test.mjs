@@ -349,7 +349,7 @@ test('电脑绕路连续前进且战场中断恢复后不走回头路', () => {
 test('电脑同盟报价超过255时新版按全额转移，旧记录保留原版字节行为', async () => {
   const data = expandMap(applyScenario(base, scenario));
   G.setData(data, EXPANDED_MAP_ID);
-  const template = G.newGame(4, 1, 1); template.year = 195;
+  const template = G.newGame(4, 1, 1); template.year = 195; template.campaignRevision = 1;
   for (const row of data.rules.ai_dispatch) row.weights = [0, 16, 0];
   for (const key of Object.keys(data.search_table)) data.search_table[key] = [];
   for (const c of template.cities) { c.faction = G.NONE; c.officers = []; }

@@ -15,7 +15,7 @@ export const KIND = ['forest', 'sand', 'grass', 'river', 'hill', 'castle'], PLAT
 
 // 护城河外沿和当前部队占据的范围，共用于手机平面与三维战场。
 export function siegeFrame(field) {
-  if (field.siege?.revision !== 2) return null;
+  if (!(field.siege?.revision >= 2)) return null;
   const { cx, cy, moat } = field.siege;
   const x = [cx - moat, cx + moat], y = [cy - moat, cy + moat];
   for (const u of field.alive) { x.push(u.x); y.push(u.y); }

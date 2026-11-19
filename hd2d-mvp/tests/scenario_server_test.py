@@ -30,6 +30,36 @@ def version(letter='a'):
 
 
 class ValidationTest(unittest.TestCase):
+    def test_expanded_city_references_and_passive_match_browser_validation(self):
+        scenario = version()
+        officer = next(o for o in BASE['officers'] if o['appear'] == 'search_city')
+        scenario.update(map='expanded', frontierMap=True, startYear=193, newBattleRules=True)
+        scenario['officers'] = [{**officer, 'city': 30, 'birthCity': 38, 'birthYear': None,
+                                 'portraitId': officer['id'], 'skills': [], 'passive': 'range'}]
+        scenario['officers'][0].pop('jp', None)
+        scenario['weapons'] = [{'id': len(BASE['equipment']), 'name': '双剑', 'cat': '剑',
+                                'atk': 10, 'weight': 3, 'price': 100, 'icon': 0, 'shops': [30, 38]}]
+        cases = [scenario]
+        for key, value in [('frontierMap', False), ('startYear', True), ('startYear', 237), ('map', 'standard')]:
+            cases.append({**scenario, key: value})
+        for key, value in [('city', 34), ('birthCity', [38]), ('passive', '__proto__')]:
+            bad = copy.deepcopy(scenario)
+            bad['officers'][0][key] = value
+            cases.append(bad)
+        bad = copy.deepcopy(scenario)
+        bad['weapons'][0]['shops'] = [33]
+        cases.append(bad)
+        code = """import {readFileSync} from 'node:fs'; import {validateScenario} from './hd2d-mvp/src/core/scenario.js';
+const base=JSON.parse(readFileSync('hd2d-mvp/data/game-data.json')), cases=JSON.parse(readFileSync(0,'utf8'));
+console.log(JSON.stringify(cases.map(s=>{try {validateScenario(s,base); return true;} catch {return false;}})));"""
+        browser = json.loads(subprocess.check_output(['node', '--input-type=module', '-e', code], cwd=ROOT,
+                                                      input=json.dumps(cases), text=True))
+        self.assertTrue(validate(scenario, BASE))
+        for item in cases[1:]:
+            with self.assertRaises(ScenarioError):
+                validate(item, BASE)
+        self.assertEqual(browser, [True] + [False] * (len(cases) - 1))
+
     def test_campaign_map_skills_and_relations_match_browser_validation(self):
         scenario = version()
         scenario.update({'campaignRules': True, 'rulerPassives': True, 'enhancedRulerPassives': True,

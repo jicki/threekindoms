@@ -1,6 +1,7 @@
 // 仅内置君主列传的新开局使用这份名单。编号与名称同时核对，避免动态人物或复制角色误领。
 // 身份标记用于说明史料及演义依据，不代表技能名称或效果出自史书。
 import { DUEL_SKILLS } from './duel-skills.js';
+import { advancedBattle } from './battle-rules.js';
 
 // 第二套名单按用户指定的名将与名臣维护。名称取材事迹，效果为游戏设定。
 const ROSTER_V2 = {
@@ -48,6 +49,7 @@ const entry = (D,g,id) => {
 };
 export function famousLabel(D,g,id) { return (g?.famousSkills===2 ? entryV2(D,g,id) : entry(D,g,id))?.[1] ?? null; }
 export function abilityStrategyIds(D,g,id) {
+  if (advancedBattle(g)) return [];
   const skills=D?.officers?.[id]?.skills ?? [];
   if (g?.famousSkills===2) { const e=entryV2(D,g,id); return e?.[2] != null ? [e[2]] : []; }
   if (g?.famousSkills !== true) return skills;
@@ -59,6 +61,7 @@ export function abilityStrategy(D,g,skill) {
   return name ? { ...skill, name, legacyName:skill.name } : skill;
 }
 export function abilityDuel(D,g,id) {
+  if (advancedBattle(g)) return null;
   if (g?.famousSkills===2) {
     const e=entryV2(D,g,id);
     return e?.[3] ? {name:e[3],hit:e[4],damage:e[5],...(e[6] ? {visualEffect:e[6]} : {})} : null;

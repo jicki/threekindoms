@@ -140,7 +140,7 @@ for (const [mode, label] of [['&flat', '平面'], ['', '3D']]) test(`专属计�
     await page.evaluate(async () => { (await import('./src/pace.js')).setPace(4); (await import('./src/vignette.js')).setVignettes(false); });
     await newCampaign(page, '公孙瓒');
     // 验证旧存档仍保留旧版计策演出；新版名单另有行为测试。
-    await page.evaluate(() => { window.__game.g.famousSkills = true; });
+    await page.evaluate(() => { window.__game.g.famousSkills = true; window.__game.g.campaignRevision = 1; });
     await page.evaluate(() => {
       const { g, debug } = window.__game, from = 0, to = 1;
       const ids = g.cities[from].officers.slice(0, 3);
@@ -233,6 +233,7 @@ for (const [id, name, scene, phone] of [[255, '淮军奋击', 'skill-qiaorui', f
       await page.evaluate((officer) => { window.__game.debug.quickTactical(officer, 38, 2); }, id);
       await page.waitForSelector('.tq-form', { timeout: 60000 });
       await page.evaluate((officer) => {
+        window.__game.g.campaignRevision = 1;
         if (officer === 255) delete window.__game.g.famousSkills;
         else if (officer === 261) window.__game.g.famousSkills = true;
       }, id); // 旧存档继续使用乔蕤、祝融夫人的演出

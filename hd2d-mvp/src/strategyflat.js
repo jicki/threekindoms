@@ -401,12 +401,13 @@ export async function createStrategyFlat(ctx) {
 
   // ---- The selected city's roads: beads spaced as the 3D map's along each road from this city out, a wave running down them (sin(time * 6 - t * 3)). Worked out once per selection.
   let flow = [];
-  function makeFlow(cid) {
+  function makeFlow(cid, route) {
     flow = [];
     if (cid == null) return;
     for (const r of board.roads) {
-      if (r.a !== cid && r.b !== cid) continue;
-      const n = r.p.length / 2, at = (k) => (r.a === cid ? k : n - 1 - k) * 2, other = cities[r.a === cid ? r.b : r.a], home = cities[cid];
+      const from = route ? route.find((id, i) => (id === r.a && route[i + 1] === r.b) || (id === r.b && route[i + 1] === r.a)) : cid;
+      if (r.a !== from && r.b !== from) continue;
+      const n = r.p.length / 2, at = (k) => (r.a === from ? k : n - 1 - k) * 2, other = cities[r.a === from ? r.b : r.a], home = cities[from];
       let run = 0, next = 0.3;
       for (let k = 1; k < n - 5; k++) {
         const [px, py, x, y] = [r.p[at(k - 1)], r.p[at(k - 1) + 1], r.p[at(k)], r.p[at(k) + 1]];
@@ -834,6 +835,7 @@ export async function createStrategyFlat(ctx) {
     get currentSeason() { return SEASONS[seasonOf(season.month)]; },
     aiWar,
     select(cid) { selected = cid; makeFlow(cid); },
+    supplyRoute(route) { makeFlow(selected, route); },
     pulse(cid, color) { pulse(cid, color); },
     // A city's news (an AI war's outcome): three rings in the given colour and a badge over its tag for ms.
     announce(cid, text, color, ms) {

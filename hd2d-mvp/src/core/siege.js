@@ -1,5 +1,5 @@
 // 第二版战场的城防是规则数据，绘制与存档都从同一布局读取。
-const W = 32, H = 19, PLAIN = 2, RIVER = 3, CASTLE = 5;
+const W = 32, H = 19, FOREST = 0, PLAIN = 2, RIVER = 3, MOUNT = 4, CASTLE = 5;
 const RECTS = { n: [10,21,0,2], s: [10,21,16,18], w: [0,3,6,12], e: [28,31,6,12] };
 const ENTRY = { n: [15,1], s: [15,17], w: [1,9], e: [30,9] };
 const SIEGE_REVISION = 2;
@@ -8,26 +8,30 @@ const cells = (rect, x, y) => {
   const out = []; for (let yy=rect[2]; yy<=rect[3]; yy++) for (let xx=rect[0]; xx<=rect[1]; xx++) out.push([xx,yy]);
   return out.sort((a,b) => Math.abs(a[0]-x)+Math.abs(a[1]-y)-Math.abs(b[0]-x)-Math.abs(b[1]-y) || a[1]-b[1] || a[0]-b[0]);
 };
-export function siegeLayout(map, dep, villages, direction, connectRiver = false, revision = SIEGE_REVISION) {
-  if (revision !== 1 && revision !== SIEGE_REVISION) throw new Error('无效的城防布局版本');
-  const wide = revision === SIEGE_REVISION;
-  const inner = wide ? 2 : 1, outer = wide ? 4 : 3, moat = outer + 1;
+export function siegeLayout(map, dep, villages, direction, connectRiver = false, revision = SIEGE_REVISION, profile = null) {
+  if (![1, 2, 3].includes(revision)) throw new Error('无效的城防布局版本');
+  const wide = revision >= 2, pass = revision === 3 && profile?.kind === 'pass';
+  const port = revision === 3 && ['水乡', '海滨'].includes(profile?.region);
+  const inner = wide ? 2 : 1, outer = wide && !pass ? 4 : 3, moat = outer + 1;
   map = structuredClone(map); villages = structuredClone(villages);
   const [ox,oy] = dep.defender[0], cx = Math.max(9,Math.min(22,ox));
   // 南北留三排部署区，旧中断战斗沿用保存时对应的城心。
   const cy = wide ? Math.max(8,Math.min(10,oy)) : Math.max(7,Math.min(11,oy));
   const [ax,ay] = dep.attacker[0], dx=ax-ox, dy=ay-oy;
   direction ||= Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'w' : 'e') : (dy < 0 ? 'n' : 's');
+  const horizontal = direction === 'w' || direction === 'e';
+  const passage = (x, y) => pass ? (horizontal ? y === cy : x === cx) : x === cx || y === cy;
+  const water = (x, y) => !port || (horizontal ? y <= cy : x <= cx);
   for (let y=0;y<H;y++) for (let x=0;x<W;x++) if (map[y][x] === CASTLE) map[y][x] = PLAIN;
   const walls=[], gates=[];
   const ring = (x, y) => Math.max(Math.abs(x-cx),Math.abs(y-cy));
   for (let y=cy-moat;y<=cy+moat;y++) for (let x=cx-moat;x<=cx+moat;x++) {
     const r=ring(x,y);
-    if (r===moat) map[y][x] = (x===cx || y===cy) ? PLAIN : RIVER;
+    if (r===moat) map[y][x] = passage(x,y) ? PLAIN : pass ? MOUNT : water(x,y) ? RIVER : FOREST;
     else {
       map[y][x] = PLAIN;
       if (r===outer || r===inner) {
-        if (x===cx || y===cy) gates.push({ x,y,ring:r,open:false });
+        if (passage(x,y)) gates.push({ x,y,ring:r,open:false });
         else walls.push({ x,y,ring:r });
       }
     }
@@ -45,6 +49,16 @@ export function siegeLayout(map, dep, villages, direction, connectRiver = false,
   const edge = outer - 1;
   const attacker_rect=RECTS[direction], [ex,ey]=ENTRY[direction], defender_rect=[cx-edge,cx+edge,cy-edge,cy+edge];
   const attacker=cells(attacker_rect,ex,ey).slice(0,17);
+  if (pass) {
+    // 留出边路供前后队列错开，进入关门时才收束为单格。
+    const step = horizontal ? Math.sign(cx - ex) : Math.sign(cy - ey);
+    for (let along = horizontal ? ex : ey; Math.abs(along - (horizontal ? cx : cy)) > moat; along += step) {
+      for (let across = -1; across <= 1; across++) {
+        const [x, y] = horizontal ? [along, cy + across] : [cx + across, along];
+        map[y][x] = PLAIN;
+      }
+    }
+  }
   const available=cells(defender_rect,cx,cy).filter(([x,y]) => !walls.some(w => w.x===x && w.y===y));
   // 分散守军阵位，让城内可展开驻防。旧布局保留此前的顺序。
   const courtyard = wide ? available.filter(([x,y]) => ring(x,y) < inner) : [];
@@ -72,7 +86,7 @@ export function siegeLayout(map, dep, villages, direction, connectRiver = false,
     }
   }
   return { map,villages,dep:{attacker,attacker_rect:[...attacker_rect],defender,defender_rect},
-    siege:{cx,cy,walls,gates,direction,inner,outer,moat,revision} };
+    siege:{cx,cy,walls,gates,direction,inner,outer,moat,revision,...(revision === 3 ? { type: pass ? 'pass' : port ? 'port' : 'city' } : {})} };
 }
 export const wallAt = (siege,x,y) => siege?.walls.some(w => w.x===x && w.y===y) ?? false;
 export const gateAt = (siege,x,y) => siege?.gates.find(g => g.x===x && g.y===y);

@@ -20,6 +20,46 @@ after(async () => {
   if (directory) rmSync(directory, { recursive: true, force: true });
 });
 
+test('编辑器可发布扩展城市登场、售卖、开局年和人物被动', async () => {
+  const admin = await game.open();
+  try {
+    await admin.goto(new URL('admin.html?mute', game.url).href);
+    await admin.waitForFunction(() => window.__admin);
+    const content = admin.locator('#content');
+    await admin.getByRole('tab', { name: '君主候选' }).click();
+    await content.getByLabel('地图', { exact: true }).selectOption('expanded');
+    await content.getByLabel('新增边地据点').check();
+    await content.getByLabel('启用新版战场').check();
+    await content.getByLabel('开局年份').fill('193');
+    await content.getByRole('button', { name: '应用年份' }).click();
+    await admin.getByRole('tab', { name: '人物与登场' }).click();
+    await content.getByRole('button', { name: /新建武将/ }).click();
+    await content.getByLabel('出生地').selectOption('38');
+    await content.getByLabel('登场城市').selectOption('30');
+    await content.getByLabel('人物被动').selectOption('range');
+    await content.getByRole('button', { name: '应用修改' }).click();
+    await admin.getByText('人物修改已应用到草稿').waitFor();
+    await admin.getByRole('tab', { name: '新武器' }).click();
+    await content.getByRole('button', { name: /新建武器/ }).click();
+    await content.getByRole('checkbox', { name: '襄阳', exact: true }).check();
+    await content.getByRole('button', { name: '应用修改' }).click();
+    await admin.getByLabel('版本名称').fill('扩展地图验证');
+    await admin.getByLabel('管理员令牌').fill(token);
+    await admin.getByRole('button', { name: '发布新版本' }).click();
+    await admin.getByText(/已发布“扩展地图验证”/).waitFor();
+    const version = await admin.evaluate(async () => {
+      const { loadScenario } = await import('./src/core/scenario-store.js');
+      const base = await fetch('data/game-data.json').then(r => r.json());
+      return loadScenario(window.__admin.lastPublished, base);
+    });
+    assert.equal(version.startYear, 193);
+    assert.equal(version.newBattleRules, true);
+    assert.deepEqual([version.officers[0].city, version.officers[0].birthCity, version.officers[0].passive], [30, 38, 'range']);
+    assert.deepEqual(version.weapons[0].shops, [30]);
+    assert.deepEqual(admin.errors, []);
+  } finally { await admin.context().close(); }
+});
+
 test('女性角色支持分开上传立绘、表情和动作，导出素材包可在另一服务器导入发布', async () => {
   const admin = await game.open(), otherDir = mkdtempSync(join(tmpdir(), 'threekindoms-asset-import-'));
   let other;

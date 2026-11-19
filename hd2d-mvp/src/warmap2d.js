@@ -185,7 +185,7 @@ export function flatten(war, G, blankScene) {
     box = { k, cw: (B.w * k) / W, ch: (B.h * k) / H, x: (vw - B.w * k) / 2 + view.x, y: FLAT_INSET.top + (band - B.h * k) / 2 + view.y, dpr };
   }
   // Phone only: one finger slides the board, two fingers zoom it about the point between them (app.js).
-  let autoFrame = PHONE && field.siege?.revision === 2;
+  let autoFrame = PHONE && field.siege?.revision >= 2;
   const slide = (dx, dy) => { autoFrame = false; goal = null; view.x += dx; view.y += dy; place(); };
   const zoomAt = (deltaY, ndc) => {
     const z = Math.max(1, Math.min(2.4, view.z * Math.exp(-deltaY * 0.001))); if (z === view.z) return;
@@ -219,7 +219,7 @@ export function flatten(war, G, blankScene) {
     goal = { x: view.x + vw / 2 - px, y: view.y + vh * 0.45 - py };
   };
   function follow(dt) {
-    const st = war.st, f = field, mine = f.units.filter((u) => u.side === f.human && !u.gone);
+    const st = war.st, f = field, mine = f.alive.filter((u) => f.controls(u));
     if (!opened && mine.length) {
       opened = true;
       if (autoFrame) lastSel = st.sel;
@@ -228,7 +228,7 @@ export function flatten(war, G, blankScene) {
     if (st.sel !== lastSel) { lastSel = st.sel; if (st.sel && !st.sel.gone) ensure(st.sel.x, st.sel.y); }
     const ask = st.confirm?.t ?? st.strike?.t ?? st.ask ?? null;
     if (ask !== lastAsk) { lastAsk = ask; if (ask && !ask.gone) ensure(ask.x, ask.y); }
-    for (const u of f.units) { const k = `${u.x},${u.y}`, was = stood.get(u); stood.set(u, k); if (was && was !== k && !u.gone && (f.turn !== f.human || u.side !== f.human)) ensure(u.x, u.y); }
+    for (const u of f.units) { const k = `${u.x},${u.y}`, was = stood.get(u); stood.set(u, k); if (was && was !== k && !u.gone && (f.turn !== f.human || !f.controls(u))) ensure(u.x, u.y); }
     if (goal) { const k = 1 - Math.exp(-dt * 7); view.x += (goal.x - view.x) * k; view.y += (goal.y - view.y) * k; if (Math.abs(goal.x - view.x) + Math.abs(goal.y - view.y) < 1) goal = null; place(); }
   }
   const resize = () => { layout(); if (autoFrame) resetView(); };
@@ -271,7 +271,7 @@ export function flatten(war, G, blankScene) {
     // 格子本身有武将时保留该格的选择；可移动空格仍可穿过人物，避免挡住行军。
     if (cell && field.unitAt(cell.x, cell.y)) return cell;
     const st = war.st, free = cell && (st.deploying ? !!st.sel && painted.deploy.has(`${cell.x},${cell.y}`)
-      : st.cast == null && st.sel?.side === field.human && st.reach?.dist.has(`${cell.x},${cell.y}`));
+      : st.cast == null && field.controls(st.sel) && st.reach?.dist.has(`${cell.x},${cell.y}`));
     for (let i = painted.bodies.length - 1; i >= 0; i--) {
       const v = painted.bodies[i], u = v.u;
       if (!valid(u) || !figureHit(v, px, py)) continue;
@@ -654,7 +654,7 @@ export function flatten(war, G, blankScene) {
     // A cell's centre on screen, in CSS px (tools click the map as a player would).
     screenOf: (x, y) => ({ x: box.x + (x + 0.5) * box.cw, y: box.y + (y + 0.5) * box.ch, cw: box.cw, ch: box.ch }),
     screenAxes: () => ({ x: [box.cw, 0], y: [0, box.ch] }), // one grid step on screen (the gamepad's cursor, app.js)
-    orbit() {}, zoom(d, ndc) { if (PHONE) zoomAt(d, ndc); }, pan() {}, resetView() { if (PHONE) { autoFrame = field.siege?.revision === 2; resetView(); } }, frame() {}, overview() { war.overview(); },
+    orbit() {}, zoom(d, ndc) { if (PHONE) zoomAt(d, ndc); }, pan() {}, resetView() { if (PHONE) { autoFrame = field.siege?.revision >= 2; resetView(); } }, frame() {}, overview() { war.overview(); },
     ...(PHONE ? { slide, centreOn } : {}),
     rotate: undefined, turn: undefined, turnEnd: undefined, tactical: undefined, viewState: undefined, dof: undefined, setTerrainView: undefined, // the flat map has no turn, zoom step or overview of its own
     setInsets() {},

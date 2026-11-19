@@ -67,7 +67,7 @@ export function expandMap(data) {
     d.maps[node.id] = structuredClone(d.maps[node.template]);
     d.deploy[node.id] = { [a]: structuredClone(deployments[0]), [b]: structuredClone(deployments[1] ?? deployments[0]) };
     d.villages[node.id] = node.kind === 'pass' ? [] : structuredClone(d.villages[node.template] ?? []);
-    d.search_table[String(node.id)] = [];
+    d.search_table[String(node.id)] ??= [];
   }
   for (const { road: [a, b], via } of CROSSING_ROADS) {
     const node = EXPANDED_NODES.find((n) => n.id === via), city = d.cities[via];
@@ -89,8 +89,15 @@ export function expandMap(data) {
     d.deploy[n.id] = { [home.id]: structuredClone(Object.values(d.deploy[n.template])[0]) };
     d.maps[n.id] = structuredClone(d.maps[n.template]);
     d.villages[n.id] = structuredClone(d.villages[n.template] ?? []);
-    d.search_table[String(n.id)] = [];
+    d.search_table[String(n.id)] ??= [];
     d.rules.flood_cities.push(n.id);
+  }
+  for (const site of expandedNodes(d.frontierMap)) {
+    if (site.kind !== 'city') continue;
+    const city = d.cities[site.id], equipment = d.expandedShops?.[site.id] ?? [];
+    for (const key of ['shop', 'field_shop', 'ai_shop']) {
+      city[key] = [...city[key].filter((id) => id < (d.originalEquipmentCount ?? Infinity)), ...equipment];
+    }
   }
   // 扩张后的命令书不继续增长，避免额外城市造成滚雪球。
   while (d.rules.books.length <= d.cities.filter((c) => c.kind !== 'pass').length) d.rules.books.push(d.rules.books.at(-1));

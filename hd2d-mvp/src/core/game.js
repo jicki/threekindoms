@@ -14,6 +14,7 @@ import { SOVEREIGN_SCENARIO_ID } from './visuals.js';
 import { chooseCampaignEvent, applyCampaignEvent } from './campaign-events.js';
 import { FAMOUS_ROSTER, FAMOUS_ROSTER_START, activateFamousRoster, extraSearchIds, famousRosterTemplate, hasFamousRoster, rosterRecordName, staticRosterSize } from './famous-roster.js';
 import { readResource } from '../resource.js';
+import { officerPassive, advancedBattle } from './battle-rules.js';
 // 原版无主为 7；扩展剧本将无主编号放在实际势力编号之后。
 export let NONE = 7;
 export const DEAD = 3, SERVING = 2, UNAPPEARED = 1, RONIN = 0;
@@ -54,8 +55,9 @@ const officerRecord = (o) => ({
 });
 
 // 战役规则修订号独立于存档结构。读取旧记录保留其规则，由玩家在战略回合选择升级。
-const CAMPAIGN_REVISION = 1;
+const CAMPAIGN_REVISION = 2;
 const FAMOUS_CAMPAIGN_RULES = { battlefields: 2, famousSkills: 2, famousRoster: 1, siegeTactics: true };
+const supportsNewBattle = () => D.expandedMap === true && (scenarioId === EXPANDED_MAP_ID || D.newBattleRules === true);
 function campaignDefaults() {
   const defaults = {};
   for (const key of ['enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'focusedRulerPassives', 'battleRulerPassives',
@@ -81,12 +83,14 @@ const FEMALE_OPENING_STATS = {
 
 // ---------- New game ----------
 export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random() * 1e9)) >>> 0, { ruler = null } = {}) {
-  const g = { version: SAVE_VERSION, level, player: playerFaction, year: 189, month: 0, seed, turnIdx: -1, monthDone: false, current: null, books: 0, over: null };
+  const g = { version: SAVE_VERSION, level, player: playerFaction, year: D.startYear ?? 189, month: 0, seed, turnIdx: -1, monthDone: false, current: null, books: 0, over: null };
   if (scenarioId !== ORIGINAL_SCENARIO) g.scenarioId = scenarioId;
   Object.assign(g, campaignDefaults());
   if (scenarioId === EXPANDED_MAP_ID && D.expandedMap === true) {
     if (staticRosterSize(D, null) !== FAMOUS_ROSTER_START) throw new Error('内置人物数据与名将名单不匹配');
     Object.assign(g, FAMOUS_CAMPAIGN_RULES, { campaignRevision: CAMPAIGN_REVISION });
+  } else if (supportsNewBattle()) {
+    Object.assign(g, { campaignRevision: CAMPAIGN_REVISION, campaignRules: true, safeStrategyChance: true, eliteTroops: true, battlefields: 2, siegeTactics: true });
   }
   if (D.expandedMap && D.frontierMap) g.frontierMap = true;
   activateFamousRoster(D,g);
@@ -567,6 +571,8 @@ async function rotate(g, io) {
       if (D.expandedMap) { await checkFactions(g, io); if (g.over) return; }
       g.books = 0; continue;
     }
+    const delegated = runGovernors(g);
+    if (delegated.length) await io.event({ type: 'governors', entries: delegated });
     return; // player's turn begins
   }
 }
@@ -604,7 +610,7 @@ export function develop(g, cid, executor, field, cost) {
   c.gold -= cost;
   const q = Math.floor((cost * g.officers[executor].int) / 100);
   const d = Math.max(1, Math.floor((q * (r(8) + 10)) / 10));
-  const want = field === 'pop' ? Math.max(1, Math.floor(d / 2)) : d;
+  const want = (field === 'pop' ? Math.max(1, Math.floor(d / 2)) : d) + (officerPassive(D, g, executor)?.development ?? 0);
   const before = c[field]; c[field] = Math.min(cap, before + want);
   const a = c[field] - before;
   c.gov = Math.min(100, c.gov + 1 + (a >= 31 ? 1 : 0));
@@ -618,7 +624,7 @@ export function prevent(g, cid, executor, cost) {
   if (c.gold < cost) return { ok: false, msg: '金不足' };
   c.gold -= cost;
   const q = Math.floor((cost * g.officers[executor].int) / 100), d = Math.max(1, Math.floor((q * (6 + r(5))) / 10));
-  const before = c.disaster; c.disaster = Math.min(99, before + d);
+  const before = c.disaster; c.disaster = Math.min(99, before + d + (officerPassive(D, g, executor)?.prevention ?? 0));
   return { ok: true, gain: c.disaster - before, msg: `防灾 +${c.disaster - before}` };
 }
 export function reward(g, cid, target, gold, treasure = false) {
@@ -639,7 +645,7 @@ export function charity(g, cid, gold, rice) {
   c.gold -= gold; c.rice -= rice;
   const Vg = g.officers[c.officers[0]].virtue;
   const q = Math.floor(((gold + rice) * Vg) / 2000), d = Math.floor((q * (10 + r(7))) / 10);
-  const before = c.gov; c.gov = Math.min(100, before + d);
+  const before = c.gov; c.gov = Math.min(100, before + d + (d > 0 ? officerPassive(D, g, c.officers[0])?.charity ?? 0 : 0));
   return { ok: true, msg: `统治度 +${c.gov - before}` };
 }
 // 武将不能读书 (g.noStudy, an option off by default and absent from older records; not in the ROM): no officer, the
@@ -701,11 +707,52 @@ export function moveOfficers(g, from, to, ids) {
 }
 export function transport(g, from, to, gold, rice, treasure) {
   const a = g.cities[from], b = g.cities[to];
-  if (!roads(from).includes(to) || b.faction !== a.faction) return { ok: false, msg: '只能运往相邻己方城' };
+  if (!transportRoutes(g, from).has(to)) return { ok: false, msg: advancedBattle(g) ? '没有连通的己方运输路线' : '只能运往相邻己方城' };
   gold = Math.min(gold, a.gold, 9999 - b.gold); rice = Math.min(rice, a.rice, 9999 - b.rice); treasure = Math.min(treasure, a.treasure, 99 - b.treasure);
   if (!gold && !rice && !treasure) return { ok: false, msg: '没有可运输的物资' };
   a.gold -= gold; b.gold += gold; a.rice -= rice; b.rice += rice; a.treasure -= treasure; b.treasure += treasure;
   return { ok: true, msg: `运往${cityName(to)}：金${gold} 米${rice}${treasure ? ` 宝${treasure}` : ''}` };
+}
+export function transportRoutes(g, from) {
+  const src = g.cities[from], paths = new Map();
+  if (!src || src.faction === NONE) return paths;
+  const queue = [from], seen = new Set(queue), limit = advancedBattle(g) ? 3 : 1;
+  for (const id of queue) {
+    const path = paths.get(id) ?? [from];
+    if (path.length > limit) continue;
+    for (const next of roads(id)) {
+      if (seen.has(next) || g.cities[next].faction !== src.faction) continue;
+      seen.add(next); queue.push(next); paths.set(next, [...path, next]);
+    }
+  }
+  return paths;
+}
+
+export function setGovernorOrder(g, cid, task, reserve = 100) {
+  if (!advancedBattle(g) || g.cities[cid]?.faction !== g.player || isPass(cid)) return false;
+  if (task != null && (!['prevent', 'recruit', 'rice'].includes(task) || !Number.isInteger(reserve) || reserve < 0 || reserve > 9999)) return false;
+  const orders = (g.governorOrders ??= {});
+  if (task == null) delete orders[cid]; else orders[cid] = { task, reserve };
+  return true;
+}
+
+export function runGovernors(g) {
+  if (!advancedBattle(g) || !g.governorOrders || g.current !== g.player) return [];
+  const month = g.year * 12 + g.month, entries = [];
+  if (g.governorMonth === month) return entries;
+  g.governorMonth = month;
+  for (const [id, { task, reserve }] of Object.entries(g.governorOrders)) {
+    if (g.books <= 1 || entries.length === 2) break;
+    const c = g.cities[id], officer = c?.officers[0], gold = c?.gold - reserve;
+    if (c?.faction !== g.player || officer == null || gold <= 0) continue;
+    let res;
+    if (task === 'prevent' && c.disaster < 75 && gold >= disasterCostRange(g, officer)[1]) res = prevent(g, c.id, officer, disasterCost(g, officer));
+    if (task === 'recruit' && c.reserve < 300 && gold >= 20) res = conscript(g, c.id, 1);
+    const buy = D.cities[id].rice_rate[1];
+    if (task === 'rice' && buy >= 1 && c.rice < 500 && gold >= Math.floor(10000 / buy)) res = buyRice(g, c.id, 100);
+    if (res?.ok) { g.books--; entries.push({ city: c.id, message: res.msg }); }
+  }
+  return entries;
 }
 export function appoint(g, cid, id) {
   const c = g.cities[cid];
@@ -908,13 +955,18 @@ export function upgrade(g) {
   if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return null;
   try { g.version ??= 1; while (g.version < SAVE_VERSION) MIGRATIONS[g.version++](g); } catch { return null; }
   if (g.campaignRevision !== undefined && (!Number.isInteger(g.campaignRevision) || g.campaignRevision < 1
-    || g.campaignRevision > CAMPAIGN_REVISION || scenarioId !== EXPANDED_MAP_ID)) return null;
+    || g.campaignRevision > CAMPAIGN_REVISION || !supportsNewBattle()
+    || (g.campaignRevision === 1 && scenarioId !== EXPANDED_MAP_ID))) return null;
   if (g.frontierMap !== undefined && typeof g.frontierMap !== 'boolean') return null;
+  if (g.governorMonth !== undefined && (!advancedBattle(g) || !Number.isSafeInteger(g.governorMonth) || g.governorMonth < 0)) return null;
+  if (g.governorOrders !== undefined && (!advancedBattle(g) || !g.governorOrders || typeof g.governorOrders !== 'object' || Array.isArray(g.governorOrders)
+    || Object.entries(g.governorOrders).some(([id, order]) => !/^(0|[1-9]\d*)$/.test(id) || !D.cities[id] || isPass(+id) || !order
+      || !['prevent', 'recruit', 'rice'].includes(order.task) || !Number.isInteger(order.reserve) || order.reserve < 0 || order.reserve > 9999))) return null;
   if (g.famousSkills !== undefined && (![true,2].includes(g.famousSkills) || scenarioId !== EXPANDED_MAP_ID || D.expandedMap !== true)) return null;
   if (g.famousRoster !== undefined && (g.famousRoster !== 1 || g.famousSkills !== 2 || scenarioId !== EXPANDED_MAP_ID || D.expandedMap !== true)) return null;
   if (g.famousSkills === 2 && (g.famousRoster !== 1 || !Array.isArray(g.officers) || g.officers.length < FAMOUS_ROSTER_START+FAMOUS_ROSTER.length)) return null;
-  if (g.siegeTactics !== undefined && (g.siegeTactics !== true || g.battlefields !== 2 || scenarioId !== EXPANDED_MAP_ID || D.expandedMap !== true)) return null;
-  if (g.battlefields !== undefined && (![1, 2].includes(g.battlefields) || scenarioId !== EXPANDED_MAP_ID || D.expandedMap !== true)) return null;
+  if (g.siegeTactics !== undefined && (g.siegeTactics !== true || g.battlefields !== 2 || !supportsNewBattle())) return null;
+  if (g.battlefields !== undefined && (![1, 2].includes(g.battlefields) || !supportsNewBattle())) return null;
   // 旧扩展地图记录只补充无主的新据点，已有城市、武将及战斗状态不重置。
   const legacyCount = 30 + EXPANDED_NODES.length;
   if (D.expandedMap && D.frontierMap && Array.isArray(g.cities) && g.cities.length === legacyCount && g.frontierMap !== true) {
@@ -948,7 +1000,7 @@ function missingCampaignDefaults(g) {
 export function campaignUpgradeAvailable(g) {
   if (scenarioId !== EXPANDED_MAP_ID || D?.expandedMap !== true || g?.scenarioId !== scenarioId
     || g.over || g.raidBattle || (g.campaignRevision ?? 0) >= CAMPAIGN_REVISION) return false;
-  return Object.entries(FAMOUS_CAMPAIGN_RULES).some(([key, value]) => g[key] !== value) || missingCampaignDefaults(g).length > 0;
+  return true;
 }
 
 export function upgradeCampaign(g) {
@@ -1223,8 +1275,9 @@ export function payAlliance(g, cid, target, kind, amount) {
   c[kind] -= amount;
   const dst = officerCity(g, g.factions[target].ruler);
   if (dst) dst[kind] = Math.min(9999, dst[kind] + amount);
-  g.factions[me].alliance[target] = 12; g.factions[target].alliance[me] = 12;
-  return { ok: true, msg: `与${factionName(g, target)}结成同盟（12个月）`, noBook: true };
+  const duration = advancedBattle(g) ? 14 : 12;
+  g.factions[me].alliance[target] = g.factions[target].alliance[me] = duration;
+  return { ok: true, msg: `与${factionName(g, target)}结成同盟（${duration}个月）`, noBook: true };
 }
 // 废除同盟 (bank 28 $CD0A→$CEAD→$CEC7): an ally chosen under 同盟 skips the envoy and asks only for the book;
 // 是 clears both sides' timers through $D508 and nothing else — no envoy, payment, loyalty or reply. $0473=$80

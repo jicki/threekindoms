@@ -14,7 +14,10 @@ import { fight } from '../src/core/warcore.js';
 
 const base=JSON.parse(readFileSync(new URL('../data/game-data.json',import.meta.url)));
 const expanded=expandMap(applyScenario(base,await loadScenario(SOVEREIGN_SCENARIO_ID,base)));
-function game(seed=7) { G.setData(expanded,EXPANDED_MAP_ID); return G.newGame(4,1,seed); }
+function game(seed=7, revision=1) {
+  G.setData(expanded,EXPANDED_MAP_ID);
+  const g = G.newGame(4,1,seed); g.campaignRevision = revision; return g;
+}
 function war(city=34,from=8) { return {city,from,attacker:0,defender:4,day:1,att:{ids:[40,41,42],gold:100,rice:3000},def:{ids:[43,44,45],gold:100,rice:3000}}; }
 
 test('新开局启用城防，原版及前版存档仍使用原规则',() => {
@@ -263,7 +266,7 @@ test('襄阳和江州新版天然河道四向连通，上一版保持不变',() 
 test('各新增据点电脑可接敌并结束，兵力优势可突破城防', {timeout:120000}, () => {
   let wins=0;
   for (const city of expanded.cities.slice(30)) for (const from of city.roads) {
-    const g=game(city.id*100+from), w=war(city.id,from); w.att.ids.push(46,47,48);
+    const g=game(city.id*100+from,2), w=war(city.id,from); w.att.ids.push(46,47,48);
     for (const id of [...w.att.ids,...w.def.ids]) Object.assign(g.officers[id],{soldiers:700,hp:90,loyalty:100,war:70,int:60,level:3});
     const f=new Field(g,w,null); let attacks=0;
     for (let turn=0;!f.over && turn<65;turn++) { for (const act of f.aiActions(f.turn)) if(act.type==='attack') attacks++; f.endTurn(); }

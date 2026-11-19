@@ -19,6 +19,7 @@ const CUSTOM_STRATEGY_SCENES = {
   '坚城奇策': 13, '奉孝奇策': 3, '鹰视守谋': 15, '宪英明鉴': 2,
   '幽骑冲阵': 3, '淮南筹策': 3, '荆襄固阵': 10, '长史守谋': 15,
   '阎象明策': 2, '异度奇谋': 2,
+  '夹攻': 7, '破阵': 3,
 };
 function strategySceneId(strategy) {
   if (!strategy.custom) return strategy.id;
@@ -153,7 +154,7 @@ export function makePlay(wv) {
     const rank = (lu) => (order.includes(lu.id) ? order.indexOf(lu.id) : order.length);
     for (const lu of takeLevelUps(field.g).sort((x, y) => rank(x) - rank(y))) {
       const u = field.units.find((x) => x.id === lu.id), v = u && views.get(u), o = field.O(lu.id);
-      if (!u || u.side !== human || u.gone || o.status === DEAD) continue;
+      if (!u || !field.controls(u) || u.gone || o.status === DEAD) continue;
       if (v) {
         focusOn(u);
         const at = v.g.position.clone(); at.y += 0.8; levelUp(scene, at);
@@ -167,7 +168,7 @@ export function makePlay(wv) {
       const gain = lu.war - lu.warFrom;
       ui.log(`<strong>${name(lu.id)}升至等级 ${lu.to}</strong>${gain ? `，武力 ${lu.warFrom}→${lu.war}` : ''}`);
       await ui.levelUp?.({ id: lu.id, from: lu.from, to: lu.to, warFrom: lu.warFrom, war: lu.war });
-      const was = stratCount(lu.id, { ...o, level: lu.from }), now = stratCount(lu.id, o);
+      const was = stratCount(lu.id, { ...o, level: lu.from }, field.g), now = stratCount(lu.id, o, field.g);
       if (now > was) {
         const learnt = STRATS.slice(was, now).map((S) => S.name);
         ui.log(`${name(lu.id)}学会了新的计略：${learnt.join('、')}`);
@@ -291,7 +292,7 @@ export function makePlay(wv) {
   // A step that springs an ambush or takes the castle joins the march as its last cell and the march plays
   // out at once, so the event lands as the unit arrives. Anything else (an attack, a 计略, a retreat) first
   // plays the march so far, then itself.
-  async function aiSide(s) {
+  async function aiSide(s, only = null) {
     ui.log(`—— 第${field.day}日 ${sideLabel(s)}行动 ——`);
     const march = new Map(); let steps = 0; // u → { path, first, last } (step indices in the run)
     const flush = async () => {
@@ -304,7 +305,7 @@ export function makePlay(wv) {
         .then(() => moveAlong(u, path, { perCell: ((last - first + 1) * T) / path.length, minMs: T, settleMs: Math.min(180, T), follow: false }))));
       hud();
     };
-    for (const act of field.aiActions(s)) {
+    for (const act of field.aiActions(s, only)) {
       if (act.type === 'move') {
         const m = march.get(act.u) || { path: [], first: steps }; m.path.push(...act.path); steps += act.path.length; m.last = steps - 1; march.set(act.u, m);
         if (!field.lastAmbush && !field.over) continue;
@@ -329,7 +330,7 @@ export function makePlay(wv) {
   async function loop() {
     if (human && rect && !field.resumed) { // a suspended war taken up again (src/core/suspend.js) was deployed before it stopped
       st.deploying = true; hud(); ui.deploy?.(true);
-      const first = field.side(human)[0]; if (first) { focusOn(first); st.sel = first; }
+      const first = field.side(human).find(u => field.controls(u)); if (first) { focusOn(first); st.sel = first; }
       showDeploy();
       await new Promise((res) => (wv.endDeploy = res));
       ui.deploy?.(false);
@@ -339,11 +340,15 @@ export function makePlay(wv) {
         ui.log(`—— 第${field.day}日 ${sideLabel(human)}行动 ——`); // silent, as in the original (D43: no war-start phrase each day)
         // The camera turns to the commander but no one is selected: with him selected, a click that missed another
         // general landed on an empty cell in his reach and marched him off (player feedback, 2026-11-03).
-        const first = field.side(human).find((u) => u.commander) || field.side(human)[0];
+        const mine = field.side(human).filter(u => field.controls(u));
+        const first = mine.find((u) => u.commander) || mine[0];
         if (first) focusOn(first);
         select(null);
         hud(); stage(); // our day begins: a key held through the enemy's turn (or a report closed on it) does not end it (src/commitguard.js)
-        await new Promise((res) => (wv.endHuman = res));
+        if (mine.length) await new Promise((res) => (wv.endHuman = res));
+        if (field.war.support && field.side(human).some(u => !field.controls(u))) {
+          st.busy = true; await aiSide(human, u => !field.controls(u)); st.busy = false;
+        }
         st.last = null; select(null);
       } else { st.busy = true; await aiSide(field.turn); st.busy = false; }
       if (field.over) break;

@@ -459,7 +459,7 @@ for (const human of ['a', 'd']) test(`the 攻击, 牵制 and 舍身 buttons show
       for (const [i, cmd] of ['attack', 'feint', 'desperate'].entries()) {
         let lands = 0;
         for (let v = 0; v < 256; v++) {
-          const side = { a: { ...d.side.a, hp: 99 }, d: { ...d.side.d, hp: 99 } }, c = new d.constructor(side, () => v);
+          const side = { a: { ...d.side.a, hp: 99 }, d: { ...d.side.d, hp: 99 } }, c = new d.constructor(side, () => v, d.g, human);
           c.curse = { ...d.curse }; lands += c.act(human, cmd).hit ? 1 : 0;
         }
         out[cmd] = { text: btns[i].querySelector('small').textContent, title: btns[i].title, pct: Math.round(lands / 2.56) };

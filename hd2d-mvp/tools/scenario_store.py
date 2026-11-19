@@ -185,7 +185,7 @@ def image_info(data):
 
 
 def validate(s, base):
-    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'focusedRulerPassives', 'battleRulerPassives', 'expandedOpening', 'frontierMap', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops', 'campaignRules', 'campaignRelations', 'map'])
+    obj(s, '版本', ['format', 'id', 'name', 'base', 'officers', 'weapons', 'armors', 'skills', 'relations', 'rulers', 'factions', 'rulerPassives', 'enhancedRulerPassives', 'focusedRulerPassives', 'battleRulerPassives', 'expandedOpening', 'frontierMap', 'fixedAiRecruitment', 'enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'specialTroops', 'campaignRules', 'campaignRelations', 'map', 'startYear', 'newBattleRules'])
     if type(s.get('format')) is not int or s['format'] != 1:
         fail('不支持的版本文件格式')
     if not isinstance(s.get('id'), str) or not ID.fullmatch(s['id']):
@@ -231,6 +231,25 @@ def validate(s, base):
         fail('新版玩法设置无效')
     if 'map' in s and s['map'] not in ('standard', 'expanded'):
         fail('地图设置无效')
+    if 'startYear' in s:
+        integer(s['startYear'], '开局年份', 189, 236)
+    if 'newBattleRules' in s and type(s['newBattleRules']) is not bool:
+        fail('战场玩法设置无效')
+    if s.get('newBattleRules') and s.get('map') != 'expanded':
+        fail('新版战场玩法需要扩展地图')
+    cities = {city['id']: city for city in base['cities']}
+    if s.get('map') == 'expanded':
+        # 与 expanded-map.js 的新增城市及武器屋模板保持一致。
+        templates = {30: 13, 31: 27, 32: 13}
+        if s.get('frontierMap'):
+            templates[38] = 17
+        for city, template in templates.items():
+            cities[city] = {'faction': len(base['factions']), 'facilities': base['cities'][template]['facilities']}
+
+    def valid_city(city, label):
+        if type(city) is not int or city not in cities:
+            fail(f'{label}不在当前版本地图中')
+
     if s.get('base') != base_signature(base):
         fail('版本所需的基础数据与当前游戏不一致')
     officers, weapons, skills, relations = (s.get(k) for k in ('officers', 'weapons', 'skills', 'relations'))
@@ -283,7 +302,7 @@ def validate(s, base):
 
     def owner_for_city(city):
         home = next((f['id'] for f in factions if f['city'] == city), None)
-        owner = base['cities'][city]['faction']
+        owner = cities[city]['faction']
         return home if home is not None else len(all_factions) if owner == len(base['factions']) else owner
 
     kinds = {}
@@ -295,10 +314,10 @@ def validate(s, base):
         kinds[item['id']] = kind
 
     def check_shops(item):
-        shops = item.get('shops'); array(shops, '售卖城市', len(base['cities']))
+        shops = item.get('shops'); array(shops, '售卖城市', len(cities))
         for city in shops:
-            integer(city, '售卖城市', 0, len(base['cities']) - 1)
-            if not base['cities'][city]['facilities']['weapons']:
+            valid_city(city, '售卖城市')
+            if not cities[city]['facilities']['weapons']:
                 fail('只能在设有武器屋的城市售卖')
         if len(set(shops)) != len(shops):
             fail('售卖城市重复')
@@ -364,7 +383,7 @@ def validate(s, base):
             fail('技能至少需要一种效果')
     seen, rosters = set(), [list(c['officers']) for c in base['cities']]
     for o in officers:
-        obj(o, '武将', ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'portraitData', 'appear', 'city', 'faction', 'skills', 'duelSkill', 'visual', 'searchPriority'])
+        obj(o, '武将', ['id', 'name', 'hp', 'war', 'int', 'virtue', 'loyalty', 'level', 'exp', 'soldiers', 'weapon', 'armor', 'army', 'year', 'death', 'birthYear', 'birthCity', 'portraitId', 'portraitData', 'appear', 'city', 'faction', 'skills', 'duelSkill', 'visual', 'searchPriority', 'passive'])
         integer(o.get('id'), '武将编号', 0, max_officer); oid = o['id']
         if oid in seen:
             fail('武将编号重复')
@@ -379,7 +398,12 @@ def validate(s, base):
         if 'birthCity' not in o:
             fail('出生地格式错误')
         if o['birthCity'] is not None:
-            integer(o['birthCity'], '出生地', 0, len(base['cities']) - 1)
+            valid_city(o['birthCity'], '出生地')
+        if 'passive' in o and o['passive'] not in (
+            'kongming', 'fire', 'water', 'calculate', 'range', 'ward', 'charge', 'mountain',
+            'duel', 'endure', 'command', 'protection', 'morale', 'county', 'repair', 'goodwill'
+        ):
+            fail('人物被动无效')
         birth = o['birthYear']
         if birth is not None:
             integer(birth, '出生年份', 0, 9999)
@@ -413,7 +437,7 @@ def validate(s, base):
                 fail('自动出仕的武将不能指定登场城市')
             integer(o.get('faction'), '出仕势力', 0, len(all_factions) - 1)
         else:
-            integer(o.get('city'), '登场城市', 0, len(base['cities']) - 1)
+            valid_city(o.get('city'), '登场城市')
             if appear == 'search_city':
                 if 'faction' not in o or o['faction'] is not None:
                     fail('搜索登场的武将不能预设势力')
@@ -421,8 +445,8 @@ def validate(s, base):
                 integer(o.get('faction'), '所属势力', 0, len(all_factions) - 1)
                 if owner_for_city(o['city']) != o['faction']:
                     fail('开局城市不属于所选势力')
-                if o['year'] > 189:
-                    fail('开局登场的年份不能晚于 189 年')
+                if o['year'] > s.get('startYear', 189):
+                    fail('开局登场的年份不能晚于剧本开局年份')
         ruler = next((f for f in all_factions if f['ruler'] == oid), None)
         ruler_city = ruler.get('city') if ruler and 'city' in ruler else base['officers'][oid]['city'] if ruler else None
         if ruler and (appear != 'initial' or o['city'] != ruler_city or o['faction'] != ruler['id']):

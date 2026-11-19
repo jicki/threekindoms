@@ -8,6 +8,7 @@
 import { data, addExp, isRuler, maxHp, weaponGroup } from './game.js';
 import { tableDraws, realChance } from './origrng.js';
 import { abilityDuel } from './famous-skills.js';
+import { officerPassive } from './battle-rules.js';
 
 const CASTLE = 5;
 const B = (h) => (h < 15 ? 20 : h < 35 ? 40 : h < 60 ? 50 : h < 80 ? 70 : h < 90 ? 85 : h < 100 ? 95 : 100);
@@ -120,7 +121,10 @@ export class Duel {
     this.init = { a: 0, d: 0 }; this.curse = { a: 0, d: 0 }; this.taunted = { a: false, d: false }; this.specialUsed = { a: false, d: false }; this.last = 0;
   }
   base(s) { return this.base0[s]; }
-  hitChance(s) { const me = this.side[s], foe = this.side[s === 'a' ? 'd' : 'a']; return HIT[DUEL_GROUP[me.eq.wgrp]][DUEL_GROUP[foe.eq.wgrp]]; }
+  hitChance(s) {
+    const me = this.side[s], foe = this.side[s === 'a' ? 'd' : 'a'];
+    return Math.min(95, HIT[DUEL_GROUP[me.eq.wgrp]][DUEL_GROUP[foe.eq.wgrp]] + (officerPassive(data(), this.g, me.id)?.duel ?? 0) + (me.ai ?? 0));
+  }
   special(s) {
     return abilityDuel(data(), this.g, this.side[s].id);
   }

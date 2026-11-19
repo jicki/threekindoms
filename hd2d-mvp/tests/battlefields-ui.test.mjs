@@ -19,6 +19,7 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
     await newCampaign(p, '刘备');
     await p.evaluate(() => {
       const { g, debug } = window.__game;
+      g.month = 11;
       const w = { city: 34, from: 8, attacker: 0, defender: 4, day: 1,
         att: { ids: [40, 41], gold: 100, rice: 500 }, def: { ids: [43, 44], gold: 100, rice: 500 } };
       for (const id of [...w.att.ids, ...w.def.ids]) g.officers[id].soldiers = 700;
@@ -51,11 +52,13 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
       });
       assert.equal(state.profile.label, '函谷关道'); assert.deepEqual(state.castle, [15, 9]); assert.deepEqual(state.start, [1, 9]);
       assert.match(state.dayTitle, /函谷关道/);
-      assert.equal(state.siegeGates, 8);
+      assert.match(state.dayTitle, /雪天/);
+      assert.match(await p.locator('.warbar .day').textContent(), /雪/);
+      assert.equal(state.siegeGates, 4);
       if (mode === 'phone') { assert.equal(state.flat, true); assert.equal(await p.locator('.flatwar canvas').isVisible(), true); }
       else {
         assert.equal(state.flat, false); assert.equal(state.pass.length, 1); assert.equal(state.pass[0], -Math.PI/2);
-        assert.deepEqual(state.doors, Array(8).fill(1));
+        assert.deepEqual(state.doors, Array(4).fill(1));
         assert.ok(state.masonry.length <= 7 && state.masonry.reduce((sum, n) => sum + n, 0) > 3000);
       }
       await p.locator('.deploybtn .btn', { hasText: '布阵完成' }).click();
@@ -108,4 +111,44 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
       assert.deepEqual(p.errors, []);
     } finally { stop(); }
   } finally { await p.context().close(); }
+});
+
+test('手机同盟守城只在选将名单中显示实际受玩家指挥的援军', { timeout: 120000 }, async () => {
+  const page = await game.open('&flat&phone');
+  try {
+    await page.setViewportSize({ width: 812, height: 375 });
+    await newCampaign(page, '曹操');
+    await page.evaluate(async () => {
+      const { g, G, debug } = window.__game;
+      const { joinDefense, defenseCandidates } = await import('./src/core/warcore.js');
+      const occupy = (city, faction, ids) => {
+        for (const c of g.cities) c.officers = c.officers.filter(id => !ids.includes(id));
+        Object.assign(g.cities[city], { faction, officers: ids, gold: 500, rice: 900 });
+        for (const id of ids) Object.assign(g.officers[id], { soldiers: 500, hp: 60, status: G.SERVING });
+      };
+      occupy(30, 4, [40, 41]); occupy(13, 0, [42]); occupy(35, g.player, [43, 44, 45]);
+      g.factions[g.player].alliance[0] = g.factions[0].alliance[g.player] = 10;
+      const w = debug.setupWar(g, { from: 30, to: 13, ids: [40], commander: 40, gold: 100, rice: 150 });
+      const plan = defenseCandidates(g, 4, 0, 13).find(c => c.city === 35);
+      if (!joinDefense(g, w, plan)) throw new Error('没有武关援军');
+      debug.fieldWar(w, 'def').catch(e => { window.__battleError = String(e.stack || e); });
+    });
+    const stop = closeMessages(page);
+    try {
+      await page.waitForFunction(() => {
+        if (window.__battleError) throw new Error(window.__battleError);
+        return window.__game.war?.st?.deploying;
+      });
+      await page.locator('.war-rosterbtn').click();
+      const rows = page.locator('.war-roster button');
+      assert.equal(await rows.count(), 2);
+      const names = await page.evaluate(() => [44, 45, 42].map(id => window.__game.G.name(id)));
+      const roster = await rows.locator('b').allTextContents();
+      assert.deepEqual([...roster].sort(), names.slice(0, 2).sort());
+      await rows.filter({ hasText: names[1] }).click();
+      assert.equal(await page.evaluate(() => window.__game.war.st.sel.id), 45);
+      assert.match(await page.locator('.warbar .side.me').textContent(), /联军/);
+      assert.deepEqual(page.errors, []);
+    } finally { stop(); }
+  } finally { await page.context().close(); }
 });

@@ -10,6 +10,7 @@ import { PHONE } from '../phone.js';
 
 export function makeInteract(wv) {
   const { field, audio, ui, human, scene, terr, inside, views, removeGone, mark, clearMarks, clearPreview, cursor, frameCast, keepInView, unframeCast } = wv;
+  const controls = (u) => field.controls(u);
   // --- Interaction state ---
   // peek: an enemy clicked while one of ours is selected — his particulars show, ours stays selected, and beside
   // him stands the 攻击 prompt when he can be struck (playtest of 2026-10-31, F02: a click meant to look at an
@@ -23,7 +24,7 @@ export function makeInteract(wv) {
       if (this.deploying) return 'deploying';
       if (this.busy) return 'busy';
       const u = this.sel;
-      if (!u || u.gone || u.side !== human) return u || this.peek ? 'peek' : 'idle';
+      if (!u || u.gone || !controls(u)) return u || this.peek ? 'peek' : 'idle';
       return stepOf();
     },
   };
@@ -42,7 +43,7 @@ export function makeInteract(wv) {
   // only with one of ours selected. Hover calls it on every move, so it redraws only when the foe changes.
   function compareTarget() {
     const u = st.sel;
-    if (!u || u.gone || u.side !== human || st.deploying || field.over) return null;
+    if (!u || u.gone || !controls(u) || st.deploying || field.over) return null;
     const t = st.ask ?? st.peek;
     if (t && !t.gone) return t;
     if (st.busy || !st.hoverCell) return null;
@@ -59,25 +60,25 @@ export function makeInteract(wv) {
   // them, and his commands offer 再施, the same 计略 again (devblog #70 希洛-唯, #175). He stays selected after a cast (play.js castOn,
   // 2026-11-14), so it is offered at once; the cast it starts is confirmed like any other, so a second click cannot cast twice by mistake.
   const lastCast = new Map();
-  const recastOf = (u) => { const l = u?.side === human ? lastCast.get(u) : null; return l && field.strategies(u).some((x) => x.id === l.id) ? l : null; };
+  const recastOf = (u) => { const l = controls(u) ? lastCast.get(u) : null; return l && field.strategies(u).some((x) => x.id === l.id) ? l : null; };
   function showOptions() {
     clearMarks(); clearPreview();
     const u = st.sel;
     if (st.cast == null && !st.busy) unframeCast(); // the target choice is over (cast, cancelled, another general picked): the view as it was
-    if (st.peek && (st.peek.gone || !u || u.gone || u.side !== human || field.over)) st.peek = null;
+    if (st.peek && (st.peek.gone || !u || u.gone || !controls(u) || field.over)) st.peek = null;
     // Ours stays on the left; a peeked enemy's particulars stand on the right (syncCompare).
-    const shown = u?.side === human ? u : st.peek ?? u;
+    const shown = controls(u) ? u : st.peek ?? u;
     const again = shown ? recastOf(shown) : null;
-    if (st.menu && (!u || u.gone || u.side !== human || field.turn !== human || field.over)) st.menu = false;
+    if (st.menu && (!u || u.gone || !controls(u) || field.turn !== human || field.over)) st.menu = false;
     if (st.confirm && (st.confirm.u !== u || u.gone || field.turn !== human || field.over)) { st.confirm = null; st.ask = null; }
     // The 攻击 asked about (D32 §6) holds while he can still be struck; entering, it stays on screen until the 白兵 takes over.
     if (st.strike && !st.strike.entering && (st.strike.a !== u || !attackable(u, st.strike.t))) { st.strike = null; st.ask = null; }
     if (st.atkList && (!u || !attackTargets(u).length)) st.atkList = false;
-    const stage = shown !== u || !u || u.side !== human ? null : stepOf();
-    ui.warUnit(shown ? { u: shown, stage, chosen: stage === 'strats' ? st.chosen ?? null : null, confirm: shown === u ? confirmInfo() : null, strike: shown === u ? strikeInfo() : null, attacks: stage === 'attacks' || stage === 'strike' ? attackRows(u) : null, canAttack: shown === u && stage === 'cmds' && attackTargets(u).length > 0, canUndoHim: !!st.last && st.last.u === shown, recast: again ? { id: again.id, name: STRATS[again.id].name, cost: STRATS[again.id].cost, usable: castable(shown, again.id), why: field.whyNot(shown, again.id) } : null, o: field.O(shown.id), mine: shown.side === human, village: field.village(shown)?.kind, canRetreat: shown.side === human && field.retreatTargets(shown).length > 0, canUndo: !!st.last, busy: st.busy, flash: st.flash, asking: !!st.peek, targets: shown === u ? castTargets() : null,
-      strategies: shown.side === human ? field.strategies(shown).map((x) => ({ ...x, usable: castable(shown, x.id), why: field.whyNot(shown, x.id), last: x.id === again?.id })) : [] } : null);
+    const stage = shown !== u || !u || !controls(u) ? null : stepOf();
+    ui.warUnit(shown ? { u: shown, stage, chosen: stage === 'strats' ? st.chosen ?? null : null, confirm: shown === u ? confirmInfo() : null, strike: shown === u ? strikeInfo() : null, attacks: stage === 'attacks' || stage === 'strike' ? attackRows(u) : null, canAttack: shown === u && stage === 'cmds' && attackTargets(u).length > 0, canUndoHim: !!st.last && st.last.u === shown, recast: again ? { id: again.id, name: STRATS[again.id].name, cost: STRATS[again.id].cost, usable: castable(shown, again.id), why: field.whyNot(shown, again.id) } : null, o: field.O(shown.id), mine: controls(shown), village: field.village(shown)?.kind, canRetreat: controls(shown) && field.retreatTargets(shown).length > 0, canUndo: !!st.last, busy: st.busy, flash: st.flash, asking: !!st.peek, targets: shown === u ? castTargets() : null,
+      strategies: controls(shown) ? field.strategies(shown).map((x) => ({ ...x, usable: castable(shown, x.id), why: field.whyNot(shown, x.id), last: x.id === again?.id })) : [] } : null);
     st.flash = false; syncCompare(true);
-    if (!u || u.side !== human || field.turn !== human || field.over || st.busy) return;
+    if (!u || !controls(u) || field.turn !== human || field.over || st.busy) return;
     if (st.cast != null) { for (const e of field.alive) if (field.legal(u, st.cast, e)) mark(e.x, e.y, 'strat'); return; }
     st.reach = field.reach(u);
     for (const k of st.reach.dist.keys()) { const [x, y] = k.split(',').map(Number); if (x !== u.x || y !== u.y) mark(x, y, terr(x, y) === CASTLE ? 'castle' : 'move'); }
@@ -85,7 +86,7 @@ export function makeInteract(wv) {
   }
   function select(u) { st.sel = u; st.peek = null; st.menu = false; st.confirm = null; st.ask = null; st.strike = null; st.atkList = false; showOptions(); }
   // The enemies he may strike now, beside him (攻击, D32 §6): the 攻击 command lists them when there is more than one.
-  const attackTargets = (u) => (u && !u.gone && u.side === human && field.turn === human && !field.over && field.pool[human] >= ATTACK_COST ? field.adjacentEnemies(u).filter((t) => attackable(u, t)) : []);
+  const attackTargets = (u) => (u && !u.gone && controls(u) && field.turn === human && !field.over && field.pool[human] >= ATTACK_COST ? field.adjacentEnemies(u).filter((t) => attackable(u, t)) : []);
   const attackRows = (u) => attackTargets(u).map((t) => ({ u: t, o: field.O(t.id), ground: TERRAIN_NAME[field.terr(t.x, t.y)], commander: !!t.commander }));
   // What the 攻击 confirmation states, read off the board only (no battle is made and nothing is drawn before it is given):
   // the 白兵's ground (the struck one's cell, as Field.attack takes it), whether he holds a castle (he stands in its formation;
@@ -106,14 +107,14 @@ export function makeInteract(wv) {
   // 2026-11-09, 张沐镕@bilibili: a target at 全景 was a 28×20 px cell): { name, target, rows: [{ u, o, chance, commander }] }, or null.
   function castTargets() {
     const u = st.sel, id = st.cast;
-    if (id == null || !u || u.gone || u.side !== human || field.turn !== human || field.over) return null;
+    if (id == null || !u || u.gone || !controls(u) || field.turn !== human || field.over) return null;
     const rows = field.alive.filter((e) => field.legal(u, id, e)).map((e) => ({ u: e, o: field.O(e.id), chance: field.odds(u, id, e), dist: field.dist(u, e), commander: !!e.commander, last: lastCast.get(u)?.t === e }))
       .sort((a, b) => b.chance - a.chance || a.dist - b.dist);
     return { id, name: STRATS[id].name, cost: STRATS[id].cost, rows, focusId: st.returnTarget ?? null };
   }
   // The target under the pointer or the pad's cursor, lit in the panel's list (app.js warHot).
   const hot = (c) => { const e = c && (st.cast != null || st.atkList || st.strike) && st.sel ? field.unitAt(c.x, c.y) : null; ui.warHot?.(e && (st.cast != null ? field.legal(st.sel, st.cast, e) : attackable(st.sel, e)) ? e.id : null); };
-  const attackable = (a, t) => !!(a && t && a.side === human && t.side !== human && !a.gone && !t.gone && field.turn === human && field.pool[human] >= ATTACK_COST && field.adjacentEnemies(a).includes(t));
+  const attackable = (a, t) => !!(a && t && controls(a) && t.side !== human && !a.gone && !t.gone && field.turn === human && field.pool[human] >= ATTACK_COST && field.adjacentEnemies(a).includes(t));
   // Whether u may cast this 计略 on someone now (the same check Field.cast makes before it runs).
   const castable = (u, id) => id === 11 ? field.canCast(u, 11, null) : field.side(u.side === 'att' ? 'def' : 'att').some((e) => field.canCast(u, id, e));
 
@@ -125,7 +126,7 @@ export function makeInteract(wv) {
   }
   function deployClick(x, y) {
     const u = field.unitAt(x, y);
-    if (u && u.side === human) { st.sel = u; return showDeploy(); }
+    if (u && controls(u)) { st.sel = u; return showDeploy(); }
     if (!u && st.sel && inRect(x, y) && field.deployable(x,y)) { const s = st.sel; s.x = x; s.y = y; showDeploy(); wv.moveAlong(s, [[x, y]], { perCell: 240, follow: false }); }
   }
   wv.endDeploy = undefined;
@@ -138,7 +139,7 @@ export function makeInteract(wv) {
     // Phone: a move asked about (below) is answered by this tap, whatever it lands on.
     const asked = st.moveAsk; if (asked) dropMoveAsk();
     // The 计略 list is open: a click on the map only puts it away (another of ours is selected instead).
-    if (st.menu && st.sel) { st.menu = false; if (u && u.side === human && u !== st.sel) return select(u); return showOptions(); }
+    if (st.menu && st.sel) { st.menu = false; if (u && controls(u) && u !== st.sel) return select(u); return showOptions(); }
     // A 攻击 waits for its confirmation (D32 §6): the same enemy again enters the 白兵, if this is a new input (not the second click of
     // a double click, not a press from before the question); another enemy beside him is asked about instead; another of ours is
     // selected; anything else puts the question away and strikes no one.
@@ -147,14 +148,14 @@ export function makeInteract(wv) {
       if (s.entering) return;
       if (u && u === s.t) return commitAttack(e);
       if (u && attackable(st.sel, u)) return fresh(e, { pick: true }) ? askAttack(u, s.from) : undefined;
-      if (u && u.side === human && u !== st.sel) return select(u);
+      if (u && controls(u) && u !== st.sel) return select(u);
       st.strike = null; st.ask = null; st.peek = u && u.side !== human ? u : null; return showOptions();
     }
     // The 攻击 command's list of the enemies beside him is open: one of them is asked about; anything else puts the list away.
     if (st.atkList && st.sel) {
       if (u && attackable(st.sel, u)) return fresh(e, { pick: true }) ? askAttack(u, 'list') : undefined;
       st.atkList = false;
-      if (u && u.side === human && u !== st.sel) return select(u);
+      if (u && controls(u) && u !== st.sel) return select(u);
       return showOptions();
     }
     // A target is picked and the cast waits for its confirmation: the same target again casts, if this is a new input (not the
@@ -164,7 +165,7 @@ export function makeInteract(wv) {
       const c = st.confirm;
       if (u && c.t === u) return commitCast(e);
       if (u && c.t && field.legal(c.u, c.id, u)) return fresh(e, { pick: true }) ? askCast(c.u, c.id, u) : undefined;
-      if (u && u.side === human && u !== c.u) { st.cast = null; return select(u); }
+      if (u && controls(u) && u !== c.u) { st.cast = null; return select(u); }
       return;
     }
     // Choosing a 计略's target: a purple cell asks to cast; anything else keeps the choice open (an enemy shows
@@ -174,22 +175,23 @@ export function makeInteract(wv) {
       const id = st.cast, caster = st.sel;
       if (u && field.legal(caster, id, u)) { if (!fresh(e, { pick: true })) return; st.peek = null; return askCast(caster, id, u); }
       if (u === caster) return cancel();
-      if (u && u.side === human) { st.cast = null; return select(u); }
+      if (u && controls(u)) { st.cast = null; return select(u); }
       st.peek = u ?? null;
       return showOptions();
     }
-    if (u && u.side === human) return select(u);
+    if (u && controls(u)) return select(u);
     // An enemy is looked at, never struck by the click itself: with one of ours selected he is peeked (the
     // 攻击 prompt beside him when he is in reach), otherwise he is selected for his particulars.
     // One beside him he may strike is asked about (the 攻击 confirmation in the panel); a second click on him, a new one, strikes.
-    if (u && st.sel && st.sel.side === human && !st.sel.gone) {
+    if (u && st.sel && controls(st.sel) && !st.sel.gone) {
+      if (u.side === human) return select(u);
       if (attackable(st.sel, u)) return fresh(e, { pick: true }) ? askAttack(u, 'map') : undefined;
       st.peek = u; return showOptions();
     }
     if (u) { st.sel = u; st.peek = null; return showOptions(); }
     if (st.peek) { st.peek = null; return showOptions(); } // the first click off him only puts the prompt away
     const s = st.sel;
-    if (!s || s.side !== human || !st.reach?.dist.has(x + ',' + y)) { select(null); return; }
+    if (!s || !controls(s) || !st.reach?.dist.has(x + ',' + y)) { select(null); return; }
     const spent = st.reach.dist.get(x + ',' + y), path = field.path(st.reach, x, y);
     // Phone: a finger covers the cell it taps, so the first tap only shows the route and what it costs (as a mouse's hover does);
     // the same cell again, or 确认移动 on his card, moves him. Another gold cell asks about that one instead.
@@ -247,7 +249,7 @@ export function makeInteract(wv) {
   }
   // 计略: the list of his 计略 opens in the action panel (app.js warUnit); Esc, or a click on the map, puts it away.
   function openStrategies() {
-    const u = st.sel; if (!u || u.gone || u.side !== human || st.busy || field.turn !== human || field.over) return;
+    const u = st.sel; if (!u || u.gone || !controls(u) || st.busy || field.turn !== human || field.over) return;
     st.peek = null; st.menu = true; st.chosen = null; stage(); showOptions();
   }
   function chooseStrategy(id) {
@@ -306,7 +308,7 @@ export function makeInteract(wv) {
   // unit it was opened for: whatever is selected by then, and whether the move is still legal, is checked
   // here rather than trusted.
   function retreat(city, u = st.sel, { held = false } = {}) {
-    if (!u || u.gone || u.side !== human || (st.busy && !held) || field.over || field.turn !== human || !field.retreatTargets(u).includes(city)) return false;
+    if (!u || u.gone || !controls(u) || (st.busy && !held) || field.over || field.turn !== human || !field.retreatTargets(u).includes(city)) return false;
     field.retreat(u, city); ui.log(`${name(u.id)} 退往${cityName(city)}`); removeGone(); st.sel = null; showOptions(); hud(); wv.check();
     return true;
   }
@@ -314,14 +316,14 @@ export function makeInteract(wv) {
   function hold(on) { st.busy = on; if (on) clearPreview(); }
   // `held`: called from the shop dialog, which holds the field itself while it is open.
   function shop(u, eq, { held = false } = {}) {
-    if (!u || u.gone || u.side !== human || (st.busy && !held) || field.over || field.turn !== human) return;
+    if (!u || u.gone || !controls(u) || (st.busy && !held) || field.over || field.turn !== human) return;
     const res = field.buyEquip(u, eq);
     ui.log(res.ok ? res.msg : `${name(u.id)}：${res.msg}`);
     wv.tag(u); hud(); if (res.ok) st.flash = true;
     if (st.sel === u) showOptions(); st.flash = false;
   }
   function service(kind, q) {
-    const u = st.sel; if (!u || u.gone || u.side !== human || st.busy || field.over || field.turn !== human) return;
+    const u = st.sel; if (!u || u.gone || !controls(u) || st.busy || field.over || field.turn !== human) return;
     // The original takes the 50 gold from a general at full HP too and heals 0 (research/war-maps-movement-evidence.md §5);
     // the rules keep that, the view does not offer it (feedback R03, 2026-11-02).
     if (kind === 'hospital' && field.O(u.id).hp >= maxHp(field.O(u.id))) { ui.log(`${name(u.id)}体力已满，无需治疗`); return; }

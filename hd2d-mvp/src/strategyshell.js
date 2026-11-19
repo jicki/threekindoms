@@ -10,7 +10,7 @@ const OFF_SCREEN = { x: 2, y: 2 };
 // home(): the city in play, none before a campaign: a map first up in a campaign opens on it, as begin() opens the one on screen.
 export async function createStrategyShell({ flat, load3d, ctx, start = '3d', fallback3d = true, stage = (swap) => swap(), onFail = () => {}, home = () => null }) {
   const impl = { flat: null, '3d': null }, building = {}, failed = new Set(), played = new Set(); // played: on screen in this campaign, so its view is the player's
-  const state = { refresh: null, selected: null, pick: [null, null], roads: false, territory: false };
+  const state = { refresh: null, selected: null, pick: [null, null], route: null, roads: false, territory: false };
   let now = start, asked = start, flatLost = false, booted = false;
 
   // The map out of sight says nothing to the UI: a 3D map being built opens on 季春 whatever month it is.
@@ -30,6 +30,7 @@ export async function createStrategyShell({ flat, load3d, ctx, start = '3d', fal
     if (state.refresh) next.refresh(...state.refresh);
     next.setSeason(month, true);
     next.select(state.selected); next.pickMode(...state.pick);
+    if (state.route) next.supplyRoute(state.route);
     if (next.roadsOn !== state.roads) next.roads(state.roads);
     if (state.territory && !next.territoryOn) next.territory(true);
     if (state.selected != null) next.focusCity(state.selected);
@@ -86,6 +87,7 @@ export async function createStrategyShell({ flat, load3d, ctx, start = '3d', fal
     // What a new map must be told on a switch; the rest it can be asked of the map on screen.
     refresh(...a) { state.refresh = a; return impl[now].refresh(...a); },
     select(cid) { state.selected = cid; return impl[now].select(cid); },
+    supplyRoute(route) { if (route !== state.route) { state.route = route; impl[now].supplyRoute(route); } },
     pickMode(cids, from = null) { state.pick = [cids, from]; return impl[now].pickMode(cids, from); },
     roads(on) { state.roads = on; return impl[now].roads(on); },
     territory(on) { state.territory = !!on; return impl[now].territory(state.territory); },

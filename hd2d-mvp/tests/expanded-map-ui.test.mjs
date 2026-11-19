@@ -14,6 +14,37 @@ async function waitScenario(page, id, screen = 'title') {
     { id, screen }, { timeout: 60000 });
 }
 
+test('同势力运输面板预览多段路线并可设置和取消太守委任', async () => {
+  const page = await game.open('&flat&phone', { setup });
+  try {
+    await page.evaluate(() => {
+      const { G } = window.__game, g = G.newGame(0, 1, 12);
+      g.factions[0].city = 12;
+      g.cities[34].faction = 0;
+      g.current = 0; g.turnIdx = G.data().rules.turn_orders[g.order].indexOf(0); g.books = 4;
+      if (!G.save(g, 1)) throw new Error('保存测试战役失败');
+    });
+    await page.reload(); await waitScenario(page, 'builtin-sovereigns-expanded-map'); await skipIntro(page);
+    await page.getByText('继续记录').click();
+    await page.waitForFunction(() => document.body.dataset.screen === 'strategy' && window.__game.g?.current === 0);
+    await cmd(page, '仓', '运输');
+    const target = page.locator('.mappick .chips button').filter({ hasText: '长安' });
+    assert.match(await target.textContent(), /函谷关 → 长安/);
+    await target.click();
+    const convoy = page.getByRole('dialog', { name: '运输', exact: true });
+    assert.match(await convoy.textContent(), /洛阳 → 函谷关 → 长安/);
+    await convoy.getByRole('button', { name: '取消', exact: true }).click();
+    await cmd(page, '城', '委任');
+    await page.getByRole('dialog', { name: '太守委任' }).getByRole('button', { name: '防灾', exact: true }).click();
+    await page.getByRole('dialog', { name: '委任储备' }).getByRole('button', { name: '确定', exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => window.__game.g.governorOrders[12]), { task: 'prevent', reserve: 100 });
+    await cmd(page, '城', '委任');
+    await page.getByRole('button', { name: '取消委任', exact: true }).click();
+    assert.equal(await page.evaluate(() => window.__game.g.governorOrders[12]), undefined);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
+
 test('君主列传的新征程使用扩展地图，并保留当前版本已有记录', async () => {
   const page = await game.open('&flat&phone', { setup });
   try {

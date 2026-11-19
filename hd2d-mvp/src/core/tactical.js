@@ -6,9 +6,11 @@
 // axis-greedy stepping with one alternate axis, four commands (前进/后退/待机/包围), six tactics with
 // their costs and effects, AI command schedule and tactic priorities, capture and AI withdrawal.
 // The engine is stepped by the UI (one event per call) or run to the end for AI-only battles.
-import { data, addExp, isRuler, spared, sparedHp, weaponGroup, boundRulerWeapon } from './game.js';
+import { data, addExp, isRuler, spared, sparedHp, maxHp, weaponGroup, boundRulerWeapon } from './game.js';
 import { Duel } from './skirmish.js';
-import { SPECIAL_TROOPS, makeSquads, officerSpecialty, officerSquadLimit, troopDamage } from './troop-specialties.js';
+import { SPECIAL_TROOPS, makeSquads, officerSpecialty, officerSquadLimit, troopDamage, troopGroup, counterBonus } from './troop-specialties.js';
+import { advancedBattle, aiBattleBonus, officerPassive } from './battle-rules.js';
+import { skirmishMap } from './skirmish-maps.js';
 
 export const GW = 16, GH = 10, KINDS = ['inf', 'arc', 'cav', 'gen'];
 export const COMMANDS = { advance: '前进', retreat: '后退', wait: '待机', surround: '包围' };
@@ -21,6 +23,8 @@ const B = (h) => (h < 15 ? 20 : h < 35 ? 40 : h < 60 ? 50 : h < 80 ? 70 : h < 90
 const C = (w) => (w < 65 ? 45 : w < 80 ? 50 : w < 87 ? 55 : w < 92 ? 60 : w < 97 ? 65 : 70);
 const PASS = { 平: [0], 山: [0, 2], 水: [0, 3, 4] }, ARROW = [0, 4, 5];
 const CASTLE = 5;
+const FRONT_RANK = { shield: 0, spear: 0, inf: 1, hammer: 1, cav: 2, arc: 3 };
+const byFrontRank = (a, b) => FRONT_RANK[troopGroup(a)] - FRONT_RANK[troopGroup(b)];
 
 // 单挑斩杀的宝物 (bank24 $C30E→$C35D, research/death-succession-events-evidence.md §5): only a death in a 单挑.
 // The four named officers match by id, ruler or not, ahead of the ruler rule: 曹操 倚天剑 30%, 董卓 七星剑 if the
@@ -40,10 +44,13 @@ export function duelLoot(g, winner, dead, r) {
 }
 
 export class Tactical {
-  constructor(g, aId, dId, terrain, r, { human = null, bonuses = null, sceneProfile = null } = {}) {
+  constructor(g, aId, dId, terrain, r, { human = null, bonuses = null, sceneProfile = null, weather = null, factions = null, disrupted = null } = {}) {
     const D = data();
     this.g = g; this.r = r; this.terrain = terrain; this.human = human; this.round = 1; this.sceneProfile = sceneProfile;
     this.map = D.skirmish_maps[terrain] || D.skirmish_maps[2];
+    this.modern = advancedBattle(g);
+    this.weather = this.modern ? weather : null;
+    if (this.modern) this.map = skirmishMap(this.map, terrain, sceneProfile);
     this.units = []; this.queue = []; this.log = []; this.over = null; this.duel = null;
     const mk = (id, key) => {
       const original = g.officers[id], bonus = bonuses?.[key];
@@ -53,7 +60,10 @@ export class Tactical {
         return Reflect.get(target, prop, receiver);
       } }) : original;
       const eq = { atk: D.equipment[o.weapon]?.atk || 0, def: D.equipment[24 + o.armor]?.dfn || 0, wgrp: weaponGroup(o.weapon), weight: (D.equipment[o.weapon]?.weight || 0) + (D.equipment[24 + o.armor]?.weight || 0) };
-      return { key, id, o, baseWar: original.war, tacticRounds: bonus?.tacticRounds ?? 0, unique: bonus?.unique, fortify: bonus?.fortify === true, massed: bonus?.massed === true, F: Math.floor((C(o.war) * o.war) / 100) + 9 - r(9), eq, hp: o.hp, start: o.soldiers, tp: Math.floor((o.int * 13) / 100), fx: {}, cmd: { gen: 'advance', cav: 'advance', arc: 'advance', inf: 'advance' }, formation: 0 };
+      const ai = aiBattleBonus(g, factions?.[key]), raw = Math.floor((C(o.war) * o.war) / 100) + 9 - r(9) + ai;
+      const F = disrupted?.[key] ? Math.floor(raw * 0.9) : raw;
+      return { key, id, o, baseWar: original.war, tacticRounds: bonus?.tacticRounds ?? 0, unique: bonus?.unique, fortify: bonus?.fortify === true, massed: bonus?.massed === true, F, eq, hp: o.hp, start: o.soldiers, tp: Math.floor((o.int * 13) / 100) + Math.floor(ai / 2), fx: {}, cmd: { gen: 'advance', cav: 'advance', arc: 'advance', inf: 'advance' }, formation: 0,
+        ...(this.modern ? { passive: officerPassive(D, g, id), ai, tacticRecovered: 0 } : {}) };
     };
     this.side = { a: mk(aId, 'a'), d: mk(dId, 'd') };
     this.side.a.foe = this.side.d; this.side.d.foe = this.side.a;
@@ -83,8 +93,24 @@ export class Tactical {
         const [x, y] = place(i + 1, kind);
         this.units.push({ side: s, kind, idx: i + 1, x, y, hp: q + (i < rem ? 1 : 0), ...(special ? { special } : {}) });
       }
+      if (this.modern && !castle) this.organize(s);
     }
     this.buildQueue();
+  }
+  organize(s) {
+    const line = this.units.filter(u => u.side === s && u.kind !== 'gen').sort(byFrontRank);
+    const slots = line.map(u => [u.x, u.y]).sort((a, b) => (s === 'a' ? b[0] - a[0] : a[0] - b[0]) || a[1] - b[1]);
+    line.forEach((u, i) => { [u.x, u.y] = slots[i]; });
+  }
+  formationKinds(s, formation) {
+    const pts = data().formations[formation];
+    const kinds = [];
+    for (const unit of this.units) if (unit.side === s && unit.kind !== 'gen') kinds[unit.idx] = unit.kind;
+    if (!this.modern) return kinds;
+    const line = this.units.filter(u => u.side === s && u.kind !== 'gen');
+    const slots = line.map(u => u.idx).sort((a, b) => pts[b][0] - pts[a][0] || pts[a][1] - pts[b][1]);
+    line.sort(byFrontRank);
+    return slots.reduce((result, slot, i) => { result[slot] = line[i].kind; return result; }, []);
   }
   get live() { return this.units.filter((u) => !u.dead && !u.out); }
   at(x, y) { return this.live.find((u) => u.x === x && u.y === y); }
@@ -99,13 +125,26 @@ export class Tactical {
   // Round cadence (S06): by type, attacker slots then defender, cavalry/generals act twice.
   buildQueue() {
     this.queue = [];
-    for (const kind of KINDS) for (const s of ['a', 'd']) for (const u of this.units.filter((x) => x.side === s && x.kind === kind).sort((a, b) => a.idx - b.idx))
-      for (let k = 0; k < (kind === 'cav' || kind === 'gen' ? 2 : 1); k++) this.queue.push(u);
+    for (const kind of KINDS) for (const s of ['a', 'd']) for (const u of this.units.filter((x) => x.side === s && x.kind === kind).sort((a, b) => a.idx - b.idx)) {
+      const slowed = this.weather === 'snow' && !this.side[s].passive?.weatherproof;
+      const count = kind === 'gen' || (kind === 'cav' && !slowed) ? 2 : 1;
+      for (let k = 0; k < count; k++) this.queue.push(u);
+    }
   }
   // AI command schedule (2.8): rounds 1–4 [gen wait, cav rnd, arc rnd, inf advance], then [rnd, adv, adv, adv].
   aiCommands(s) {
     const S = this.side[s], army = S.o.army, t = this.terrain, early = this.round <= 4;
     if (S.withdraw) { for (const k of KINDS) S.cmd[k] = 'retreat'; return; }
+    if (this.modern) {
+      const general = this.gen(s), enemy = this.gen(S.foe.key);
+      const close = this.adjEnemies(general).length > 0;
+      const stronger = this.fielded(s) > this.fielded(S.foe.key) * 1.2;
+      const shooting = this.live.some(u => u.side === s && u.kind === 'arc' && this.rangedTargets(u).length);
+      Object.assign(S.cmd, { gen: close && S.hp < 28 ? 'retreat' : stronger && S.hp >= 60 && this.round > 2 ? 'advance' : 'wait',
+        cav: s === 'd' && this.castleDef && this.round <= 3 ? 'wait' : 'surround', arc: shooting ? 'wait' : 'advance',
+        inf: s === 'd' && this.castleDef && enemy.x < 7 ? 'wait' : 'advance' });
+      return;
+    }
     if (this.castleDef) {
       if (s === 'a') { S.cmd.gen = early ? 'wait' : 'advance'; S.cmd.cav = S.cmd.arc = S.cmd.inf = 'advance'; }
       else {
@@ -136,6 +175,12 @@ export class Tactical {
   captureGate(s) { return this.side[s].o.loyalty === 100 ? null : [45, 40, 30][this.g.level]; }
   endRound() {
     const ev = { type: 'round', round: this.round };
+    for (const s of ['a', 'd']) {
+      const S = this.side[s], u = this.gen(s), P = S.passive;
+      if (!P || !u || u.dead || u.out) continue;
+      if (P.recovery) { S.hp = Math.min(maxHp(S.o), S.hp + P.recovery); u.hp = S.hp; }
+      if (P.tacticRecovery && this.round % 3 === 0 && S.tacticRecovered < 2) { S.tp++; S.tacticRecovered++; }
+    }
     // capture (S19): from round 4, HP below the difficulty gate, ≥2 adjacent enemies, loyalty ≠100
     if (this.round >= 4) for (const s of ['a', 'd']) {
       const gu = this.gen(s), S = this.side[s];
@@ -191,8 +236,14 @@ export class Tactical {
     const S = this.side[u.side], skipGen = cmd === 'surround';
     const bowGeneral = u.kind === 'gen' && S.eq.wgrp === 4;
     const horsebow = u.kind === 'cav' && u.special === SPECIAL_TROOPS.horsebow.sprite;
+    if (this.modern && !this.isHuman(u.side)) {
+      const targets = this.rangedTargets(u).filter(t => !skipGen || t.kind !== 'gen').map(unit => ({ unit, ranged: true }));
+      targets.push(...this.adjEnemies(u).filter(t => (!skipGen || t.kind !== 'gen') && !(u.kind === 'gen' && t.kind === 'gen')).map(unit => ({ unit, ranged: false })));
+      const rank = ({ unit, ranged }) => (unit.kind === 'gen' ? 28 : 0) + Math.max(0, 60 - unit.hp) + counterBonus(u, unit, ranged) * 2 + (ranged ? 4 : 0);
+      return targets.sort((a, b) => rank(b) - rank(a))[0] ?? null;
+    }
     if (u.kind === 'arc' || bowGeneral || horsebow) {
-      const range = bowGeneral ? 2 : horsebow ? 3 : S.fx.xbow > 0 ? 6 : 4;
+      const range = this.shotRange(u);
       // The original skips the right ray whenever the left one finds nothing (`$C463`), so the attacker's archers,
       // who face right, walk on past foes in range; all four rays are scanned here (playtest of 2026-10-30, T08).
       for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
@@ -214,10 +265,37 @@ export class Tactical {
     }
     return null;
   }
+  shotRange(u) {
+    const s = this.side[u.side], bow = u.kind === 'gen' && s.eq.wgrp === 4;
+    const mounted = u.kind === 'cav' && u.special === SPECIAL_TROOPS.horsebow.sprite;
+    if (bow) return 2;
+    if (mounted) return 3;
+    if (u.kind !== 'arc') return 0;
+    return (s.fx.xbow > 0 ? 6 : 4) - (this.weather === 'rain' && !s.passive?.weatherproof ? 1 : 0);
+  }
+  rangedTargets(u) {
+    const s = this.side[u.side], bow = u.kind === 'gen' && s.eq.wgrp === 4;
+    const mounted = u.kind === 'cav' && u.special === SPECIAL_TROOPS.horsebow.sprite, length = this.shotRange(u);
+    if (!length) return [];
+    const targets = [];
+    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) for (let n = 1; n <= length; n++) {
+      const x = u.x + n * dx, y = u.y + n * dy;
+      if (!this.inside(x, y) || !ARROW.includes(this.map[y][x])) break;
+      const t = this.at(x, y);
+      if (!t) continue;
+      if (t.side === u.side) { if (bow || mounted) break; continue; }
+      if (n > 1) targets.push(t);
+      break;
+    }
+    return targets;
+  }
   attack(u, t, ranged) {
     const S = this.side[u.side], T = this.side[t.side];
     let F = S.F, atk = u.kind === 'gen' ? S.eq.atk : 0; const fire = u.kind === 'arc' && ranged && S.fx.fire > 0; // 火矢 (S12): the view burns these arrows
-    if (u.kind === 'arc') { F = Math.floor(((ranged ? 70 : 60) * F) / 100); if (fire) F = Math.min(100, F + this.r(10)); }
+    if (u.kind === 'arc') {
+      F = Math.floor(((ranged ? 70 : 60) * F) / 100);
+      if (fire) F = Math.min(100, F + this.r(this.weather === 'rain' && !S.passive?.weatherproof ? 6 : 10));
+    }
     // 骑射每回合两次行动；远射缩至原战力的 42%，射程不享受强弩加成。
     else if (u.kind === 'cav' && ranged && u.special === SPECIAL_TROOPS.horsebow.sprite) F = Math.floor(42 * F / 100);
     // 武将每回合行动两次；弓的两格远射折减战力和武器攻击，避免射程优势叠加完整近战伤害。
@@ -227,6 +305,11 @@ export class Tactical {
     if (t.kind === 'cav') D = Math.floor(D / 2) + Math.floor(D / 4);
     if (t.kind === 'gen') D = Math.max(0, Math.floor(D / 2) - T.eq.def);
     D = troopDamage(D, u, t, ranged);
+    if (D > 0 && this.modern && t.kind !== 'gen' && u.kind !== 'gen') {
+      const formed = this.live.some(v => v !== u && v.side === u.side && troopGroup(v) === troopGroup(u) && Math.abs(v.x - u.x) + Math.abs(v.y - u.y) <= 2);
+      const counter = counterBonus(u, t, ranged);
+      D = Math.max(1, Math.floor(D * (100 + (formed ? 4 : 0) + counter + (S.passive?.troops ?? 0) - (T.passive?.guard ?? 0)) / 100));
+    }
     if (D > 0 && t.kind === 'cav' && T.unique === 'horsebow' && ranged) D = Math.max(1, Math.floor(D * 92 / 100));
     if (D > 0 && T.fortify && t.kind !== 'gen' && u.kind !== 'gen' && !ranged) D = Math.max(1, Math.floor(D * 94 / 100));
     if (D > 0 && t.kind !== 'gen') {
@@ -265,6 +348,27 @@ export class Tactical {
       }
       if (this.passable(u, nx, ny)) { const from = [u.x, u.y]; u.x = nx; u.y = ny; if (u.kind === 'gen') u.facing = [sx, sy]; return { type: 'move', u, from, to: [nx, ny] }; }
     }
+    if (this.modern && !retreat && !this.isHuman(u.side)) {
+      const from = [u.x, u.y], queue = [{ x: u.x, y: u.y, first: null, steps: 0 }];
+      const seen = new Set([u.y * GW + u.x]), distance = (x, y) => Math.abs(x - tx) + Math.abs(y - ty);
+      let best = distance(...from), to = null;
+      for (const { x, y, first, steps } of queue) {
+        if (steps === 5) continue;
+        for (const [dx, dy] of [[1,0], [-1,0], [0,1], [0,-1]]) {
+          const a = x + dx, b = y + dy, key = b * GW + a;
+          if (seen.has(key) || !this.passable(u, a, b)) continue;
+          seen.add(key);
+          const step = first ?? [a, b], d = distance(a, b);
+          if (d < best) { best = d; to = step; }
+          queue.push({ x: a, y: b, first: step, steps: steps + 1 });
+        }
+      }
+      if (to) {
+        [u.x, u.y] = to;
+        if (u.kind === 'gen') u.facing = [u.x - from[0], u.y - from[1]];
+        return { type: 'move', u, from, to };
+      }
+    }
     return { type: 'idle', u };
   }
 
@@ -298,7 +402,8 @@ export class Tactical {
         const [cx, cy] = this.blastCenter(s);
         ev.center = [cx, cy]; ev.hits = [];
         for (const e of this.live.filter((e) => e.side !== s && Math.abs(e.x - cx) <= 1 && Math.abs(e.y - cy) <= 1)) {
-          const d = Math.max(0, S.o.int - r(10) - 2) + 1, dmg = e.kind === 'gen' ? Math.floor(d / 2) : e.kind === 'cav' ? 2 * Math.floor(d / 3) : d;
+          const heat = this.weather === 'rain' && !S.passive?.weatherproof ? 0.85 : 1;
+          const d = Math.floor((Math.max(0, S.o.int - r(10) - 2) + 1) * heat), dmg = e.kind === 'gen' ? Math.floor(d / 2) : e.kind === 'cav' ? 2 * Math.floor(d / 3) : d;
           if (e.kind === 'gen') { F.hp = Math.max(0, F.hp - dmg); e.hp = F.hp; if (!F.hp) this.fell(e.side); }
           else { e.hp = Math.max(0, e.hp - dmg); if (!e.hp) e.dead = true; }
           addExp(this.g, S.id, Math.floor(dmg / 2)); ev.hits.push({ u: e, dmg });

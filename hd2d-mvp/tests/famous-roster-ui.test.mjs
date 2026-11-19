@@ -134,7 +134,7 @@ test('三人各自的四种表情、透明动作和技能分镜均可解码且�
   } finally { await page.context().close(); }
 });
 
-test('手机人物资料显示新增名臣及兼有两种技能的周瑜', { timeout: 180000 }, async () => {
+test('手机旧战役人物资料仍显示新增名臣及兼有两种技能的周瑜', { timeout: 180000 }, async () => {
   const page = await game.open('&flat&phone', { setup: (context) => context.addInitScript(() => {
     sessionStorage.setItem('haou-hd2d-scenario', 'builtin-sovereigns');
     localStorage.setItem('hd2d-talent', 'all');
@@ -142,6 +142,7 @@ test('手机人物资料显示新增名臣及兼有两种技能的周瑜', { tim
   try {
     await page.setViewportSize({ width: 812, height: 375 });
     await openPlayerTurn(page);
+    await page.evaluate(() => { window.__game.g.campaignRevision = 1; });
     await page.keyboard.press('r');
     const search = page.getByLabel('查找武将');
     const card = page.locator('.ocard-info');
@@ -172,6 +173,7 @@ test('张昭、张纮在手机战场播放各自的计策分镜与特效', { tim
   try {
     await page.setViewportSize({ width: 812, height: 375 });
     await openPlayerTurn(page);
+    await page.evaluate(() => { window.__game.g.campaignRevision = 1; });
     await page.evaluate(async () => {
       (await import('./src/pace.js')).setPace(4);
       (await import('./src/vignette.js')).setVignettes(true);

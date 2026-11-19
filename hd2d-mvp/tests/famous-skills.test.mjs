@@ -15,10 +15,10 @@ import { autoSkillBonus } from '../src/core/warcore.js';
 const base=JSON.parse(readFileSync(new URL('../data/game-data.json',import.meta.url)));
 const D=expandMap(applyScenario(base,await loadScenario(SOVEREIGN_SCENARIO_ID,base)));
 // 此文件覆盖上一版名将规则，模拟其没有新增三名人物的既有存档。
-const game=()=>{ G.setData(D,EXPANDED_MAP_ID); const g=G.newGame(4,1,7); g.famousSkills=true; delete g.famousRoster; g.officers.length=262; G.registerClones(g); return g; };
+const game=()=>{ G.setData(D,EXPANDED_MAP_ID); const g=G.newGame(4,1,7); g.campaignRevision=1; g.famousSkills=true; delete g.famousRoster; g.officers.length=262; G.registerClones(g); return g; };
 const war=(a,d)=>({city:34,from:8,attacker:0,defender:4,att:{ids:[a],gold:100,rice:3000},def:{ids:[d],gold:100,rice:3000}});
 
-test('仅新君主列传开局启用名单；旧记录及其他版本保持技能',()=>{
+test('第一版战役规则启用名将名单；更早记录及其他版本保持技能',()=>{
   const g=game(); assert.equal(g.famousSkills,true); assert.ok(G.upgrade(structuredClone(g)));
   const old=structuredClone(g); delete old.famousSkills; assert.ok(G.upgrade(old));
   const invalid=structuredClone(g); invalid.famousSkills=false; assert.equal(G.upgrade(invalid),null);

@@ -39,7 +39,7 @@ export function makeBoard(wv) {
   // months' streaks stood over the whole board): WAR_RAIN draws fewer, shorter, fainter streaks and a soft flash. The wet ground,
   // the grey light and the month's rain level (where.weather, which the range fill reads) still say it is raining.
   const env = seasonEnv(scene, { sun, back, hemi, sunK: 0.95, hemiK: 1.15, snowH: 0.9, patch: 0.3, calm: 1, bloom: 0, ring: [90, 4], weather: WAR_RAIN });
-  const where = env.set({ month: field.g.month, city: field.war.city });
+  const where = env.set({ month: field.g.month, city: field.war.city, battleWeather: field.weather });
   // 场景色只作用于远景雾色，不改变地格或天气规则。
   const sceneTint = { 北境: '#c5d1d9', 边塞: '#d8c5a3', 山地: '#bac9be', 水乡: '#b9ced1', 海滨: '#aecbd1', 平原: '#d4ceae', 都城: '#d3c6ae', 关隘: '#c7bda6', 峡谷: '#b9b8aa' };
   const tint = sceneTint[field.sceneProfile?.region];

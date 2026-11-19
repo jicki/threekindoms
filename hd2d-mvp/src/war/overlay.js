@@ -208,7 +208,7 @@ export function makeOverlay(wv) {
     if (!c || wv.st.busy || field.over) return null;
     // Every cell names its ground, under whoever stands on it (playtest of 2026-10-31, F04: crowded generals hide
     // the cell they stand on and the ones behind it); off his reach, also what one step onto it costs ours.
-    const u = wv.st.sel, t = field.unitAt(c.x, c.y), mine = u && u.side === human && field.turn === human;
+    const u = wv.st.sel, t = field.unitAt(c.x, c.y), mine = field.controls(u) && field.turn === human;
     const step = mine && !t && !wv.st.deploying && !wv.st.reach?.dist.has(key) ? `　入此格耗 ${field.cost(u, c.x, c.y)}` : '';
     const ground = `<small class="ground">地形 ${field.ground(c.x, c.y)}${step}</small>`;
     if (wv.st.deploying) return (previewTip = ground);
