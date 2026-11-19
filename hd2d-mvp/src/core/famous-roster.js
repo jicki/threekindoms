@@ -9,12 +9,16 @@ export const FAMOUS_ROSTER = [
 ];
 export const hasFamousRoster = (g) => g?.famousRoster === 1;
 export const staticRosterSize = (D,g) => D.officers.filter(o=>o && !o.clone && !o.famousExtra && !o.raidTemp).length + (hasFamousRoster(g) ? FAMOUS_ROSTER.length : 0);
+export function famousRosterTemplate(id) {
+  const officer = FAMOUS_ROSTER[id - FAMOUS_ROSTER_START];
+  return { ...officer, id, jp: officer.name, loyalty: 80, level: 1, exp: 0, soldiers: 0, appear: 'search_city',
+    faction: null, birthCity: null, skills: [], searchPriority: true, famousExtra: true };
+}
 export function activateFamousRoster(D,g) {
   if (!D?.officers) return;
   for (let i=0;i<FAMOUS_ROSTER.length;i++) {
-    const id=FAMOUS_ROSTER_START+i, p=FAMOUS_ROSTER[i];
-    if (hasFamousRoster(g)) D.officers[id]={...p,id,jp:p.name,loyalty:80,level:1,exp:0,soldiers:0,
-      appear:'search_city',faction:null,birthCity:null,skills:[],searchPriority:true,famousExtra:true};
+    const id=FAMOUS_ROSTER_START+i;
+    if (hasFamousRoster(g)) D.officers[id]=famousRosterTemplate(id);
     else if (D.officers[id]?.famousExtra) delete D.officers[id];
   }
   while (D.officers.length && !D.officers[D.officers.length-1]) D.officers.pop();

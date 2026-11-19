@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startGame, resumeCampaign, closeMessages } from './game.mjs';
+import { startGame, resumeCampaign, skipIntro, closeMessages } from './game.mjs';
 
 let game;
 before(async () => { game = await startGame(); });
@@ -17,6 +17,66 @@ async function openPlayerTurn(page) {
   await page.reload();
   await resumeCampaign(page);
 }
+
+test('手机可取消或确认战役升级，另存并重新读取后保留新版规则和原记录', async () => {
+  const page = await game.open('&flat&phone&fixedseed');
+  try {
+    await page.setViewportSize({ width: 812, height: 375 });
+    const old = await page.evaluate(() => {
+      const { G } = window.__game, g = G.newGame(4, 1, 7);
+      for (const key of ['campaignRevision', 'famousRoster', 'siegeTactics']) delete g[key];
+      g.famousSkills = true;
+      g.battlefields = 1;
+      g.officers.length = 262;
+      g.year = 196; g.month = 6;
+      g.current = g.player;
+      g.turnIdx = G.data().rules.turn_orders[g.order].indexOf(g.player);
+      g.books = G.books(g, g.player);
+      g.freeSave = true;
+      g.cities[2].gold = 1789;
+      if (!G.save(g, 1)) throw new Error('写入旧记录失败');
+      return G.slotToken(1);
+    });
+    await page.reload();
+    await resumeCampaign(page);
+    await page.waitForFunction(() => document.querySelector('.citypanel') && !document.querySelector('.banner, .shade, #fade.on'));
+    const recordMenu = async () => {
+      await page.locator('.sysmenu-btn').click();
+      await page.getByRole('tab', { name: '记录', exact: true }).click();
+    };
+    const upgrade = page.getByRole('menuitem', { name: '升级当前战役' });
+    const dialog = page.getByRole('dialog', { name: '升级当前战役' });
+    await recordMenu();
+    await upgrade.click();
+    assert.equal(await dialog.count(), 1, await page.locator('body > .toast').allTextContents());
+    await dialog.getByRole('button', { name: '取消' }).click();
+    assert.equal(await page.evaluate(() => window.__game.g.famousSkills), true);
+    await recordMenu();
+    await upgrade.click();
+    await dialog.getByRole('button', { name: '确定' }).click();
+    await page.getByText(/战役已升级/).waitFor();
+    assert.deepEqual(await page.evaluate(() => {
+      const { G, g } = window.__game;
+      return [g.famousSkills, g.battlefields, g.cities[2].gold, G.name(262), G.slotToken(1)];
+    }), [2, 2, 1789, '张昭', old]);
+
+    await recordMenu();
+    assert.equal(await upgrade.count(), 0);
+    await page.getByRole('menuitem', { name: '记录进度' }).click();
+    await page.getByRole('button', { name: /记录二/ }).click();
+    await page.waitForFunction(() => window.__game.G.load(2, { preview: true })?.siegeTactics === true);
+    await page.reload();
+    await skipIntro(page);
+    await page.getByRole('button', { name: '读取记录', exact: true }).click();
+    await page.getByRole('button', { name: /记录二/ }).click();
+    await page.waitForFunction(() => document.body.dataset.screen === 'strategy' && window.__game.g?.slot === 2);
+    assert.deepEqual(await page.evaluate(() => {
+      const { G, g } = window.__game;
+      return [g.slot, g.famousSkills, g.year, g.month, g.cities[2].gold, g.freeSave, G.name(264), G.slotToken(1)];
+    }), [2, 2, 196, 6, 1789, true, '张绣', old]);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.context().close(); }
+});
 
 test('三人各自的四种表情、透明动作和技能分镜均可解码且各帧有内容', async () => {
   const page = await game.open('&flat');

@@ -82,6 +82,130 @@ test('旧袭城中断与新人物编号重叠时仍可预览、恢复和识别�
     G.registerClones(current); assert.equal(G.name(262),'张昭');
     assert.ok(peekSuspend(),'新人物存在时仍须识别旧袭城记录');
     const rec=takeSuspend(); assert.ok(rec && validRaidRecord(rec.g,rec.war)); assert.equal(G.name(262),'山贼头目');
+    assert.equal(G.upgradeCampaign(rec.g), false);
+    assert.equal(rec.g.famousSkills, true);
     G.registerClones(current); assert.equal(G.name(262),'张昭');
   } finally {if(descriptor)Object.defineProperty(globalThis,'localStorage',descriptor);else delete globalThis.localStorage;}
+});
+
+function legacyCampaign() {
+  const g = game();
+  for (const key of ['campaignRevision', 'famousRoster', 'siegeTactics', 'autoBattleSkills', 'safeStrategyChance', 'expandedOpeningGuard']) delete g[key];
+  g.famousSkills = true;
+  g.battlefields = 1;
+  g.officers.length = 262;
+  g.year = 196;
+  g.month = 5;
+  g.books = 3;
+  g.enhancedRulerPassives = false;
+  g.battleRulerPassives = false;
+  g.cities[2].gold = 1711;
+  return g;
+}
+
+test('战役升级保留已有进度和开关，并启用新增人物、计策和战场', () => {
+  const g = legacyCampaign(), before = structuredClone(g);
+  assert.ok(G.campaignUpgradeAvailable(g));
+  assert.deepEqual(G.upgrade(structuredClone(g)), before, '普通读取仍使用记录保存的规则');
+  assert.ok(G.upgradeCampaign(g));
+  assert.deepEqual(g.cities, before.cities);
+  assert.deepEqual(g.factions, before.factions);
+  assert.deepEqual(g.officers.slice(0, 262), before.officers);
+  for (const k of ['year', 'month', 'books', 'seed', 'expandedOpeningGuard', 'enhancedRulerPassives', 'battleRulerPassives']) {
+    assert.equal(g[k], before[k], k);
+  }
+  assert.equal(g.famousSkills, 2);
+  assert.equal(g.famousRoster, 1);
+  assert.equal(g.battlefields, 2);
+  assert.equal(g.siegeTactics, true);
+  assert.equal(g.autoBattleSkills, true);
+  assert.equal(g.safeStrategyChance, true);
+  assert.equal(abilityDuel(D, g, 264).name, '宛城突袭');
+  assert.equal(g.officers[262].status, G.UNAPPEARED);
+  assert.ok(G.searchOrder(g, 15).includes(262));
+  assert.ok(G.searchOrder(g, 32).includes(264));
+  assert.equal(G.campaignUpgradeAvailable(g), false);
+  assert.equal(G.upgradeCampaign(g), false);
+  assert.deepEqual(G.upgrade(structuredClone(g)), g);
+});
+
+test('升级时顺延旧档分身，城市名册、君主、衰亡势力及寻访计数仍指向对应武将', () => {
+  const g = legacyCampaign(), city = g.cities.find(c => c.faction === g.player);
+  const [first, second] = [262, 263];
+  g.clones = [first, second];
+  g.officers.push({ ...g.officers[0], id: first, soldiers: 325, loc: city.id }, { ...g.officers[0], id: second, hp: 0, status: G.DEAD });
+  city.officers.push(first);
+  g.factions[g.player].ruler = first;
+  g.factions[0].fallen = second;
+  g.visits = { [first]: 1, [second]: 2, 38: 1 };
+  assert.ok(G.upgradeCampaign(g));
+  assert.deepEqual(g.clones, [265, 266]);
+  assert.equal(G.name(262), '张昭');
+  assert.equal(G.name(265), '阿会喃');
+  assert.equal(g.officers[265].soldiers, 325);
+  assert.equal(g.officers[266].status, G.DEAD);
+  assert.equal(G.officerCity(g, 265).id, city.id);
+  assert.equal(g.factions[g.player].ruler, 265);
+  assert.equal(g.factions[0].fallen, 266);
+  assert.deepEqual(g.visits, { 265: 1, 266: 2, 38: 1 });
+});
+
+test('无法确认身份的动态武将会退出升级，原记录和其他版本仍能按原规则读取', () => {
+  const g = legacyCampaign();
+  g.officers.push({ ...g.officers[0], id: 262 });
+  const before = structuredClone(g);
+  assert.equal(G.upgradeCampaign(g), false);
+  assert.deepEqual(g, before);
+  assert.ok(G.upgrade(g));
+  G.setData(base);
+  const original = G.newGame(4, 1, 7);
+  assert.equal(G.campaignUpgradeAvailable(original), false);
+  assert.equal(G.upgradeCampaign(original), false);
+  assert.ok(G.upgrade(original));
+  G.setData(D, 'v-00000000000000000000000000000000');
+  const published = G.newGame(4, 1, 7);
+  assert.equal(G.campaignUpgradeAvailable(published), false);
+  assert.equal(G.upgradeCampaign(published), false);
+  assert.ok(G.upgrade(published));
+});
+
+test('早期扩展地图的普通、快捷和自动记录可读取，升级后可以保存且保护较新规则记录', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage'), store = new Map();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)),
+  } });
+  try {
+    const g = legacyCampaign(), prefix = G.scenarioKey('haou-hd2d-save');
+    g.cities.length = 37;
+    delete g.frontierMap;
+    const raw = JSON.stringify(g);
+    for (const key of ['1', 'quick', 'auto']) store.set(`${prefix}:${key}`, raw);
+    for (const record of [G.load(1), G.loadQuick(), G.loadAuto()]) {
+      assert.ok(record);
+      assert.deepEqual(record.cities.map(c => c.id).slice(37), [37, 38]);
+      assert.equal(record.famousSkills, true);
+      assert.ok(G.upgradeCampaign(record));
+      assert.equal(record.famousSkills, 2);
+    }
+    for (const key of ['1', 'quick', 'auto']) assert.equal(store.get(`${prefix}:${key}`), raw);
+    const upgraded = G.loadQuick();
+    assert.ok(G.upgradeCampaign(upgraded));
+    assert.ok(G.saveQuick(upgraded));
+    assert.ok(G.save(upgraded, 2));
+    assert.equal(G.loadQuick().campaignRevision, upgraded.campaignRevision);
+    assert.equal(G.load(2).campaignRevision, upgraded.campaignRevision);
+    assert.equal(store.get(`${prefix}:quick:bak`), raw);
+    const future = JSON.stringify({ ...upgraded, campaignRevision: upgraded.campaignRevision + 1 });
+    store.set(`${prefix}:2`, future);
+    store.set(`${prefix}:quick`, future);
+    assert.equal(G.load(2), null);
+    assert.equal(G.loadQuick(), null);
+    assert.equal(G.save(upgraded, 2), false);
+    assert.equal(G.saveQuick(upgraded), false);
+    assert.equal(store.get(`${prefix}:2`), future);
+    assert.equal(store.get(`${prefix}:quick`), future);
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, 'localStorage', descriptor);
+    else delete globalThis.localStorage;
+  }
 });

@@ -12,7 +12,7 @@ import { relationDisposition, recruitDisposition, recruitThreshold, recruitLoyal
 import { EXPANDED_MAP_ID, EXPANDED_NODES, expandMap, applyExpandedOpening } from './expanded-map.js';
 import { SOVEREIGN_SCENARIO_ID } from './visuals.js';
 import { chooseCampaignEvent, applyCampaignEvent } from './campaign-events.js';
-import { FAMOUS_ROSTER, FAMOUS_ROSTER_START, activateFamousRoster, extraSearchIds, hasFamousRoster, rosterRecordName, staticRosterSize } from './famous-roster.js';
+import { FAMOUS_ROSTER, FAMOUS_ROSTER_START, activateFamousRoster, extraSearchIds, famousRosterTemplate, hasFamousRoster, rosterRecordName, staticRosterSize } from './famous-roster.js';
 // 原版无主为 7；扩展剧本将无主编号放在实际势力编号之后。
 export let NONE = 7;
 export const DEAD = 3, SERVING = 2, UNAPPEARED = 1, RONIN = 0;
@@ -49,6 +49,24 @@ export function rng(g) {
 
 const cityRecord = (c) => ({ id: c.id, faction: c.faction, gold: c.gold, rice: c.rice, pop: c.pop, land: c.land, industry: c.industry,
   disaster: c.disaster, gov: c.gov, reserve: c.reserve, treasure: c.treasure, officers: [...c.officers], riot: 0 });
+const officerRecord = (o) => ({
+  id: o.id, hp: o.hp, war: o.war, int: o.int, loyalty: o.loyalty, virtue: o.virtue, exp: o.exp, soldiers: o.soldiers,
+  weapon: o.weapon, armor: o.armor, level: o.level, army: o.army, status: o.appear === 'initial' ? SERVING : UNAPPEARED, loc: o.city,
+});
+
+// 战役规则修订号独立于存档结构。读取旧记录保留其规则，由玩家在战略回合选择升级。
+const CAMPAIGN_REVISION = 1;
+const FAMOUS_CAMPAIGN_RULES = { battlefields: 2, famousSkills: 2, famousRoster: 1, siegeTactics: true };
+function campaignDefaults() {
+  const defaults = {};
+  for (const key of ['enhancedDisasters', 'smartAiReinforcement', 'cityRaids', 'focusedRulerPassives', 'battleRulerPassives',
+    'relationshipEffects', 'autoBattleSkills', 'eliteTroops', 'safeAiLure', 'balancedTroops', 'campaignRules']) {
+    if (D[key]) defaults[key] = true;
+  }
+  if (D.rulerPassives && D.enhancedRulerPassives) defaults.enhancedRulerPassives = true;
+  if (defaults.campaignRules) defaults.safeStrategyChance = true;
+  return defaults;
+}
 
 // 仅用于君主列传扩展地图的新局；旧记录和已发布版本的静态人物配置不变。
 const FEMALE_OPENING_STATS = {
@@ -64,34 +82,19 @@ const FEMALE_OPENING_STATS = {
 
 // ---------- New game ----------
 export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random() * 1e9)) >>> 0, { ruler = null } = {}) {
-  const g = { version: 1, level, player: playerFaction, year: 189, month: 0, seed, turnIdx: -1, monthDone: false, current: null, books: 0, over: null };
+  const g = { version: SAVE_VERSION, level, player: playerFaction, year: 189, month: 0, seed, turnIdx: -1, monthDone: false, current: null, books: 0, over: null };
   if (scenarioId !== ORIGINAL_SCENARIO) g.scenarioId = scenarioId;
-  // 新规则随新开局存入记录；旧记录缺少标记时继续使用原结算。
-  if (D.enhancedDisasters) g.enhancedDisasters = true;
-  if (D.smartAiReinforcement) g.smartAiReinforcement = true;
-  if (D.cityRaids) g.cityRaids = true;
-  if (D.rulerPassives && D.enhancedRulerPassives) g.enhancedRulerPassives = true;
-  if (D.focusedRulerPassives) g.focusedRulerPassives = true;
-  if (D.battleRulerPassives) g.battleRulerPassives = true;
-  if (D.relationshipEffects) g.relationshipEffects = true;
-  if (D.autoBattleSkills) g.autoBattleSkills = true;
-  if (D.eliteTroops) g.eliteTroops = true;
-  if (D.safeAiLure) g.safeAiLure = true;
-  if (D.balancedTroops) g.balancedTroops = true;
-  if (D.campaignRules) { g.campaignRules = true; g.safeStrategyChance = true; }
+  Object.assign(g, campaignDefaults());
   if (scenarioId === EXPANDED_MAP_ID && D.expandedMap === true) {
     if (staticRosterSize(D, null) !== FAMOUS_ROSTER_START) throw new Error('内置人物数据与名将名单不匹配');
-    g.battlefields = 2; g.famousSkills = 2; g.famousRoster = 1; g.siegeTactics = true;
+    Object.assign(g, FAMOUS_CAMPAIGN_RULES, { campaignRevision: CAMPAIGN_REVISION });
   }
   if (D.expandedMap && D.frontierMap) g.frontierMap = true;
   activateFamousRoster(D,g);
   const r = rng(g);
   g.order = r(5); // 新游戏随机0–4 (5.2)
   g.cities = D.cities.map(cityRecord);
-  g.officers = D.officers.filter((o) => o && !o.clone).map((o) => ({
-    id: o.id, hp: o.hp, war: o.war, int: o.int, loyalty: o.loyalty, virtue: o.virtue, exp: o.exp, soldiers: o.soldiers,
-    weapon: o.weapon, armor: o.armor, level: o.level, army: o.army, status: o.appear === 'initial' ? SERVING : UNAPPEARED, loc: o.city,
-  }));
+  g.officers = D.officers.filter((o) => o && !o.clone).map(officerRecord);
   if (scenarioId === EXPANDED_MAP_ID) for (const source of D.officers) {
     if (source && !source.clone && Object.hasOwn(FEMALE_OPENING_STATS, source.name) && g.officers[source.id]) {
       const stats = FEMALE_OPENING_STATS[source.name];
@@ -848,7 +851,8 @@ const KEY = 'haou-hd2d-save', key = () => scenarioKey(KEY), slotKey = (n) => `${
 const quickKey = () => `${key()}:quick`, quickBak = () => `${quickKey()}:bak`;
 const parse = (s) => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
 const read = (k) => { try { return parse(localStorage.getItem(k)); } catch { return null; } };
-const futureVersion = (g) => Number.isInteger(g?.version) && g.version > SAVE_VERSION;
+const futureVersion = (g) => (Number.isInteger(g?.version) && g.version > SAVE_VERSION)
+  || (Number.isInteger(g?.campaignRevision) && g.campaignRevision > CAMPAIGN_REVISION);
 const slotStates = new WeakMap();
 export function slotToken(slot) { try { return localStorage.getItem(slotKey(slot)); } catch { return undefined; } }
 export const futureSlot = (slot) => futureVersion(parse(slotToken(slot)));
@@ -904,6 +908,8 @@ export function upgrade(g) {
   if (!g || typeof g !== 'object') return null;
   if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return null;
   try { g.version ??= 1; while (g.version < SAVE_VERSION) MIGRATIONS[g.version++](g); } catch { return null; }
+  if (g.campaignRevision !== undefined && (!Number.isInteger(g.campaignRevision) || g.campaignRevision < 1
+    || g.campaignRevision > CAMPAIGN_REVISION || scenarioId !== EXPANDED_MAP_ID)) return null;
   if (g.frontierMap !== undefined && typeof g.frontierMap !== 'boolean') return null;
   if (g.famousSkills !== undefined && (![true,2].includes(g.famousSkills) || scenarioId !== EXPANDED_MAP_ID || D.expandedMap !== true)) return null;
   if (g.famousRoster !== undefined && (g.famousRoster !== 1 || g.famousSkills !== 2 || scenarioId !== EXPANDED_MAP_ID || D.expandedMap !== true)) return null;
@@ -930,6 +936,48 @@ export function upgrade(g) {
     && (g.campaignRules === undefined || typeof g.campaignRules === 'boolean')
     && Array.isArray(g.officers) && Array.isArray(g.factions) && Array.isArray(g.cities) && g.cities.length === D.cities.length && g.cities.every((c) => Array.isArray(c?.officers)) && validRoster(g) && validRaidState(g) && validCampaignEventState(g);
   return ok ? g : null;
+}
+
+function missingCampaignDefaults(g) {
+  const defaults = campaignDefaults();
+  // 玩家已经选择旧版被动方案时，保留该选择及其前置开关。
+  if ((g.focusedRulerPassives ?? defaults.focusedRulerPassives) !== true
+    || (g.campaignRules ?? defaults.campaignRules) !== true) delete defaults.battleRulerPassives;
+  return Object.entries(defaults).filter(([key]) => g[key] === undefined);
+}
+
+export function campaignUpgradeAvailable(g) {
+  if (scenarioId !== EXPANDED_MAP_ID || D?.expandedMap !== true || g?.scenarioId !== scenarioId
+    || g.over || g.raidBattle || (g.campaignRevision ?? 0) >= CAMPAIGN_REVISION) return false;
+  return Object.entries(FAMOUS_CAMPAIGN_RULES).some(([key, value]) => g[key] !== value) || missingCampaignDefaults(g).length > 0;
+}
+
+export function upgradeCampaign(g) {
+  if (!campaignUpgradeAvailable(g)) return false;
+  const next = upgrade(structuredClone(g));
+  if (!next) return false;
+  if (!hasFamousRoster(next)) {
+    // 原有编号保留。旧记录的分身排在新增名将之后，城市、势力及三顾计数一并迁移。
+    const extras = next.officers.slice(FAMOUS_ROSTER_START), clones = new Set(next.clones);
+    if (next.officers.length < FAMOUS_ROSTER_START || extras.some((o) => !clones.has(o.id))) return false;
+    const remap = (id) => clones.has(id) ? id + FAMOUS_ROSTER.length : id;
+    const recruits = FAMOUS_ROSTER.map((_, i) => officerRecord(famousRosterTemplate(FAMOUS_ROSTER_START + i)));
+    next.officers = [...next.officers.slice(0, FAMOUS_ROSTER_START), ...recruits, ...extras.map((o) => ({ ...o, id: remap(o.id) }))];
+    if (clones.size) {
+      next.clones = next.clones.map(remap);
+      for (const city of next.cities) city.officers = city.officers.map(remap);
+      for (const faction of next.factions) {
+        faction.ruler = remap(faction.ruler);
+        if (faction.fallen != null) faction.fallen = remap(faction.fallen);
+      }
+      if (next.visits) next.visits = Object.fromEntries(Object.entries(next.visits).map(([id, count]) => [remap(Number(id)), count]));
+    }
+  }
+  Object.assign(next, Object.fromEntries(missingCampaignDefaults(next)), FAMOUS_CAMPAIGN_RULES, { campaignRevision: CAMPAIGN_REVISION });
+  if (!upgrade(next)) return false;
+  Object.assign(g, next);
+  registerClones(g);
+  return true;
 }
 const fromBak = new WeakSet();
 export const restored = (g) => fromBak.has(g);
@@ -1037,6 +1085,7 @@ function quickUpgrade(g) {
 // The raw value is also a change token while an overwrite confirmation is open in another tab.
 export function quickToken() { try { return localStorage.getItem(quickKey()); } catch { return undefined; } }
 export function hasQuick() { return !!quickToken(); }
+export const futureQuick = (token = quickToken()) => futureVersion(parse(token));
 function prepareQuick(g) {
   const id = g.quickId || newQuickId();
   const text = JSON.stringify({ ...g, quickId: id, savedAt: Date.now(), version: SAVE_VERSION });
@@ -1047,6 +1096,7 @@ function commitQuick(g, expected, previous, prepared) {
     const current = quickToken();
     if (current === undefined) return 'failed';
     if (current !== expected) return 'changed';
+    if (futureQuick(current) || futureQuick(previous)) return 'newer';
     if (previous && quickUpgrade(parse(previous))) localStorage.setItem(quickBak(), previous);
     localStorage.setItem(quickKey(), prepared.text);
     g.quickId = prepared.id; // never change the running game or its current numbered slot on a failed write
@@ -1067,6 +1117,7 @@ export async function saveQuickChecked(g, expected, { isCurrent = () => true, on
     const token = quickToken();
     if (token === undefined) return 'failed';
     if (token !== expected) return 'changed';
+    if (futureQuick(token) || (state && futureQuick(state.token))) return 'newer';
     if (!isCurrent()) return 'cancelled';
     if (state && state.token !== expected && state.token !== acceptedConflict) { onConflict(state.token); return 'changed'; }
     const prepared = prepareQuick(g);

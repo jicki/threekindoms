@@ -1132,6 +1132,8 @@ function sysButtons() {
       g.battleRulerPassives = !g.battleRulerPassives; b.textContent = `被动方案 ${g.battleRulerPassives ? '战场' : '旧版'}`;
     }, '启用增强时，战场方案不增加金米；旧版保留此前的精简效果。敌我同时切换，设置随记录保存。') : '',
     ), group('记录',
+    document.body.dataset.screen === 'strategy' && G.campaignUpgradeAvailable(g)
+      ? item(() => '升级当前战役', () => { close(); upgradeCampaignRules(); }, '在原有进度上启用新版人物、技能和战场。确认后可另存到一个记录位置。') : '',
     g ? item(() => '记录进度', (b) => { const why = saveBlocked(); if (why) return toast(`<em>${why}</em>`, 3500); close(); runCommand(saveCity(), '记录'); },
       '进度不会自动保存。在八个记录位置之一保存当前进度（消耗一张命令书，开启免费记录时不消耗；与城市菜单「录」相同；己方回合、战略地图上可用）') : '',
     g && inWar() ? item(() => '中断战斗', () => { close(); suspendWar(); },
@@ -1188,6 +1190,18 @@ const sovereignMap = () => [SOVEREIGN_SCENARIO_ID, EXPANDED_MAP_ID].includes(G.c
 // why not elsewhere (feedback F03, 2026-11-02: players found only 读取 in 系统 and lost their progress closing the window).
 const inWar = () => !!g && document.body.dataset.screen === 'war';
 const saveCity = () => (sel != null && mineCity(sel) ? sel : g.factions[g.player].city);
+async function upgradeCampaignRules() {
+  if (!mapCalm()) return toast('请在己方战略回合完成当前操作后升级', 3500);
+  const campaign = g;
+  const confirmed = await confirmBox('升级当前战役',
+    '启用新版人物、专属技能、战场与攻城规则，补齐缺少的新玩法设置。保留进度、兵力、装备和玩家已设置的选项。升级后可另存一格，继续保留原记录。');
+  if (!confirmed) return;
+  if (g !== campaign || !mapCalm()) return toast('当前战役状态已变化，请重新选择升级', 3500);
+  if (!G.upgradeCampaign(g)) return toast('当前战役无法安全升级，仍可按原规则继续', 4500);
+  strategy.refresh(g); hud();
+  toast('战役已升级，请通过「记录进度」或「快捷存档」保存', 5000);
+}
+
 function saveBlocked() {
   if (inWar()) return '战争中不能记录：可用「☰ 系统 → 中断战斗」暂离，或战后回到战略地图，在己方回合记录';
   if (g.over || document.body.dataset.screen !== 'strategy') return '现在不能记录';
@@ -2364,6 +2378,7 @@ async function command(cid, act) {
     case '快捷记录': {
       const token = G.quickToken();
       if (token === undefined) return toast('<em>记录失败：浏览器存储不可用</em>', 3500);
+      if (G.futureQuick(token)) return toast('<em>快捷存档来自更新版本，不能覆盖</em>', 3500);
       const previous = G.loadQuick({preview:true});
       const other = !!token && (!previous?.quickId || G.restored(previous) || !g.quickId || previous.quickId !== g.quickId);
       const free = !!g.freeSave, lastBook = !free && g.books === 1;
@@ -2386,6 +2401,7 @@ async function command(cid, act) {
       if (result === 'cancelled') return toast('<em>本局状态已改变，请重新记录</em>', 3500);
       if (result === 'busy') return toast('<em>快捷存档正在使用，请稍后再试</em>', 3500);
       if (result === 'pending') return toast('<em>快捷存档有未完成的写入，请稍后再试</em>', 3500);
+      if (result === 'newer') return toast('<em>快捷存档来自更新版本，不能覆盖</em>', 3500);
       if (result === 'unavailable') return toast('<em>当前环境暂不能快捷存档或安全写入普通记录</em>', 3500);
       const ok = result === 'saved';
       if (ok) { g.quickId = snapshot.quickId; quickCostExplained = true; }
