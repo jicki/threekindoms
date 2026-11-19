@@ -242,6 +242,7 @@
 import * as G from './src/core/game.js';
 import { selectScenario } from './src/core/scenario-store.js';
 import { ORIGINAL_SCENARIO } from './src/core/scenario.js';
+import { recordPortraitOfficer } from './src/core/famous-roster.js';
 import { equipmentIconUrl } from './src/core/equipment.js';
 import { h, modal, toast, avatar, figure, setPortraits, setFaces, setHalfbody } from './src/ui.js';
 import { OFFICER_FIELDS, CITY_FIELDS, ALLIANCE_MAX, hpText, setOfficer, setCity, setAlliance, checkRecord, setBug, setPhantomOwner } from './src/core/saveedit.js';
@@ -304,15 +305,21 @@ function refreshDock() {
 }
 
 // ---------- Slots ----------
+function recordAvatar(record, id) {
+  const image = avatar(recordPortraitOfficer(record, id));
+  image.alt = G.recordOfficerName(record, id);
+  return image;
+}
 function renderSlots() {
-  const rows = [{ s: G.loadQuick(), n: 'quick' }, ...G.saves().map((s, i) => ({ s, n: i + 1 }))];
+  const rows = [{ s: G.loadQuick({ preview: true }), n: 'quick' }, ...G.saves().map((s, i) => ({ s, n: i + 1 }))];
   $('slots').replaceChildren(...rows.map(({ s, n }) => {
     const cls = `slotc${n === 'quick' ? ' quick' : ''}`;
     if (!s) return h('button', { class: cls, disabled: true }, h('span', { class: 'blank' }), h('span', { class: 'no' }, slotName(n)), h('span', { class: 'when' }, n !== 'quick' && G.futureSlot(n) ? '来自更新版本' : n === 'quick' && G.hasQuick() ? '无法读取' : '空'));
     const ruler = s.factions[s.player].ruler;
-    return h('button', { class: `${cls} ${n === slot ? 'on' : ''}`, onclick: () => switchTo(n), title: `${G.factionName(s, s.player)} · ${s.year}年${s.month + 1}月` },
-      avatar(ruler), h('span', { class: 'no' }, slotName(n), s.edited ? h('i', {}, '已编辑') : null),
-      h('span', { class: 'when' }, `${s.year}年${s.month + 1}月 · ${G.name(ruler)}`));
+    const rulerName = G.recordOfficerName(s, ruler);
+    return h('button', { class: `${cls} ${n === slot ? 'on' : ''}`, onclick: () => switchTo(n), title: `${rulerName} · ${s.year}年${s.month + 1}月` },
+      recordAvatar(s, ruler), h('span', { class: 'no' }, slotName(n), s.edited ? h('i', {}, '已编辑') : null),
+      h('span', { class: 'when' }, `${s.year}年${s.month + 1}月 · ${rulerName}`));
   }));
   return rows.map(({ s }) => s);
 }
@@ -671,9 +678,10 @@ $('file').onchange = async () => {
   let rec; try { rec = JSON.parse(await file.text()); } catch { toast('<em>无法导入</em>：文件不是有效的 JSON', 3000); return; }
   const err = checkRecord(rec); if (err) { toast(`<em>无法导入</em>：${err}`, 3000); return; }
   const list = G.saves(), tokens = list.map((s, i) => s ? G.loadedSlotToken(s) : G.slotToken(i + 1));
-  const n = await modal('导入到哪个记录槽', (close) => [h('p', {}, `${file.name} · ${rec.year}年${rec.month + 1}月 · ${G.factionName(rec, rec.player)}。已有记录的槽会被覆盖。`),
+  const faction = rec.factions[rec.player], rulerName = G.recordOfficerName(rec, faction?.ruler ?? faction?.fallen);
+  const n = await modal('导入到哪个记录槽', (close) => [h('p', {}, `${file.name} · ${rec.year}年${rec.month + 1}月 · ${rulerName}。已有记录的槽会被覆盖。`),
     h('div', { class: 'slots-rail', style: { gridTemplateColumns: 'repeat(4, minmax(0,1fr))', padding: 0 } }, list.map((s, i) => h('button', { class: 'slotc', disabled: G.futureSlot(i + 1), onclick: () => close(i + 1) },
-      s ? avatar(s.factions[s.player].ruler) : h('span', { class: 'blank' }), h('span', { class: 'no' }, `记录${SLOT_NAMES[i]}`), h('span', { class: 'when' }, s ? `${s.year}年${s.month + 1}月` : G.futureSlot(i + 1) ? '来自更新版本' : tokens[i] != null ? '无法读取' : '空')))),
+      s ? recordAvatar(s, s.factions[s.player].ruler) : h('span', { class: 'blank' }), h('span', { class: 'no' }, `记录${SLOT_NAMES[i]}`), h('span', { class: 'when' }, s ? `${s.year}年${s.month + 1}月` : G.futureSlot(i + 1) ? '来自更新版本' : tokens[i] != null ? '无法读取' : '空')))),
     h('div', { class: 'foot' }, h('button', { class: 'btn', onclick: () => close(null) }, '取消'))], { wide: true });
   if (!n) return;
   if (n === slot && changes().length && !(await ask('覆盖当前记录', h('p', {}, '这个槽正在编辑，未写回的改动会丢失。'), '覆盖'))) return;

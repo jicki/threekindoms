@@ -56,6 +56,17 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
         await tapCell(); await p.waitForFunction(({x,y})=>window.__game.war.st.moveAsk?.x===x && window.__game.war.st.moveAsk?.y===y,gate);
         await tapCell(); await p.waitForFunction(({x,y})=>{const w=window.__game.war; return !w.st.busy && w.field.siege.gates.find(g=>g.x===x&&g.y===y)?.open;},gate);
         assert.equal(await p.evaluate(()=>window.__game.war.st.last),null,'突破城门后不能撤销');
+        const castChoices=await p.evaluate(()=>{
+          const w=window.__game.war, f=w.field, u=f.side('att')[0], [enemy,...others]=f.side('def');
+          others.forEach(v=>{v.gone=true;}); f.O(u.id).int=99; f.pool.att=100;
+          f.map[3][13]=2; f.map[7][11]=2; f.map[3][4]=2;
+          const choose=(sx,sy,tx,ty)=>{
+            for(let i=0;i<6;i++) w.cancel(); Object.assign(u,{x:sx,y:sy}); Object.assign(enemy,{x:tx,y:ty});
+            w.clickCell(sx,sy); w.openStrategies(); w.chooseStrategy(0); return w.st.cast===0;
+          };
+          return [choose(13,3,11,7),choose(11,7,13,3),choose(3,3,4,3)];
+        });
+        assert.deepEqual(castChoices,[false,false,true],'手机战场计策目标应在两个方向一致，并允许无遮挡目标');
       }
       assert.deepEqual(p.errors, []);
     } finally { stop(); }

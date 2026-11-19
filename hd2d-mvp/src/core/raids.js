@@ -1,5 +1,6 @@
 // 特殊守城不创建可占城的势力；临时敌将只存在于战斗和中断记录中。
 import { data, rng, NONE, SERVING, RONIN, DEAD, maxHp, toRonin, isPass } from './game.js';
+import { hasFamousRoster, staticRosterSize } from './famous-roster.js';
 
 // 以游戏的州郡范围划分近海，河流或洪水名单不能作为海岸判断。
 export const COASTAL_CITIES = Object.freeze([0, 3, 10, 16, 17, 18, 38]);
@@ -45,9 +46,9 @@ export function validRaidRecord(g, war) {
     || new Set(war.raid.defenders).size !== war.raid.defenders.length || war.raid.defenders.some((id) => !war.def.ids.includes(id) || !Number.isInteger(id) || id < 0 || id >= raid.first)
     || !g.cities?.[war.city] || !g.factions?.[war.defender] || war.attacker !== NONE || (g.clones != null && !Array.isArray(g.clones))
     || (g.clones ?? []).some((id) => ids.includes(id))) return false;
-  const D = data(), minimum = D.officers.filter((o) => o && !o.clone).length;
+  const D = data(), minimum = staticRosterSize(D,g);
   return raid.first >= minimum && ids.every((id, i) => id === raid.first + i && g.officers[id]?.id === id && g.officers[id]?.raidEnemy === true
-    && (!D.officers[id] || D.officers[id].clone));
+    && (!D.officers[id] || D.officers[id].clone || (D.officers[id].famousExtra && !hasFamousRoster(g))));
 }
 
 export function registerRaidTemplates(g, war) {
@@ -66,7 +67,7 @@ export function startRaid(g, plan) {
   const c = g.cities[plan.city], D = data(), first = g.officers.length;
   if (g.raidBattle || !c || !g.factions[plan.faction] || c.faction !== plan.faction || !Array.isArray(c.officers) || !c.officers.length || c.officers.length > 10 || new Set(c.officers).size !== c.officers.length
     || c.officers.some((id) => !Number.isInteger(id) || id < 0 || id >= first || !g.officers[id]) || !['bandit', 'pirate'].includes(plan.kind)
-    || !Number.isInteger(plan.troops) || plan.troops < 1 || plan.troops > 2000 || first < D.officers.filter((o) => o && !o.clone).length
+    || !Number.isInteger(plan.troops) || plan.troops < 1 || plan.troops > 2000 || first < staticRosterSize(D,g)
     || (g.clones != null && !Array.isArray(g.clones)) || (g.clones ?? []).some((id) => id >= first)
     || [first, first + 1].some((id) => D.officers[id] && !D.officers[id].clone)) throw new Error('无法准备守城战斗');
   const count = Math.max(1, Math.ceil(plan.troops / 1000)), ids = [];

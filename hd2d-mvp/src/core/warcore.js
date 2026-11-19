@@ -1,7 +1,7 @@
 // War set-up and write-back shared by field battles (player involved) and AI-vs-AI auto battles.
 // 出阵 (5.9 §7), 战后 (6.10 §3–6), AI 自动战 (6.5 第五/六批).
 import { data, rng, NONE, DEAD, SERVING, RONIN, roads, officerCity, capturedLoyalty, recruitLoyalty, addExp, citiesOf, holdingsOf, kill, isRuler, isPass, sparedHp, rulerPassive } from './game.js';
-import { DUEL_SKILLS } from './duel-skills.js';
+import { abilityDuel, abilityStrategyIds, strategySpecs } from './famous-skills.js';
 import { makeSquads, officerSpecialty, officerSquadLimit } from './troop-specialties.js';
 import { passiveRiceUse } from './ruler-passives.js';
 import { relationshipAffinity } from './relationships.js';
@@ -210,13 +210,13 @@ export function autoSkillBonus(g, ids, enemyIds, base, faction, enemyRice) {
     const officer = g.officers[id], spec = D.officers[id];
     if (!officer || !spec || officer.hp <= 0 || officer.soldiers <= 0) continue;
     let best = 0;
-    for (const skillId of spec.skills ?? []) {
-      const skill = D.customSkills?.find((item) => item.id === skillId);
+    for (const skillId of abilityStrategyIds(D,g,id)) {
+      const skill = strategySpecs(D,g).find((item) => item.id === skillId);
       if (!skill || skill.cost > cap) continue;
       const value = Math.min(skill.soldiers, maxSoldiers) / 100 + Math.min(skill.hp, maxHp) / 10 + skill.stop / 2 + Math.min(skill.rice, Math.max(0, enemyRice)) / 100;
       best = Math.max(best, Math.min(4, Math.ceil(value / (1 + skill.cost / 12))));
     }
-    raw += best + (Object.hasOwn(DUEL_SKILLS, spec.duelSkill) ? 1 : 0);
+    raw += best + (abilityDuel(D,g,id) ? 1 : 0);
   }
   return Math.min(raw, 12, Math.floor(base / 10));
 }

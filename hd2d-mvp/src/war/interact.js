@@ -109,7 +109,7 @@ export function makeInteract(wv) {
     if (id == null || !u || u.gone || u.side !== human || field.turn !== human || field.over) return null;
     const rows = field.alive.filter((e) => field.legal(u, id, e)).map((e) => ({ u: e, o: field.O(e.id), chance: field.odds(u, id, e), dist: field.dist(u, e), commander: !!e.commander, last: lastCast.get(u)?.t === e }))
       .sort((a, b) => b.chance - a.chance || a.dist - b.dist);
-    return { id, name: STRATS[id].name, cost: STRATS[id].cost, rows };
+    return { id, name: STRATS[id].name, cost: STRATS[id].cost, rows, focusId: st.returnTarget ?? null };
   }
   // The target under the pointer or the pad's cursor, lit in the panel's list (app.js warHot).
   const hot = (c) => { const e = c && (st.cast != null || st.atkList || st.strike) && st.sel ? field.unitAt(c.x, c.y) : null; ui.warHot?.(e && (st.cast != null ? field.legal(st.sel, st.cast, e) : attackable(st.sel, e)) ? e.id : null); };
@@ -238,7 +238,8 @@ export function makeInteract(wv) {
     if (st.strike) { if (st.strike.entering) return false; const from = st.strike.from; st.strike = null; st.ask = null; st.atkList = from === 'list'; stage(); showOptions(); return true; }
     if (st.atkList) { st.atkList = false; showOptions(); return true; }
     if (st.peek) { st.peek = null; showOptions(); return true; }
-    if (st.confirm) { const c = st.confirm; st.confirm = null; st.ask = null; if (!c.t) { st.cast = null; st.menu = true; } stage(); showOptions(); return true; }
+    if (st.confirm) { const c = st.confirm; st.confirm = null; st.ask = null; if (!c.t) { st.cast = null; st.menu = true; }
+      st.returnTarget = c.t?.id ?? null; stage(); showOptions(); st.returnTarget = null; return true; }
     if (st.cast != null) { const id = st.cast; st.cast = null; st.menu = true; st.chosen = id; st.hoverCell = null; st.through = null; cursor.visible = false; ui.log(`取消${STRATS[id].name}`); showOptions(); return true; } // the list's row may have pointed at a target: his card goes with it
     if (st.menu) { st.menu = false; showOptions(); return true; }
     if (st.sel) { st.sel = null; showOptions(); return true; }

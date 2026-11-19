@@ -14,7 +14,7 @@ import { EXPANDED_MAP_ID, expandMap } from '../src/core/expanded-map.js';
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
 const scenario = await loadScenario(SOVEREIGN_SCENARIO_ID, base);
 const expanded = expandMap(applyScenario(base, scenario));
-function game(seed = 7) { G.setData(expanded, EXPANDED_MAP_ID); const g = G.newGame(4, 1, seed); g.battlefields = 1; return g; }
+function game(seed = 7) { G.setData(expanded, EXPANDED_MAP_ID); const g = G.newGame(4, 1, seed); g.battlefields = 1; delete g.siegeTactics; return g; }
 function war(city, from) {
   return { city, from, attacker: 0, defender: 4, day: 1,
     att: { ids: [40, 41, 42], gold: 100, rice: 1500 }, def: { ids: [43, 44, 45], gold: 100, rice: 1500 } };

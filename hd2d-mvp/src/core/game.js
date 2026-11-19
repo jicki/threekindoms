@@ -12,6 +12,7 @@ import { relationDisposition, recruitDisposition, recruitThreshold, recruitLoyal
 import { EXPANDED_MAP_ID, EXPANDED_NODES, expandMap, applyExpandedOpening } from './expanded-map.js';
 import { SOVEREIGN_SCENARIO_ID } from './visuals.js';
 import { chooseCampaignEvent, applyCampaignEvent } from './campaign-events.js';
+import { FAMOUS_ROSTER, FAMOUS_ROSTER_START, activateFamousRoster, extraSearchIds, hasFamousRoster, rosterRecordName, staticRosterSize } from './famous-roster.js';
 // 原版无主为 7；扩展剧本将无主编号放在实际势力编号之后。
 export let NONE = 7;
 export const DEAD = 3, SERVING = 2, UNAPPEARED = 1, RONIN = 0;
@@ -78,12 +79,16 @@ export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random(
   if (D.safeAiLure) g.safeAiLure = true;
   if (D.balancedTroops) g.balancedTroops = true;
   if (D.campaignRules) { g.campaignRules = true; g.safeStrategyChance = true; }
-  if (scenarioId === EXPANDED_MAP_ID && D.expandedMap === true) g.battlefields = 2;
+  if (scenarioId === EXPANDED_MAP_ID && D.expandedMap === true) {
+    if (staticRosterSize(D, null) !== FAMOUS_ROSTER_START) throw new Error('内置人物数据与名将名单不匹配');
+    g.battlefields = 2; g.famousSkills = 2; g.famousRoster = 1; g.siegeTactics = true;
+  }
   if (D.expandedMap && D.frontierMap) g.frontierMap = true;
+  activateFamousRoster(D,g);
   const r = rng(g);
   g.order = r(5); // 新游戏随机0–4 (5.2)
   g.cities = D.cities.map(cityRecord);
-  g.officers = D.officers.filter((o) => !o.clone).map((o) => ({
+  g.officers = D.officers.filter((o) => o && !o.clone).map((o) => ({
     id: o.id, hp: o.hp, war: o.war, int: o.int, loyalty: o.loyalty, virtue: o.virtue, exp: o.exp, soldiers: o.soldiers,
     weapon: o.weapon, armor: o.armor, level: o.level, army: o.army, status: o.appear === 'initial' ? SERVING : UNAPPEARED, loc: o.city,
   }));
@@ -134,6 +139,7 @@ export const isRuler = (g, id) => g.factions.some((f) => f.ruler === id);
 export const boundRulerWeapon = (g, id) => D.equipment[g.officers[id]?.weapon]?.exclusiveRuler === id;
 export const roads = (cid) => D.cities[cid].roads;
 export const name = (id) => D.officers[id].name;
+export const recordOfficerName = (g,id) => rosterRecordName(D,g,id) ?? '未知';
 // 仅改变展示名称，不修改城市数据、版本校验或存档中的编号。若新据点使用同名，保留原名避免歧义。
 const HISTORICAL_NAMES = { 幽州: '北平', 并州: '晋阳', 冀州: '邺', 兖州: '陈留', 豫州: '许昌', 青州: '北海', 徐州: '下邳', 扬州: '寿春', 荆州: '南郡', 凉州: '武威', 交州: '南海', 西平关: '金城', 西安阳: '五原' };
 let historicalNames = (() => { try { return localStorage.getItem('hd2d-place-names') === '1'; } catch { return false; } })();
@@ -264,7 +270,7 @@ export const searchQueue = (cid) => D.search_table[String(cid)] || [];
 export const joinQueue = (f) => D.join_table[String(f)] || [];
 // 指定优先的武将到达登场年份后才排到队首；其他武将仍按原队列顺序寻访。
 export function searchOrder(g, cid) {
-  const list = searchQueue(cid);
+  const list = [...searchQueue(cid), ...extraSearchIds(g,cid)];
   const priority = list.filter((id) => D.officers[id].searchPriority && g.officers[id].status === UNAPPEARED && D.officers[id].year <= g.year);
   if (!priority.length) return list;
   const selected = new Set(priority);
@@ -280,6 +286,7 @@ export function queueHead(g, list) {
 export function debutInfo(id) {
   const o = D.officers[id];
   if (o.clone) return { year: o.year, prefer: null, kind: 'phantom' };
+  if (o.famousExtra) return { year:o.year, prefer:null, kind:'search', city:o.city, order:1, priority:true };
   const prefer = Object.entries(D.rules.search_preference).find(([, ids]) => ids.includes(id))?.[0];
   const base = { year: o.year, prefer: prefer == null ? null : Number(prefer) };
   for (const [k, list] of Object.entries(D.search_table)) { const i = list.indexOf(id); if (i >= 0) return { ...base, kind: 'search', city: Number(k), order: i + 1, ...(o.searchPriority ? { priority: true } : {}) }; }
@@ -881,7 +888,7 @@ function validRoster(g) {
   const fields = ['hp', 'war', 'int', 'loyalty', 'virtue', 'exp', 'soldiers', 'weapon', 'armor', 'level', 'status'];
   if (!g.factions[g.player] || g.officers.some((o, id) => !o || o.id !== id || fields.some((key) => !Number.isFinite(o[key])))) return false;
   if (g.clones != null) {
-    const firstClone = D?.officers?.filter((o) => o && !o.clone).length ?? 0;
+    const firstClone = D ? staticRosterSize(D,g) : 0;
     if (!Array.isArray(g.clones) || new Set(g.clones).size !== g.clones.length || g.clones.some((id) => !validId(id) || id < firstClone)) return false;
   }
   if (g.factions.some((f) => !f || (f.ruler != null && !validId(f.ruler)))) return false;
@@ -898,6 +905,10 @@ export function upgrade(g) {
   if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return null;
   try { g.version ??= 1; while (g.version < SAVE_VERSION) MIGRATIONS[g.version++](g); } catch { return null; }
   if (g.frontierMap !== undefined && typeof g.frontierMap !== 'boolean') return null;
+  if (g.famousSkills !== undefined && (![true,2].includes(g.famousSkills) || scenarioId !== EXPANDED_MAP_ID || D.expandedMap !== true)) return null;
+  if (g.famousRoster !== undefined && (g.famousRoster !== 1 || g.famousSkills !== 2 || scenarioId !== EXPANDED_MAP_ID || D.expandedMap !== true)) return null;
+  if (g.famousSkills === 2 && (g.famousRoster !== 1 || !Array.isArray(g.officers) || g.officers.length < FAMOUS_ROSTER_START+FAMOUS_ROSTER.length)) return null;
+  if (g.siegeTactics !== undefined && (g.siegeTactics !== true || g.battlefields !== 2 || scenarioId !== EXPANDED_MAP_ID || D.expandedMap !== true)) return null;
   if (g.battlefields !== undefined && (![1, 2].includes(g.battlefields) || scenarioId !== EXPANDED_MAP_ID || D.expandedMap !== true)) return null;
   // 旧扩展地图记录只补充无主的新据点，已有城市、武将及战斗状态不重置。
   const legacyCount = 30 + EXPANDED_NODES.length;
@@ -984,15 +995,15 @@ export async function saveChecked(g, slot, expected, { snapshot = g, isCurrent =
 // system threw away; continuing from it takes it. It is no record: nothing is spent, and it cannot be loaded a second time.
 const autoKey = () => `${key()}:auto`;
 export function saveAuto(g) { try { if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return false; localStorage.setItem(autoKey(), JSON.stringify({ ...g, savedAt: Date.now(), version: SAVE_VERSION })); return true; } catch { return false; } }
-export function loadAuto() { const g = upgrade(read(autoKey())); if (g) { registerClones(g); g.auto = true; } return g; }
+export function loadAuto({ preview = false } = {}) { const g = upgrade(read(autoKey())); if (g) { if (!preview) registerClones(g); g.auto = true; } return g; }
 export function dropAuto() { try { localStorage.removeItem(autoKey()); } catch {} }
-export function load(slot) {
+export function load(slot, { preview = false } = {}) {
   migrate();
   const raw = slotToken(slot), parsed = parse(raw);
   if (futureVersion(parsed)) return null;
   let g = upgrade(parsed);
   if (!g && raw && (g = upgrade(read(bakKey(slot))))) fromBak.add(g); // an empty slot stays empty
-  if (g) { g.slot = slot; registerClones(g); slotStates.set(g, { slot, token: raw }); }
+  if (g) { g.slot = slot; if (!preview) registerClones(g); slotStates.set(g, { slot, token: raw }); }
   return g;
 }
 // The quick record is separate from the eight numbered records. Its owner identifies a campaign, not a
@@ -1002,7 +1013,7 @@ const newQuickId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now().toSt
 // lacks either is damaged, even if the generic legacy record check accepts its arrays.
 function quickUpgrade(g) {
   g = upgrade(g); if (!g) return null;
-  const originalOfficers = D?.officers?.filter((o) => o && !o.clone).length;
+  const originalOfficers = D ? staticRosterSize(D,g) : 0;
   if (!originalOfficers || g.officers.length < originalOfficers
     || !Number.isInteger(g.month) || g.month < 0 || g.month >= 12
     || !Number.isInteger(g.level) || !D.rules.income_ab[g.level]
@@ -1014,7 +1025,7 @@ function quickUpgrade(g) {
   const f = g.factions[g.player], ruler = f?.ruler, city = f?.city;
   if (g.clones != null && !Array.isArray(g.clones)) return null;
   const clones = new Set(g.clones ?? []);
-  const known = (id) => Number.isInteger(id) && !!g.officers[id] && !!(D?.officers?.[id] || clones.has(id));
+  const known = (id) => Number.isInteger(id) && !!g.officers[id] && !!(D?.officers?.[id] || clones.has(id) || (hasFamousRoster(g) && id>=FAMOUS_ROSTER_START && id<FAMOUS_ROSTER_START+FAMOUS_ROSTER.length));
   if (!known(ruler) || !Number.isInteger(city) || !g.cities[city]) return null;
   // The HUD, turn loop and editor iterate every officer/faction and dereference each city's roster.
   if (g.officers.some((o, i) => !o || o.id !== i || !known(i))) return null;
@@ -1069,7 +1080,7 @@ export async function saveQuickChecked(g, expected, { isCurrent = () => true, on
     } };
   }, { readCurrent: quickToken, acceptedPending, onPending });
 }
-export function loadQuick() {
+export function loadQuick({ preview = false } = {}) {
   let raw = null; try { raw = localStorage.getItem(quickKey()); } catch {}
   if (!raw) return null;
   const parsed = parse(raw);
@@ -1079,24 +1090,25 @@ export function loadQuick() {
   if (!g && (g = quickUpgrade(read(quickBak())))) backup = true;
   // The numbered slot saved in the snapshot may since have been replaced by another campaign. A manual
   // save after loading must ask before overwriting it, just as for any other occupied slot.
-  return g && loadSnapshot(g, { quick: true, backup });
+  return g && loadSnapshot(g, { quick: true, backup, preview });
 }
 // Reconstitute the record the player confirmed after a page restart, retaining backup diagnostics.
-export function loadSnapshot(g, { quick = false, backup = false } = {}) {
+export function loadSnapshot(g, { quick = false, backup = false, preview = false } = {}) {
   g = quick ? quickUpgrade(g) : upgrade(g); if (!g) return null;
   if (quick) g.slot = null;
   if (backup) fromBak.add(g);
-  registerClones(g);
+  if (!preview) registerClones(g);
   return g;
 }
 // 阿会喃 copies made by the 原版漏洞 mode (core/ahuinan.js) are officers past the original 237. Each borrows officer
 // 0's static entry (name, portrait, army, appearance) under its own id, so every lookup by id keeps working.
 export function registerClones(g) {
+  activateFamousRoster(D,g);
   if (D) for (const id of g.clones ?? []) D.officers[id] = { ...D.officers[0], id, clone: true, year: g.officers[id]?.debut ?? g.year };
   return g;
 }
 // Every slot in order, null where empty; latest() is the one saved most recently (a migrated record has no time).
-export function saves() { migrate(); return Array.from({ length: SLOTS }, (_, i) => load(i + 1)); }
+export function saves() { migrate(); return Array.from({ length: SLOTS }, (_, i) => load(i + 1, { preview:true })); }
 export function latest(list = saves()) { return list.filter(Boolean).sort((a, b) => (b.savedAt ?? 0) - (a.savedAt ?? 0))[0] ?? null; }
 // A resumed game draws a fresh seed, so loading the same record and doing the same thing does not replay the
 // same events. The original's random cursor drifted with idle frames instead (waiting changed the outcome);

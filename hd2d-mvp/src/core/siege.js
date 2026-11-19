@@ -65,15 +65,32 @@ export const wallAt = (siege,x,y) => siege?.walls.some(w => w.x===x && w.y===y) 
 export const gateAt = (siege,x,y) => siege?.gates.find(g => g.x===x && g.y===y);
 export function blockedStrategy(siege, a, b) {
   if (!siege || !a || !b) return false;
-  const radius = (u) => Math.max(Math.abs(u.x-siege.cx),Math.abs(u.y-siege.cy));
-  const points=[]; let x=a.x,y=a.y;
-  const dx=Math.abs(b.x-x),dy=Math.abs(b.y-y),sx=x<b.x?1:-1,sy=y<b.y?1:-1; let err=dx-dy;
-  for (;;) { points.push({x,y}); if (x===b.x && y===b.y) break; const twice=2*err; if (twice>-dy) { err-=dy; x+=sx; } if (twice<dx) { err+=dx; y+=sy; } }
-  return [1,3].some(ring => points.some((p,i) => {
-    if (!i || (radius(points[i-1])<=ring)===(radius(p)<=ring)) return false;
-    const onWall=radius(p)===ring ? p : points[i-1];
-    return !siege.gates.some(g => g.ring===ring && g.x===onWall.x && g.y===onWall.y && g.open);
-  }));
+  const dx=b.x-a.x, dy=b.y-a.y, eps=1e-9;
+  // 连线穿过墙格内部才阻隔；仅擦过边或角不算穿墙。线段裁剪对两个方向完全相同。
+  const crossesWall = (wall) => {
+    let lo=0, hi=1;
+    for (const [start, delta, center] of [[a.x,dx,wall.x],[a.y,dy,wall.y]]) {
+      const min=center-0.5, max=center+0.5;
+      if (delta===0) { if (start<=min || start>=max) return false; continue; }
+      const t1=(min-start)/delta, t2=(max-start)/delta;
+      lo=Math.max(lo,Math.min(t1,t2)); hi=Math.min(hi,Math.max(t1,t2));
+      if (hi-lo<=eps) return false;
+    }
+    return hi>eps && lo<1-eps;
+  };
+  if (siege.walls.some(crossesWall)) return true;
+  // 门的外侧边界才是闭门屏障；守军站在门格仍可向城内施策。
+  return siege.gates.some(gate => {
+    if (gate.open) return false;
+    const vertical=gate.x!==siege.cx, delta=vertical?dx:dy;
+    if (delta===0) return false;
+    const center=vertical?gate.x:gate.y, cityCenter=vertical?siege.cx:siege.cy;
+    const face=center+(center<cityCenter?-0.5:0.5), start=vertical?a.x:a.y;
+    const t=(face-start)/delta;
+    if (t<=eps || t>=1-eps) return false;
+    const across=(vertical?a.y:a.x)+t*(vertical?dy:dx), gateAcross=vertical?gate.y:gate.x;
+    return Math.abs(across-gateAcross)<=0.5+eps;
+  });
 }
 export function restoreGates(siege, saved) {
   if (!Array.isArray(saved) || saved.length !== siege.gates.length) return false;

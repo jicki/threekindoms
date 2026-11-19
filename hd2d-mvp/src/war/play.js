@@ -22,7 +22,8 @@ const CUSTOM_STRATEGY_SCENES = {
 };
 function strategySceneId(strategy) {
   if (!strategy.custom) return strategy.id;
-  if (Object.hasOwn(CUSTOM_STRATEGY_SCENES, strategy.name)) return CUSTOM_STRATEGY_SCENES[strategy.name];
+  const sourceName = strategy.legacyName ?? strategy.name;
+  if (Object.hasOwn(CUSTOM_STRATEGY_SCENES, sourceName)) return CUSTOM_STRATEGY_SCENES[sourceName];
   if (strategy.name.includes('火')) return 0;
   if (strategy.stop) return 2;
   if (strategy.hp) return 1;

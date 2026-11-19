@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const require = createRequire(import.meta.url);
-export const pw = (() => { for (const p of ['playwright', '/opt/homebrew/lib/node_modules/@playwright/mcp/node_modules/playwright']) { try { return require(p); } catch {} } throw new Error('playwright not found'); })();
+export const pw = (() => { for (const p of ['../desktop/node_modules/playwright', 'playwright', '/opt/homebrew/lib/node_modules/@playwright/mcp/node_modules/playwright']) { try { return require(p); } catch {} } throw new Error('找不到 Playwright；请运行 npm --prefix hd2d-mvp/desktop ci'); })();
 
 // Playwright's own --disable-features list (playwright-core lib/server/chromium/chromiumSwitches.js), repeated
 // because a second --disable-features replaces it rather than adding to it, plus Chrome's background fetchers.

@@ -310,7 +310,7 @@ test('新增人物素材可解码，单挑技在页面显示、使用后禁用',
   } finally { await page.context().close(); }
 });
 
-test('吕布可在单挑页面使用方天破阵且每场只有一次', async () => {
+test('吕布可在单挑页面使用飞将破阵且每场只有一次', async () => {
   const page = await game.open('', { setup: (context) => context.addInitScript(() => sessionStorage.setItem('haou-hd2d-scenario', 'builtin-heroes')) });
   try {
     await page.evaluate(() => { window.__game.debug.quickTactical(218, 38, 2); });
@@ -323,7 +323,7 @@ test('吕布可在单挑页面使用方天破阵且每场只有一次', async ()
       battle.duel.side.a.F = 10; battle.duel.side.a.eq.atk = 0; battle.duel.aiCommand = () => 'feint';
     });
     await page.locator('.tq-start button:not(.arming)').click();
-    const skill = page.locator('.tq-duel-acts .tq-special', { hasText: '方天破阵' });
+    const skill = page.locator('.tq-duel-acts .tq-special', { hasText: '飞将破阵' });
     await skill.waitFor({ timeout: 30000 }); assert.equal(await skill.isEnabled(), true);
     assert.match(await skill.textContent(), /120%伤/);
     await skill.click();
@@ -347,6 +347,10 @@ test('手机横屏中专属单挑技可见且可以点击', async () => {
     await assertDuelSkillFits(page, move, 812, 375);
     await assertDuelSkillFits(page, move, 568, 320);
     await page.setViewportSize({ width: 812, height: 375 });
+    await page.locator('.tq-duel-acts .dcmd', { hasText: '资料' }).click();
+    await page.waitForSelector('.shade .ocard-pair');
+    assert.match(await page.locator('.shade .ocard-pair').textContent(), /名将.*单挑技：青龙斩.*命中阈值-5.*伤害120%/);
+    await page.keyboard.press('Escape'); await page.waitForSelector('.shade', { state: 'detached' });
     const box = await move.boundingBox();
     assert.ok(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= 812 && box.y + box.height <= 375);
     assert.ok(box.width >= 70, `技能按钮过窄：${box.width}`);

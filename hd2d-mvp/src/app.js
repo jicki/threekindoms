@@ -32,7 +32,7 @@ import { listScenarios, selectScenario } from './core/scenario-store.js';
 import { ORIGINAL_SCENARIO } from './core/scenario.js';
 import { EXPANDED_MAP_ID } from './core/expanded-map.js';
 import { SOVEREIGN_SCENARIO_ID, SOVEREIGN_SCENARIO_NAME, visualUrl } from './core/visuals.js';
-import { DUEL_SKILLS } from './core/duel-skills.js';
+import { abilityDuel, abilityStrategy, abilityStrategyIds, famousLabel, strategySpecs } from './core/famous-skills.js';
 import { describeRulerPassive } from './core/ruler-passives.js';
 import { aiTurn, aiDomestic } from './core/ai.js';
 import { suspend, peekSuspend, takeSuspend, dropSuspend, withSuspendLock } from './core/suspend.js';
@@ -1194,13 +1194,13 @@ const recordWriteError = (result) => ({ changed: '记录已改变，请重新选
   'wrong-scenario': '记录不属于当前游戏版本' }[result] ?? '记录失败：浏览器存储不可用或已满');
 const SLOT_NAMES = '一二三四五六七八九十';
 const stamp = (t) => { if (!t) return '旧版记录'; const d = new Date(t), p = (n) => String(n).padStart(2, '0'); return `${d.getMonth() + 1}月${d.getDate()}日 ${p(d.getHours())}:${p(d.getMinutes())}`; };
-const recordLine = (s) => `${s.year}年${s.month + 1}月 · ${name(s.factions[s.player].ruler)} · ${G.citiesOf(s, s.player).length}城`;
+const recordLine = (s) => `${s.year}年${s.month + 1}月 · ${G.recordOfficerName(s,s.factions[s.player].ruler)} · ${G.citiesOf(s, s.player).length}城`;
 const recordName = (n) => n === 'quick' || n == null ? '快捷存档' : `记录${SLOT_NAMES[n - 1]}`;
-const recordAt = (n) => n === 'quick' ? G.loadQuick() : G.load(n);
+const recordAt = (n) => n === 'quick' ? G.loadQuick({preview:true}) : G.load(n,{preview:true});
 // 'load' picks a filled slot to resume; 'save' picks any slot to write, and asks before overwriting another record.
 function pickSlot(mode, list, current = null) {
   const rows = list.map((s, i) => ({ s, n: i + 1, token: mode === 'save' ? (s ? G.loadedSlotToken(s) : G.slotToken(i + 1)) : null, newer: G.futureSlot(i + 1) }));
-  if (mode === 'load') rows.unshift({ s: G.loadQuick(), n: 'quick' });
+  if (mode === 'load') rows.unshift({ s: G.loadQuick({preview:true}), n: 'quick' });
   return modal(mode === 'save' ? '记录' : '读取记录', (close) => [
     mode === 'save' ? h('p', {}, g.freeSave ? '选择记录位置（免费记录：不消耗命令书）' : '选择记录位置（消耗一张命令书，与原版相同）') : null,
     h('div', { class: 'slots' }, rows.map(({ s, n, token, newer }) => h('button', { class: `btn slot ${s ? '' : 'empty'} ${n === current ? 'on' : ''}`, disabled: (mode === 'load' && !s) || (mode === 'save' && newer),
@@ -1239,7 +1239,7 @@ async function restartWithRecord(n, rec, { alwaysConfirm = false } = {}) {
 }
 async function loadRecord() {
   const list = G.saves();
-  if (!list.some(Boolean) && !G.loadQuick()) return toast(Array.from({ length: G.SLOTS }, (_, i) => G.futureSlot(i + 1)).some(Boolean)
+  if (!list.some(Boolean) && !G.loadQuick({preview:true})) return toast(Array.from({ length: G.SLOTS }, (_, i) => G.futureSlot(i + 1)).some(Boolean)
     ? '<em>记录来自更新版本，当前版本无法读取</em>' : '<em>还没有记录</em>');
   const pick = await pickSlot('load', list, g?.slot);
   if (!pick) return;
@@ -1259,7 +1259,7 @@ async function quickLoad() {
   else if (screen === 'strategy') { if (!g || !mapCalm()) return toast('<em>请在己方回合完成当前命令后读档</em>', 3000); }
   else if (screen === 'war') { if (suspendBlocked()) return toast('<em>请在我军回合完成当前动作后读档</em>', 3000); }
   else return toast('<em>现在不能快捷读档</em>', 3000);
-  const rec = G.loadQuick();
+  const rec = G.loadQuick({preview:true});
   if (!rec) return toast(G.hasQuick() ? '<em>快捷存档已损坏或来自更新版本</em>' : '<em>还没有快捷存档</em>', 3500);
   quickLoading = true;
   try { await restartWithRecord('quick', rec, { alwaysConfirm: true }); } finally { quickLoading = false; }
@@ -1311,7 +1311,7 @@ async function title() {
   const demo = G.newGame(4, 1, 7); strategy.refresh(demo); strategy.select(null);
   setMode(strategy); audio.playBgm('bgm-title');
   clear();
-  const list = G.saves(), quick = G.loadQuick(), auto = PHONE ? G.loadAuto() : null; // auto: what a page the phone threw away left behind (自动续玩 below)
+  const list = G.saves(), quick = G.loadQuick({preview:true}), auto = PHONE ? G.loadAuto({preview:true}) : null; // auto: what a page the phone threw away left behind (自动续玩 below)
   const records = [...list, quick, auto].filter(Boolean), saved = G.latest(records), count = records.filter((r) => r !== auto).length, held = peekSuspend();
   // The opening (arrow, flash, band) plays once per visit; coming back from 选择君主 shows the finished title.
   const screen = createTitle({ audio, intro: !titleSeen, sys: sysButtons(),
@@ -1322,8 +1322,8 @@ async function title() {
         if (result?.record) begin(result.record.g, true, result.record);
         else { toast(result?.changed ? '<em>中断战斗已改变，请重新选择</em>' : '<em>中断的战斗已无法读取</em>', 3000); title(); }
       } }, '继续战斗',
-        h('small', {}, `${cityName(held.war.city)}之战 · 第${held.field.day}日 · ${held.g.year}年${held.g.month + 1}月 · ${name(held.g.factions[held.g.player].ruler)}`)) : null,
-      saved ? h('button', { class: 'btn', onclick: () => { audio.unlock(); begin(saved, true); } }, saved.auto ? '继续上次' : '继续记录', h('small', {}, `${saved.auto ? '离开时的进度' : recordName(saved.slot)} · ${saved.year}年${saved.month + 1}月 · ${name(saved.factions[saved.player].ruler)}`)) : null,
+        h('small', {}, `${cityName(held.war.city)}之战 · 第${held.field.day}日 · ${held.g.year}年${held.g.month + 1}月 · ${G.recordOfficerName(held.g,held.g.factions[held.g.player].ruler)}`)) : null,
+      saved ? h('button', { class: 'btn', onclick: () => { audio.unlock(); begin(saved, true); } }, saved.auto ? '继续上次' : '继续记录', h('small', {}, `${saved.auto ? '离开时的进度' : recordName(saved.slot)} · ${saved.year}年${saved.month + 1}月 · ${G.recordOfficerName(saved,saved.factions[saved.player].ruler)}`)) : null,
       count > 1 ? h('button', { class: 'btn', onclick: async () => {
         audio.unlock(); const pick = await pickSlot('load', list, saved.slot); if (!pick) return;
         const current = recordAt(pick.n);
@@ -1428,6 +1428,7 @@ async function begin(state, loaded, resume = null, { keepSuspend = false, notice
   quickCostExplained = false;
   try {
     g = loaded && !resume && !new URLSearchParams(location.search).has('fixedseed') ? G.reseed(state) : state;  // ?fixedseed: replay a record exactly
+    G.registerClones(g);
     await fade(true);
     document.body.dataset.screen = 'strategy';
     setMode(strategy); strategy.refresh(g); sel = null; playerPose = null;
@@ -1832,8 +1833,13 @@ const expText = (o) => o.level >= 8 ? `${Math.floor(o.exp / 50)}（满级）` : 
 function officerSheet(id, { live = null, foot = null } = {}) {
   const o = g.officers[id], d = D.officers[id], eq = D.equipment, f = live?.faction ?? G.factionOf(g, id), w = eq[o.weapon], a = eq[24 + o.armor];
   const hp = live?.hp ?? o.hp, soldiers = live?.soldiers ?? o.soldiers;
-  const strategies = (d.skills ?? []).map((skillId) => D.customSkills?.find((skill) => skill.id === skillId)?.name).filter(Boolean);
-  const duelSkill = Object.hasOwn(DUEL_SKILLS, d.duelSkill) ? DUEL_SKILLS[d.duelSkill].name : null;
+  const strategies = abilityStrategyIds(D,g,id).map((skillId) => abilityStrategy(D,g,strategySpecs(D,g).find((skill) => skill.id === skillId))).filter(Boolean);
+  const duelSkill = abilityDuel(D,g,id), famous = famousLabel(D,g,id);
+  const strategyText = (skill) => {
+    const effects = [skill.soldiers ? `损兵${skill.soldiers}` : '', skill.hp ? `伤体力${skill.hp}` : '', skill.stop ? `限制移动${skill.stop}日` : '', skill.rice ? `损米${skill.rice}` : ''].filter(Boolean);
+    const conditional = g.campaignRules === true ? { fortress:'中央城格施策额外损兵25', frontier:'目标距己方主将两格内额外限制移动1日', interdict:'目标兵力至少400时额外损米30' }[skill.effectProfile] : null;
+    return `${skill.name}（机动力${skill.cost}；${effects.join('、')}${conditional ? `；${conditional}` : ''}${skill.maxUses ? `；每场${skill.maxUses}次` : ''}）`;
+  };
   const rulerFaction = g.factions.find((fac) => fac.ruler === id)?.id;
   const passive = rulerFaction == null ? null : G.rulerPassive(g, rulerFaction);
   const specialty = officerSpecialty(D, g, id);
@@ -1846,14 +1852,15 @@ function officerSheet(id, { live = null, foot = null } = {}) {
       h('div', { class: 'ocard-tags' },
         live?.side ? h('span', { class: `tagc ocard-side ${live.mine ? 'me' : 'foe'}` }, `${live.mine ? '我军' : '敌军'} · ${live.side === 'a' ? '攻方' : '守方'}`) : null,
         o.status === G.SERVING ? h('span', { class: 'owner', style: { background: colorOf(f) } }, o.raidEnemy ? (g.raidBattle?.kind === 'pirate' ? '海贼' : '山贼') : factionName(f)) : h('span', { class: 'owner' }, { [G.RONIN]: '在野', [G.UNAPPEARED]: '未登场', [G.DEAD]: '已故' }[o.status]),
-        G.isRuler(g, id) ? h('span', { class: 'tagc' }, '君主') : null, h('span', { class: 'tagc' }, `${o.army}军`), h('span', { class: 'tagc' }, `等级 ${o.level}`)),
+        G.isRuler(g, id) ? h('span', { class: 'tagc' }, '君主') : null, famous ? h('span', { class: 'tagc' }, famous) : null, h('span', { class: 'tagc' }, `${o.army}军`), h('span', { class: 'tagc' }, `等级 ${o.level}`)),
       meter('体力', hp, G.maxHp(o, id), hp < G.maxHp(o, id) / 2 ? 'low' : ''), meter('武力', o.war, 100, 'war'), meter('智力', o.int, 100, 'int'), meter('人德', o.virtue, 100, 'vir'), meter('忠诚', o.loyalty, 100, o.loyalty < 60 ? 'low' : 'loy'),
       h('div', { class: 'stats ocard-gear' },
         h('div', {}, h('span', {}, '兵数'), h('b', {}, soldiers)), h('div', {}, h('span', {}, '经验'), h('b', {}, expText(o))),
         h('div', {}, h('span', {}, '武器'), h('b', {}, w ? h('img', { class: 'eqi', src: equipIcon(o.weapon), alt: '' }) : null, `${w?.name ?? '—'}${w?.exclusiveRuler === id ? ' · 专属' : w?.grade ? ` · ${w.grade}级` : ''}`, w ? h('small', {}, ` 攻${w.atk}`) : null)),
         h('div', {}, h('span', {}, '防具'), h('b', {}, a ? h('img', { class: 'eqi', src: equipIcon(24 + o.armor), alt: '' }) : null, `${a?.name ?? '—'}${a?.grade ? ` · ${a.grade}级` : ''}`, a ? h('small', {}, ` 防${a.dfn}`) : null))),
       live ? null : h('p', { class: 'hint' }, d.birthYear != null ? `${d.birthYear}年出生　·　` : '', d.birthCity != null ? `出生于${cityName(d.birthCity)}　·　` : '', `${d.year}年登场`, debutShown(id) ? `　·　${debutText(id)}` : '', o.status === G.UNAPPEARED && talentMode === 'all' ? `　·　${waitText(id)[0]}` : ''),
-      strategies.length || duelSkill ? h('p', { class: 'hint' }, strategies.length ? `战场计略：${strategies.join('、')}` : '', strategies.length && duelSkill ? '　·　' : '', duelSkill ? `单挑技：${duelSkill}` : '') : null,
+      strategies.length ? h('p', { class: 'hint' }, `战场计略：${strategies.map(strategyText).join('、')}`) : null,
+      duelSkill ? h('p', { class: 'hint' }, `单挑技：${duelSkill.name}（命中阈值${duelSkill.hit >= 0 ? '+' : ''}${duelSkill.hit}；伤害${duelSkill.damage}%；每次单挑1次）`) : null,
       specialty ? h('p', { class: 'hint' }, `特色兵队：${specialty.name} · ${specialty.text}（当前最多${officerSquadLimit(D, g, id, specialty)}队）${targetTroop && targetTroop !== specialty ? `；${targetTroop.level}级可用${targetTroop.name}` : ''}`) : null,
       passive ? h('p', { class: 'hint' }, `君主被动：${passive.name} · ${passive.text}`) : null,
       live || ![...(D.relationships ?? []), ...(g?.campaignRules ? D.campaignRelationships ?? [] : [])].some((r) => r.from === id || r.to === id) ? null : h('p', { class: 'hint' }, '人物关系：',
@@ -2325,7 +2332,7 @@ async function command(cid, act) {
     case '快捷记录': {
       const token = G.quickToken();
       if (token === undefined) return toast('<em>记录失败：浏览器存储不可用</em>', 3500);
-      const previous = G.loadQuick();
+      const previous = G.loadQuick({preview:true});
       const other = !!token && (!previous?.quickId || G.restored(previous) || !g.quickId || previous.quickId !== g.quickId);
       const free = !!g.freeSave, lastBook = !free && g.books === 1;
       const explainCost = !free && !quickCostExplained;
@@ -3013,7 +3020,7 @@ function actPanel(info, was) {
   if (busy || (!fresh && !was)) return;
   const pickRow = stage === 'strats'
     ? (was?.sid != null && el.querySelector(`[data-sid="${was.sid}"]:not(:disabled)`)) || (info.chosen != null && el.querySelector(`[data-sid="${info.chosen}"]:not(:disabled)`)) || el.querySelector('.strats [data-sid] .lasttag')?.closest('button:not(:disabled)') || el.querySelector('.strats button:not(:disabled)')
-    : ((confirm?.t ?? strike?.t) && el.querySelector(`[data-target="${(confirm?.t ?? strike?.t).id}"]`)) || (was?.target != null && el.querySelector(`[data-target="${was.target}"]`)) || el.querySelector('[data-target][data-last]') || el.querySelector('[data-target]') || (stage === 'confirm' || stage === 'strike' ? back : null);
+    : ((confirm?.t ?? strike?.t) && el.querySelector(`[data-target="${(confirm?.t ?? strike?.t).id}"]`)) || (was?.target != null && el.querySelector(`[data-target="${was.target}"]`)) || (targets?.focusId != null && el.querySelector(`[data-target="${targets.focusId}"]`)) || el.querySelector('[data-target][data-last]') || el.querySelector('[data-target]') || (stage === 'confirm' || stage === 'strike' ? back : null);
   pickRow?.focus({ preventScroll: true }); pickRow?.scrollIntoView?.({ block: 'nearest' });
 }
 // A row picks on a new input only: not the second click of a double click, not a key held from the step before.

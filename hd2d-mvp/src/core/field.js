@@ -9,6 +9,7 @@ import { relationshipAffinity, recruitThreshold, recruitLoyaltyWithRelation } fr
 import { passiveRiceUse } from './ruler-passives.js';
 import { battlefieldLayout, battlefieldProfile } from './battlefields.js';
 import { siegeLayout, wallAt, gateAt, blockedStrategy, restoreGates } from './siege.js';
+import { abilityStrategy, abilityStrategyIds, strategySpecs } from './famous-skills.js';
 
 const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0]]; // 上下左右
 export const W = 32, H = 19, FOREST = 0, SAND = 1, PLAIN = 2, RIVER = 3, MOUNT = 4, CASTLE = 5;
@@ -44,7 +45,8 @@ export const STRAT_INFO = [
 // 新版本的技能只使用受校验的固定效果，原版计略及其编号保持不变。
 export function configureStrategies(g) {
   STRATS.length = 16; STRAT_INFO.length = 16;
-  for (const skill of data()?.customSkills ?? []) {
+  for (const original of strategySpecs(data(),g)) {
+    const skill = abilityStrategy(data(), g, original);
     STRATS.push({ ...skill, ai: skill.cost, custom: true });
     const effects = [skill.soldiers ? `损兵 ${skill.soldiers}` : '', skill.hp ? `体力减少 ${skill.hp}` : '',
       skill.stop ? `限制移动 ${skill.stop} 日` : '', skill.rice ? `损失粮草 ${skill.rice}` : ''].filter(Boolean);
@@ -380,7 +382,7 @@ export class Field {
   }
   strategies(u) {
     const normal = STRATS.slice(0, stratCount(u.id, this.O(u.id)));
-    const custom = (data().officers[u.id]?.skills ?? []).map((id) => STRATS[id]).filter((s) => s?.custom);
+    const custom = abilityStrategyIds(data(), this.g, u.id).map((id) => STRATS[id]).filter((s) => s?.custom);
     return [...normal, ...custom];
   }
   // Terrain/adjacency gate `$AD80` plus distance <6; target null for 十面埋伏.
@@ -714,6 +716,22 @@ export class Field {
     const vulnerableCommander = this.g.campaignRules === true && this.pool[s] >= ATTACK_COST && o.soldiers > 0
       ? adj.find((e) => e.commander && (this.O(e.id).hp <= 20 || this.O(e.id).soldiers <= 150)) : null;
     if (vulnerableCommander) return this.doAttack(u, [vulnerableCommander]);
+    // 攻城主将孤立遇敌时优先退到安全格；当日不立即走回原位。
+    if (this.siege && this.g.siegeTactics === true && s === 'att' && u.commander) {
+      if (u.siegeCautionDay === this.day && !adj.length) return null;
+      const allies=this.side(s).filter(v=>v!==u && this.O(v.id).soldiers>0);
+      if (adj.some(v=>this.O(v.id).soldiers>=Math.max(100,Math.floor(o.soldiers*0.8)))
+          && allies.length && !allies.some(v=>this.adjacent(u,v))) {
+        const enemies=this.side(foe), distance=(x,y,v)=>Math.abs(x-v.x)+Math.abs(y-v.y);
+        const safe=DIRS.map(([dx,dy])=>[u.x+dx,u.y+dy]).filter(([x,y])=>this.inside(x,y) && !this.unitAt(x,y)
+          && enemies.every(v=>distance(x,y,v)>1))
+          .map(([x,y])=>({x,y,cost:this.cost(u,x,y),support:Math.min(...allies.map(v=>distance(x,y,v)))}))
+          .filter(v=>Number.isFinite(v.cost) && v.cost<=this.pool[s])
+          .sort((a,b)=>a.support-b.support || a.cost-b.cost);
+        if (safe.length) { const step=safe[0]; this.move(u,step.x,step.y,step.cost); u.siegeCautionDay=this.day;
+          return { type:'move',u,path:[[step.x,step.y]],cost:step.cost }; }
+      }
+    }
     if (custom) return this.doCast(u, custom.skill.id, custom.target);
     const special = this.aiStrategy(u, true);
     if (special) return special;
@@ -745,6 +763,14 @@ export class Field {
     if (near) {
       if (u.role === 3 && this.side(s).some((x) => !x.commander && x !== u && this.adjacent(x, near))) return this.aiStrategy(u, false);
       return this.approach(u, near);
+    }
+    // 兵力优势且主将安全时，后援跟随先锋攻城；主将附近有敌人时仍留作护卫。
+    if (this.siege && this.g.siegeTactics === true && s === 'att' && u.role === 4) {
+      const allies=this.side(s), commander=allies.find(v=>v.commander), enemies=this.side(foe);
+      if (commander && allies.length>=3 && allies.some(v=>v.role===1 || v.role===2)
+          && this.troops(s)>=this.troops(foe)*1.25 && enemies.every(v=>this.dist(v,commander)>3)) {
+        const [x,y]=this.castle(); return this.approach(u,{x,y});
+      }
     }
     if (u.role === 2) { if (s === 'def') return this.approach(u, commanderFoe); const [cx, cy] = this.castle(); return this.approach(u, { x: cx, y: cy }); }
     return this.aiStrategy(u, false) || this.approach(u, this.side(s).find((x) => x.commander));

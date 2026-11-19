@@ -139,6 +139,8 @@ for (const [mode, label] of [['&flat', '平面'], ['', '3D']]) test(`专属计�
   try {
     await page.evaluate(async () => { (await import('./src/pace.js')).setPace(4); (await import('./src/vignette.js')).setVignettes(false); });
     await newCampaign(page, '公孙瓒');
+    // 验证旧存档仍保留旧版计策演出；新版名单另有行为测试。
+    await page.evaluate(() => { window.__game.g.famousSkills = true; });
     await page.evaluate(() => {
       const { g, debug } = window.__game, from = 0, to = 1;
       const ids = g.cities[from].officers.slice(0, 3);
@@ -201,13 +203,13 @@ for (const [mode, label] of [['&flat', '平面'], ['', '3D']]) test(`专属计�
         } finally { STRATS.length = length; audio.sfx = oldSfx; }
       });
       const expected = {
-        '八阵奇谋': ['st-magic', 'sfx-tactic-bind'], '赤壁谋火': ['st-firestorm', 'sfx-tactic-fire'],
-        '公台奇谋': ['st-ambush', 'sfx-clash'], '胡笳扰阵': ['st-ruse', 'sfx-tactic-bind'],
-        '坚城奇策': ['st-bow', 'sfx-tactic-xbow'], '奉孝奇策': ['st-ambush', 'sfx-clash'],
-        '鹰视守谋': ['st-magic', 'sfx-tactic-bind'], '宪英明鉴': ['st-ruse', 'sfx-tactic-bind'],
-        '幽骑冲阵': ['st-ambush', 'sfx-clash'], '淮南筹策': ['st-ambush', 'sfx-clash'],
+        '八阵奇谋': ['st-magic', 'sfx-tactic-bind'], '赤壁烈谋': ['st-firestorm', 'sfx-tactic-fire'],
+        '公台断谋': ['st-ambush', 'sfx-clash'], '胡笳扰阵': ['st-ruse', 'sfx-tactic-bind'],
+        '冀城九策': ['st-bow', 'sfx-tactic-xbow'], '奉孝奇谋': ['st-ambush', 'sfx-clash'],
+        '鹰视潜谋': ['st-magic', 'sfx-tactic-bind'], '宪英明鉴': ['st-ruse', 'sfx-tactic-bind'],
+        '白马掩袭': ['st-ambush', 'sfx-clash'], '淮南筹粮': ['st-ambush', 'sfx-clash'],
         '荆襄固阵': ['st-chain', 'sfx-tactic-bind'], '长史守谋': ['st-magic', 'sfx-tactic-bind'],
-        '阎象明策': ['st-ruse', 'sfx-tactic-bind'], '异度奇谋': ['st-ruse', 'sfx-tactic-bind'],
+        '阎象明策': ['st-ruse', 'sfx-tactic-bind'], '异度定荆': ['st-ruse', 'sfx-tactic-bind'],
         '新制扰阵': ['st-ruse', 'sfx-tactic-bind'], '新制火攻': ['st-fire', 'sfx-tactic-fire'],
         '新制伤将': ['st-trap', 'sfx-clash'], ['__proto__']: ['st-ambush', 'sfx-clash'],
       };
@@ -222,7 +224,7 @@ for (const [mode, label] of [['&flat', '平面'], ['', '3D']]) test(`专属计�
   } finally { await page.context().close(); }
 });
 
-for (const [id, name, scene, phone] of [[255, '淮军奋击', 'skill-qiaorui', false], [261, '祝融飞刀', 'skill-zhurong', true]]) {
+for (const [id, name, scene, phone] of [[255, '淮军奋击', 'skill-qiaorui', false], [261, '南中飞刀', 'skill-zhurong', true]]) {
   test(`${name}在${phone ? '手机' : '桌面'}单挑中播放专属演出，仍然只能使用一次`, { timeout: 120000 }, async () => {
     const page = await game.open(phone ? '&phone' : '', { setup });
     try {
@@ -230,6 +232,10 @@ for (const [id, name, scene, phone] of [[255, '淮军奋击', 'skill-qiaorui', f
       await page.evaluate(async () => { (await import('./src/pace.js')).setPace(4); (await import('./src/vignette.js')).setVignettes(true); });
       await page.evaluate((officer) => { window.__game.debug.quickTactical(officer, 38, 2); }, id);
       await page.waitForSelector('.tq-form', { timeout: 60000 });
+      await page.evaluate((officer) => {
+        if (officer === 255) delete window.__game.g.famousSkills;
+        else window.__game.g.famousSkills = true;
+      }, id); // 旧存档继续使用乔蕤、祝融夫人的演出
       await page.locator('.tq-form').first().click(); await page.locator('.tq-deploy:not(.arming)').click();
       await page.waitForSelector('.tq-start button', { timeout: 30000 });
       await page.evaluate(() => { const b = window.__tq; b.startDuel('a'); b.duel.side.a.hp = b.duel.side.d.hp = 100; b.duel.side.a.F = 10; b.duel.side.a.eq.atk = 0; b.duel.aiCommand = () => 'feint'; });

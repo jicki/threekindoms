@@ -65,6 +65,7 @@ test('标题可选择君主列传，技能说明与人物资料显示实际生�
     await passive.click(); await page.locator('.sysmenu-btn').click();
     await page.keyboard.press('r'); await page.locator('tr[data-id="246"]').click();
     assert.match(await page.locator('.ocard-info').textContent(), /君主被动：白马义从.*机动力.*专属/);
+    assert.doesNotMatch(await page.locator('.ocard-info').textContent(), /白马掩袭|白马冲阵/);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });

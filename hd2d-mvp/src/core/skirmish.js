@@ -7,7 +7,7 @@
 // fight on "前进" automatically for up to 6 rounds. Generals meeting starts a duel.
 import { data, addExp, isRuler, maxHp, weaponGroup } from './game.js';
 import { tableDraws, realChance } from './origrng.js';
-import { DUEL_SKILLS } from './duel-skills.js';
+import { abilityDuel } from './famous-skills.js';
 
 const CASTLE = 5;
 const B = (h) => (h < 15 ? 20 : h < 35 ? 40 : h < 60 ? 50 : h < 80 ? 70 : h < 90 ? 85 : h < 100 ? 95 : 100);
@@ -48,7 +48,7 @@ export function skirmish(g, aId, dId, terrain, r, human = null) {
         const hitGeneral = foe.hp > 0 && onGen[fs] < 1 && (!targets.length || (type !== 'arc' && targets.length <= 1 && r(100) < 50));
         if (!hitGeneral && !targets.length) continue;
         if (hitGeneral) onGen[fs]++;
-        if (hitGeneral && type === 'gen' && foe.hp > 0 && r(100) < 60) { duel = human ? new Duel(side, r, g) : runDuel(side, r); break; }
+        if (hitGeneral && type === 'gen' && foe.hp > 0 && r(100) < 60) { duel = human ? new Duel(side, r, g) : runDuel(side, r, g?.famousSkills === true || g?.famousSkills === 2 ? g : null); break; }
         const H = type === 'gen' ? me.hp : act.hp;
         let F = me.F; if (type === 'arc') F = Math.floor((70 * F) / 100);
         let dmg = Math.floor(((F + (type === 'gen' ? me.eq.atk : 0)) * B(H)) / 100);
@@ -111,7 +111,7 @@ export class Duel {
   // human: the human-controlled skirmish side, if any. The original seats the duel's two generals by
   // controller (`$CD69`): an AI attacker facing a human defender is swapped so the human sits at index 0.
   constructor(side, r, g, human = null) {
-    this.side = side; this.r = r; this.n = 0; this.order = []; this.actions = []; this.result = null; this.isRuler = g ? (id) => isRuler(g, id) : null;
+    this.side = side; this.r = r; this.g = g; this.n = 0; this.order = []; this.actions = []; this.result = null; this.isRuler = g ? (id) => isRuler(g, id) : null;
     // 先手基值 is set once from the HP each general enters the duel with ($B230 → $04B3/B4); later rounds
     // and the retreat roll reuse it, so wounds taken during the duel don't slow him or his escape.
     const b = (x) => Math.floor((x.hp + x.o.war) / 10) + 20 - x.eq.weight;
@@ -122,8 +122,7 @@ export class Duel {
   base(s) { return this.base0[s]; }
   hitChance(s) { const me = this.side[s], foe = this.side[s === 'a' ? 'd' : 'a']; return HIT[DUEL_GROUP[me.eq.wgrp]][DUEL_GROUP[foe.eq.wgrp]]; }
   special(s) {
-    const key = data()?.officers?.[this.side[s].id]?.duelSkill;
-    return typeof key === 'string' && Object.hasOwn(DUEL_SKILLS, key) ? DUEL_SKILLS[key] : null;
+    return abilityDuel(data(), this.g, this.side[s].id);
   }
   canSpecial(s) { return !!this.special(s) && !this.specialUsed[s]; }
   // `bank23:$B8D3` reads the striker's own 骂倒 counter (`$04B5,Y`, Y = `$04AA`) before it looks at the command: while
@@ -235,8 +234,8 @@ export class Duel {
     return a;
   }
 }
-function runDuel(side, r) {
-  const duel = new Duel(side, r);
+function runDuel(side, r, g = null) {
+  const duel = new Duel(side, r, g);
   for (let s; (s = duel.next()); ) duel.act(s, duel.aiCommand(s));
   return { actions: duel.actions, ...duel.result };
 }
