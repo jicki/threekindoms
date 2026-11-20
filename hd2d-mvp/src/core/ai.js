@@ -4,6 +4,7 @@
 import { data, currentScenario, rng, NONE, SERVING, UNAPPEARED, RONIN, roads, citiesOf, holdingsOf, isPass, troopsOf, recruitLoyalty, books, isRuler, officerCity, searchOrder, maxHp, weaponGroup, equipBlock, wearEquip } from './game.js';
 import { setupWar, occupyEmpty, autoBattle, defenseCandidates, joinDefense } from './warcore.js';
 import { advancedBattle, officerPassive } from './battle-rules.js';
+import { developmentBonus } from './officer-passives.js';
 import { phantomWar } from './ahuinan.js';
 import { FEMALE_SCENARIO_ID } from './visuals.js';
 import { recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
@@ -560,8 +561,8 @@ function domestic(g, f, c, r, spend) {
       if (x < 40) {
         const field = tier && c.land !== c.industry ? (c.land < c.industry ? 'land' : 'industry') : g.month >= 3 && g.month <= 7 ? 'land' : 'industry';
         c.gov = Math.min(100, c.gov + (gain >= 31 ? 2 : 1));
-        c[field] = Math.min(999, c[field] + gain + (passive?.development ?? 0));
-      } else { c.gov = Math.min(100, c.gov + 1); c.pop = Math.min(9999, c.pop + Math.floor(gain / 2) + (passive?.development ?? 0)); }
+        c[field] = Math.min(999, c[field] + gain + developmentBonus(passive, field));
+      } else { c.gov = Math.min(100, c.gov + 1); c.pop = Math.min(9999, c.pop + Math.floor(gain / 2) + developmentBonus(passive, 'pop')); }
     } else if (x < 90) {
       const cost = 10 + r(10);
       if (c.gold < cost) return false;

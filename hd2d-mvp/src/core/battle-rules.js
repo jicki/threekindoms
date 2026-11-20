@@ -1,5 +1,8 @@
+import { EXTRA_PASSIVES, revisedOfficerPassive } from './officer-passives.js';
+
 export const fullStrategyWeather = (g) => g?.campaignRevision >= 3;
 export const advancedBattle = (g) => g?.campaignRevision >= 2;
+export const revisedPassives = (g) => g?.campaignRevision >= 8;
 
 export const WEATHER_NAMES = { clear: '晴', rain: '雨', snow: '雪' };
 const NORTH = new Set([0, 1, 2, 3, 4, 5, 8, 9, 11, 12, 14, 33, 34, 35, 37]);
@@ -27,6 +30,7 @@ export const PASSIVES = {
   county: { name: '理政', text: '执行开发的成果＋1', development: 1 },
   repair: { name: '兴修', text: '执行防灾的成果＋1', prevention: 1 },
   goodwill: { name: '安民', text: '任太守时成功施舍额外提高1点统治', charity: 1 },
+  ...EXTRA_PASSIVES,
 };
 const ASSIGNED = new Map(Object.entries({
   kongming: ['诸葛亮'], fire: ['周瑜', '陆逊', '庞统'], water: ['吕蒙', '鲁肃', '黄祖', '甘宁'],
@@ -42,8 +46,10 @@ export function officerPassive(data, g, id) {
   if (!advancedBattle(g)) return null;
   const o = data.officers[id];
   if (!o || o.raidTemp) return null;
-  const key = o.passive ?? (!o.clone && ASSIGNED.get(o.name)) ?? null;
-  if (key && Object.hasOwn(PASSIVES, key)) return PASSIVES[key];
+  if (Object.hasOwn(PASSIVES, o.passive)) return PASSIVES[o.passive];
+  if (revisedPassives(g)) return revisedOfficerPassive(o, PASSIVES);
+  const key = !o.clone && ASSIGNED.get(o.name);
+  if (key) return PASSIVES[key];
   return o.war >= 86 ? PASSIVES.command : o.int >= 86 ? PASSIVES.calculate : o.virtue >= 75 ? PASSIVES.goodwill : id % 2 ? PASSIVES.county : PASSIVES.repair;
 }
 

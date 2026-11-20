@@ -123,7 +123,8 @@ test('战役升级保留已有进度和开关，并启用新增人物、计策�
   assert.equal(g.autoBattleSkills, true);
   assert.equal(g.safeStrategyChance, true);
   assert.equal(abilityDuel(D, g, 264), null);
-  assert.equal(officerPassive(D, g, 264).name, '锐进');
+  assert.equal(officerPassive(D, { ...g, campaignRevision: 7 }, 264).name, '锐进');
+  assert.equal(officerPassive(D, g, 264).name, '宛城骑锋');
   assert.equal(g.officers[262].status, G.UNAPPEARED);
   assert.ok(G.searchOrder(g, 15).includes(262));
   assert.ok(G.searchOrder(g, 32).includes(264));

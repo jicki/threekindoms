@@ -81,6 +81,27 @@ test('宛城和襄阳错开相邻城市，通过短支路连回原道路', () =>
   }
 });
 
+test('荆州和新野从不同的接线进出襄阳，运输可逐段经过襄阳', () => {
+  for (const [map, build] of [
+    ['flat', expandedFlatBoard], ['board', expandedSandMeta],
+  ]) {
+    const original = read(`../assets/ai/sandtable/${map}/board.json`);
+    const { roads } = build(original);
+    const between = (a, b) => roads.find(r => [r.a, r.b].includes(a) && [r.a, r.b].includes(b));
+    const width = map === 'flat' ? 2 : 3;
+    const north = between(13, 30), south = between(21, 30);
+    assert.ok(north.spur && south.spur);
+    assert.notDeepEqual(north.spur.slice(0, width), south.spur.slice(0, width));
+    assert.deepEqual(north.spur.slice(-width), south.spur.slice(-width));
+    assert.equal(between(13, 21), undefined);
+  }
+  const g = game();
+  const owner = g.cities[21].faction;
+  g.cities[13].faction = g.cities[30].faction = owner;
+  assert.deepEqual(G.transportRoutes(g, 21).get(13), [21, 30, 13]);
+  assert.ok(!G.roads(21).includes(13));
+});
+
 test('新增道路两端及关隘的战场均可部署与恢复', () => {
   const g = game(), D = G.data();
   for (const n of EXPANDED_NODES) for (const from of n.road) for (const [city, source] of [[n.id, from], [from, n.id]]) {

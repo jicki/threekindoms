@@ -134,8 +134,11 @@ export class Duel {
   cursed(s) { return this.curse[s] > 0; }
   // What the hit roll of s's blow is held under: 100 / the matrix / 30, less the 20 his own 骂倒 adds to the roll.
   threshold(s, cmd) {
+    const me = this.side[s], passive = officerPassive(data(), this.g, me.id);
     const base = cmd === 'feint' ? 100 : cmd === 'desperate' ? 30 : this.hitChance(s) + (cmd === 'special' ? this.special(s)?.hit ?? 0 : 0);
-    return Math.min(100, Math.max(0, base - (this.cursed(s) ? 20 : 0)));
+    const first = cmd === 'attack' && passive?.firstDuelHit && !this.actions.some(a => a.by === me.id && a.cmd === 'attack') ? passive.firstDuelHit : 0;
+    const bonus = (passive?.duelHit?.[cmd] ?? 0) + (me.hp <= 30 ? passive?.lowHpDuelHit?.[cmd] ?? 0 : 0) + first;
+    return Math.min(100, Math.max(0, base + bonus - (this.cursed(s) ? 20 : 0)));
   }
   // The chance in percent that it lands. The roll is the original's table roll (core/origrng.js), which comes under
   // p more often than p in 100: 舍身 lands 36.7% of the time, 14.5% under 骂倒. The menu shows this number.
@@ -232,6 +235,12 @@ export class Duel {
     if (cmd === 'special') { this.specialUsed[s] = true; dmg = Math.min(127, Math.floor(dmg * this.special(s).damage / 100)); }
     if (cmd === 'desperate' && !hit) { self = 10 + draw(21, 31); me.hp = Math.max(0, me.hp - self); }
     if (dmg >= 128) dmg = 0; // `$B972 BMI`: a damage byte with the sign bit set skips the subtraction (舍身 under 骂倒 can reach it)
+    if (dmg > 0) {
+      const attack = officerPassive(data(), this.g, me.id)?.duelAttack?.[cmd] ?? 0;
+      const defense = officerPassive(data(), this.g, foe.id)?.duelDefense?.[cmd] ?? 0;
+      if (attack) dmg = Math.min(127, dmg + Math.max(1, Math.floor(dmg * attack / 100)));
+      if (defense) dmg -= Math.floor(dmg * defense / 100);
+    }
     foe.hp = Math.max(0, foe.hp - dmg);
     const a = { by: me.id, cmd, hit, dmg, self, ...(cmd === 'special' ? { name: this.special(s).name } : {}) }; this.actions.push(a);
     if (foe.hp <= 0 || me.hp <= 0) this.result = { dead: foe.hp <= 0 ? foe.id : me.id, winner: foe.hp <= 0 ? me.id : foe.id };

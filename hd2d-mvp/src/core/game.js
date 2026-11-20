@@ -15,6 +15,7 @@ import { chooseCampaignEvent, applyCampaignEvent } from './campaign-events.js';
 import { FAMOUS_ROSTER, FAMOUS_ROSTER_START, activateFamousRoster, extraSearchIds, famousRosterTemplate, hasFamousRoster, rosterRecordName, staticRosterSize } from './famous-roster.js';
 import { readResource } from '../resource.js';
 import { officerPassive, advancedBattle } from './battle-rules.js';
+import { developmentBonus } from './officer-passives.js';
 import { warlikeTier } from './warlike.js';
 import { invalidateCityIntel } from './strategy-intel.js';
 // 原版无主为 7；扩展剧本将无主编号放在实际势力编号之后。
@@ -57,7 +58,7 @@ const officerRecord = (o) => ({
 });
 
 // 战役规则修订号独立于存档结构。读取旧记录保留其规则，由玩家在战略回合选择升级。
-const CAMPAIGN_REVISION = 7;
+const CAMPAIGN_REVISION = 8;
 const FAMOUS_CAMPAIGN_RULES = { battlefields: 2, famousSkills: 2, famousRoster: 1, siegeTactics: true };
 const supportsNewBattle = () => D.expandedMap === true && (scenarioId === EXPANDED_MAP_ID || D.newBattleRules === true);
 function campaignDefaults() {
@@ -614,7 +615,7 @@ export function develop(g, cid, executor, field, cost) {
   c.gold -= cost;
   const q = Math.floor((cost * g.officers[executor].int) / 100);
   const d = Math.max(1, Math.floor((q * (r(8) + 10)) / 10));
-  const want = (field === 'pop' ? Math.max(1, Math.floor(d / 2)) : d) + (officerPassive(D, g, executor)?.development ?? 0);
+  const want = (field === 'pop' ? Math.max(1, Math.floor(d / 2)) : d) + developmentBonus(officerPassive(D, g, executor), field);
   const before = c[field]; c[field] = Math.min(cap, before + want);
   const a = c[field] - before;
   c.gov = Math.min(100, c.gov + 1 + (a >= 31 ? 1 : 0));

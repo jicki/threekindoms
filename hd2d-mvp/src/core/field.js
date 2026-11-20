@@ -11,6 +11,7 @@ import { battleEntryDirection, battlefieldLayout, battlefieldProfile } from './b
 import { siegeLayout, siegeRing, wallAt, gateAt, gateDefense, blockedStrategy, restoreGates } from './siege.js';
 import { abilityStrategy, abilityStrategyIds, strategySpecs } from './famous-skills.js';
 import { advancedBattle, aiBattleBonus, battleWeather, fullStrategyWeather, officerPassive, tacticWeather, WEATHER_NAMES, weatherPenalty } from './battle-rules.js';
+import { strategyBonus, strategyWard } from './officer-passives.js';
 
 const DIRS = [[0, -1], [0, 1], [-1, 0], [1, 0]]; // 上下左右
 export const W = 32, H = 19, FOREST = 0, SAND = 1, PLAIN = 2, RIVER = 3, MOUNT = 4, CASTLE = 5;
@@ -217,7 +218,7 @@ export class Field {
     const t = this.villages.some((v) => v.x === x && v.y === y) ? PLAIN : this.terr(x, y);
     const gate = gateAt(this.siege, x, y);
     const base = D.rules.move_cost[o.soldiers >= 600 ? 'large' : 'small'][o.army][t], passive = this.passive(u);
-    const ground = t === MOUNT ? passive?.mountains ?? 0 : t === PLAIN && passive?.march && o.soldiers >= 600 ? 1 : 0;
+    const ground = t === passive?.terrainMarch || (t === PLAIN && passive?.march && o.soldiers >= 600) ? 1 : t === MOUNT ? passive?.mountains ?? 0 : 0;
     return Math.max(1, base + weatherPenalty(this.weather, t, passive, o.army) - ground) + (u.side === 'att' && gate && !gate.open ? 2 : 0);
   }
   reach(u, budget = this.pool[u.side], allows = () => true) {
@@ -505,7 +506,7 @@ export class Field {
     const D = advancedBattle(this.g) || this.controls(u) || !this.human ? 10 : [5, 10, 20][this.g.level];
     const passive = this.passive(u), [weather] = tacticWeather(this.g, id, this.weather, passive);
     let s = 15 - 5*d + Math.max(a.int - b.int, 0) + 2 * Math.max(a.level - b.level, 0) + D
-      + (passive?.strategy ?? 0) - (this.passive(t)?.ward ?? 0) + weather + aiBattleBonus(this.g, this.unitFaction(u));
+      + strategyBonus(passive, id) - strategyWard(this.passive(t), id) + weather + aiBattleBonus(this.g, this.unitFaction(u));
     // 新局按完整数值封顶；没有标记的原版与旧记录保留原作的 8 位判定。
     if (this.g.safeStrategyChance !== true) { s &= 255; if (s & 128) s = 0; }
     const throughGate = this.defendingFromGate(u, id, t);
@@ -525,8 +526,8 @@ export class Field {
     let base = (b.loyalty <= 30 ? 60 : b.loyalty <= 50 ? 30 : 10) + Math.floor(((a.int + a.virtue) & 255) / 10) + 2 * Math.max(a.level - b.level, 0);
     if (fullStrategyWeather(this.g)) {
       const passive = this.passive(u), [weather] = tacticWeather(this.g, 8, this.weather, passive);
-      base = Math.min(95, Math.max(5, base + weather + (passive?.strategy ?? 0)
-        - (this.passive(t)?.ward ?? 0) + aiBattleBonus(this.g, this.unitFaction(u))));
+      base = Math.min(95, Math.max(5, base + weather + strategyBonus(passive, 8)
+        - strategyWard(this.passive(t), 8) + aiBattleBonus(this.g, this.unitFaction(u))));
     }
     return recruitThreshold(data(), this.g, this.unitFaction(u), t.id, this.passiveChance(base, u.side, 100), this.unitFaction(t));
   }

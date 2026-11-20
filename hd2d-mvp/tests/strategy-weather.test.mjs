@@ -116,6 +116,6 @@ test('修订 2 的既有记录和中断按原天气恢复，升级后才生效',
   assert.equal(prior.hitChance(prior.side('att')[0], prior.side('def')[0], 1), f.hitChance(u, target, 1));
   const g = structuredClone(before);
   assert.ok(G.upgradeCampaign(g));
-  assert.deepEqual(g, { ...before, campaignRevision: 7 });
+  assert.deepEqual(g, { ...before, campaignRevision: 8 });
   assert.equal(impact(5, 'rain', { revision: 2 }), impact(5, 'clear', { revision: 2 }));
 });

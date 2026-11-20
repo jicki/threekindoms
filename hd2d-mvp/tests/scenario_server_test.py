@@ -39,7 +39,13 @@ class ValidationTest(unittest.TestCase):
         scenario['officers'][0].pop('jp', None)
         scenario['weapons'] = [{'id': len(BASE['equipment']), 'name': '双剑', 'cat': '剑',
                                 'atk': 10, 'weight': 3, 'price': 100, 'icon': 0, 'shops': [30, 38]}]
-        cases = [scenario]
+        allowed = [scenario]
+        for key in ('infantryDrill', 'bowDrill', 'horseDrill', 'shieldLine', 'openingTempo', 'feintDrill',
+                    'ambushEye', 'fieldPlanner', 'woodland', 'farm', 'workshops', 'settlement'):
+            sample = copy.deepcopy(scenario)
+            sample['officers'][0]['passive'] = key
+            allowed.append(sample)
+        cases = list(allowed)
         for key, value in [('frontierMap', False), ('startYear', True), ('startYear', 237), ('map', 'standard')]:
             cases.append({**scenario, key: value})
         for key, value in [('city', 34), ('birthCity', [38]), ('passive', '__proto__')]:
@@ -54,11 +60,12 @@ const base=JSON.parse(readFileSync('hd2d-mvp/data/game-data.json')), cases=JSON.
 console.log(JSON.stringify(cases.map(s=>{try {validateScenario(s,base); return true;} catch {return false;}})));"""
         browser = json.loads(subprocess.check_output(['node', '--input-type=module', '-e', code], cwd=ROOT,
                                                       input=json.dumps(cases), text=True))
-        self.assertTrue(validate(scenario, BASE))
-        for item in cases[1:]:
+        for item in allowed:
+            self.assertTrue(validate(item, BASE))
+        for item in cases[len(allowed):]:
             with self.assertRaises(ScenarioError):
                 validate(item, BASE)
-        self.assertEqual(browser, [True] + [False] * (len(cases) - 1))
+        self.assertEqual(browser, [True] * len(allowed) + [False] * (len(cases) - len(allowed)))
 
     def test_campaign_map_skills_and_relations_match_browser_validation(self):
         scenario = version()

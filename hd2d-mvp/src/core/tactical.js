@@ -175,8 +175,9 @@ export class Tactical {
     for (const s of ['a', 'd']) {
       const S = this.side[s], u = this.gen(s), P = S.passive;
       if (!P || !u || u.dead || u.out) continue;
-      if (P.recovery) { S.hp = Math.min(maxHp(S.o), S.hp + P.recovery); u.hp = S.hp; }
-      if (P.tacticRecovery && this.round % 3 === 0 && S.tacticRecovered < 2) { S.tp++; S.tacticRecovered++; }
+      if (P.recovery && this.round % (P.recoveryPeriod ?? 1) === 0) { S.hp = Math.min(maxHp(S.o), S.hp + P.recovery); u.hp = S.hp; }
+      const period = P.tacticPeriod ?? (P.tacticRecovery ? 3 : 0);
+      if (period && this.round % period === 0 && S.tacticRecovered < (P.tacticLimit ?? 2)) { S.tp++; S.tacticRecovered++; }
     }
     // capture (S19): from round 4, HP below the difficulty gate, ≥2 adjacent enemies, loyalty ≠100
     if (this.round >= 4) for (const s of ['a', 'd']) {
@@ -305,7 +306,11 @@ export class Tactical {
     if (D > 0 && this.modern && t.kind !== 'gen' && u.kind !== 'gen') {
       const formed = this.live.some(v => v !== u && v.side === u.side && troopGroup(v) === troopGroup(u) && Math.abs(v.x - u.x) + Math.abs(v.y - u.y) <= 2);
       const counter = counterBonus(u, t, ranged);
-      D = Math.max(1, Math.floor(D * (100 + (formed ? 4 : 0) + counter + (S.passive?.troops ?? 0) - (T.passive?.guard ?? 0)) / 100));
+      const a = S.passive, d = T.passive;
+      const bonus = a?.troops && (!a.attackKind || a.attackKind === u.kind) && (!a.attackRounds || this.round <= a.attackRounds)
+        && (!a.closeCombat || !ranged) && (!a.rangedCombat || ranged) ? a.troops : 0;
+      const guard = d?.guard && (!d.guardKind || d.guardKind === t.kind) && (!d.guardRounds || this.round <= d.guardRounds) ? d.guard : 0;
+      D = Math.max(1, Math.floor(D * (100 + (formed ? 4 : 0) + counter + bonus - guard) / 100));
     }
     if (D > 0 && t.kind === 'cav' && T.unique === 'horsebow' && ranged) D = Math.max(1, Math.floor(D * 92 / 100));
     if (D > 0 && T.fortify && t.kind !== 'gen' && u.kind !== 'gen' && !ranged) D = Math.max(1, Math.floor(D * 94 / 100));

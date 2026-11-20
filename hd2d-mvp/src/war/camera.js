@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { blurWeight } from '../post.js';
 import { W, H } from '../core/field.js';
+import { advancedBattle } from '../core/battle-rules.js';
 import { YAWS, PITCH, TOP_PITCH, TURN_MS, EDGE, tween, siegeFrame } from './shared.js';
 
 export function makeCamera(wv) {
@@ -19,7 +20,7 @@ export function makeCamera(wv) {
   const LENS = { whole: { dof: 1.0, band: 0.12, far: 1.2, near: 1 }, far: { dof: 1.2, band: 0.09, far: 1.3, near: 1 }, mid: { dof: 1.4, band: 0.07, bandWorld: 2.2, rampWorld: 3.5, far: 1.4, near: 0.8 }, near: { dof: 1.4, band: 0.05, bandWorld: 2.2, rampWorld: 3.5, far: 1.5, near: 0.8 } };
   const STEPS = ['whole', 'far', 'mid', 'near'], STEP_BOX = { mid: [9, 6], near: [5, 3] }, CENTRE = new THREE.Vector3(0, 0.3, 0);
   const view = { yaw: YAWS[0], yawGoal: YAWS[0], yawFrom: YAWS[0], yawT0: null, dist: 31, distGoal: null, pitch: PITCH, pitchGoal: null, target: CENTRE.clone(), targetGoal: CENTRE.clone(), fit: true,
-    zoom: 'whole', zoomAcc: 0, zoomAt: 0, tactical: null };
+    zoom: 'whole', zoomAcc: 0, zoomAt: 0, tactical: null, compact: advancedBattle(field.g) };
   // Distance at which a box of cells lies between the HUD bands at the given yaw and pitch (binary search on distance, projecting
   // its corners). The whole board (world = true) is fixed to the map; the 9×6 and 5×3 boxes are laid out on the screen, centred on `target`.
   const corner = new THREE.Vector3();
@@ -32,10 +33,12 @@ export function makeCamera(wv) {
     }
     return Math.min(fitPoints(pts, { yaw, pitch, target, side }), 70);
   }
-  function fitPoints(pts, { yaw, pitch, target, side = 0.96, max = 90 }) {
+  function fitPoints(pts, { yaw, pitch, target, side = 0.96, max = 90, compact = false }) {
     const p = new THREE.Vector3();
     // Between the HUD bands (the title bar, the cards and the dock) and right of the action panel's column, with a small margin.
-    const top = Math.min(0.86, 1 - 2 * (Math.max(inset.top, 46) + 8) / innerHeight), bot = Math.max(-0.96, -1 + 2 * (inset.bottom + 8) / innerHeight);
+    const pad = compact ? 4 : 8;
+    const top = Math.min(compact ? 0.90 : 0.86, 1 - 2 * (Math.max(inset.top, 46) + pad) / innerHeight);
+    const bot = Math.max(compact ? -0.97 : -0.96, -1 + 2 * (inset.bottom + pad) / innerHeight);
     const lft = -side + 2 * inset.left / innerWidth;
     let lo = 3, hi = max;
     for (let i = 0; i < 18; i++) {
@@ -75,6 +78,9 @@ export function makeCamera(wv) {
   const wholeAt = new THREE.Vector3();
   function wholeView(o = {}) {
     const yaw = o.yaw ?? view.yawGoal, pitch = o.pitch ?? view.pitchGoal ?? view.pitch;
+    // 新战役默认少留一圈空地，仍用双方武将和城池的实际投影验算画面范围。
+    const closer = view.compact && pitch <= 1.2;
+    const margin = closer ? 1.05 : 1.2;
     const siege = pitch <= 1.2 && siegeFrame(field);
     if (siege) {
       const { cx, cy, moat, outer } = field.siege;
@@ -88,7 +94,17 @@ export function makeCamera(wv) {
         points.push(new THREE.Vector3(wx(u.x + dx), topY(u.x, u.y), wz(u.y + 0.5)));
       }
       wholeAt.set(wx((siege.x0 + siege.x1) / 2), CENTRE.y, wz((siege.y0 + siege.y1) / 2));
-      return { target: wholeAt, dist: Math.max(fitPoints(points, { yaw, pitch, target: wholeAt, max: 125 }), 1.2 * farDist(yaw, pitch)) };
+      const minimum = margin * farDist(yaw, pitch);
+      const fit = { yaw, pitch, target: wholeAt, max: 125, compact: closer, side: closer ? 0.98 : 0.96 };
+      let dist = fitPoints(points, fit), height = CENTRE.y;
+      // 攻防两端的模型高度不同，微调镜头中心以缩短距离并容纳整圈城防。
+      if (closer && dist > minimum) for (const y of [CENTRE.y - 0.55, CENTRE.y + 0.7]) {
+        wholeAt.y = y;
+        const next = fitPoints(points, fit);
+        if (next < dist) { dist = next; height = y; }
+      }
+      wholeAt.y = height;
+      return { target: wholeAt, dist: Math.max(dist, minimum) };
     }
     const board = fitBox(W, H, { world: true, target: CENTRE, yaw, pitch });
     if (pitch > 1.2) return { target: CENTRE, dist: board };
@@ -97,8 +113,9 @@ export function makeCamera(wv) {
     if (!xs.length) return { target: CENTRE, dist: board };
     const x0 = Math.min(...xs), x1 = Math.max(...xs), z0 = Math.min(...zs), z1 = Math.max(...zs), k = PAN_INSET.whole;
     wholeAt.set(Math.min(W / 2 - k, Math.max(-W / 2 + k, (x0 + x1) / 2)), CENTRE.y, Math.min(H / 2 - k, Math.max(-H / 2 + k, (z0 + z1) / 2)));
-    const fit = fitBox(x1 - x0 + 2, z1 - z0 + 2, { world: true, at: wholeAt, target: wholeAt, ys: [0, 2.6], yaw, pitch }); // up to the name tags
-    return { target: wholeAt, dist: Math.min(board, Math.max(fit, 1.2 * farDist(yaw, pitch))) };
+    const pad = closer ? 1.5 : 2;
+    const fit = fitBox(x1 - x0 + pad, z1 - z0 + pad, { world: true, at: wholeAt, target: wholeAt, ys: [0, 2.6], yaw, pitch }); // up to the name tags
+    return { target: wholeAt, dist: Math.min(board, Math.max(fit, margin * farDist(yaw, pitch))) };
   }
   const farDist = (yaw, pitch) => Math.min(fitBox(W, H, { world: true, target: CENTRE, yaw, pitch }), Math.max(fitInside(yaw, pitch), 1.25 * fitBox(...STEP_BOX.mid, { yaw, pitch, target: CENTRE })));
   const stepDist = (step, o = {}) => {
@@ -138,12 +155,12 @@ export function makeCamera(wv) {
   // The view as it is heading (each goal where one is set), kept to be given back: by the 计略's framing (castView), the overview
   // (view.tactical, truthy exactly while it is up) and a close-up (focusPair).
   const snapshot = () => ({ yaw: view.yawGoal, pitch: view.pitchGoal ?? view.pitch, zoom: view.zoom, dist: view.distGoal ?? view.dist, target: view.targetGoal.clone(),
-    atFit: !!view.atFit, moved: !!view.moved, panned: !!view.panned, fit: view.fit });
+    atFit: !!view.atFit, moved: !!view.moved, panned: !!view.panned, fit: view.fit, compact: view.compact });
   // Eases back to a snapshot's step, distance and centre, with the framing flags it had; yaw: its turn and tilt too. What else a
   // caller gives back (the pan flag, the pending fit) it sets itself.
   function restore(s, { yaw = false } = {}) {
     if (yaw) { view.yawFrom = view.yaw; view.yawGoal = s.yaw; view.yawT0 = performance.now(); view.pitchGoal = s.pitch; }
-    view.zoom = s.zoom; view.distGoal = s.dist; view.targetGoal.copy(s.target); view.atFit = s.atFit; view.moved = s.moved;
+    view.zoom = s.zoom; view.distGoal = s.dist; view.targetGoal.copy(s.target); view.atFit = s.atFit; view.moved = s.moved; view.compact = s.compact;
   }
   // The action panel's column on the 3D map (app.js warUnit, ui.css .actpanel) is kept out of the frame by the camera's left inset
   // (placeCamera), so the frame's middle already stands right of it.
@@ -254,6 +271,7 @@ export function makeCamera(wv) {
     const sel = wv.st.sel && !wv.st.sel.gone ? wv.st.sel : null;
     view.zoom = step; view.fit = false;
     if (step === 'whole') {
+      view.compact = false;
       view.panned = false; view.targetGoal.copy(wholeView().target); view.atFit = true; view.moved = !!sel; // a selected general must not pull the overview back to himself
     } else {
       // In from 全景 with no one selected: the board's middle, as 远 has always been, and still untouched, so a general picked next is framed.
@@ -329,13 +347,14 @@ export function makeCamera(wv) {
     // 镜头复位: default tilt and distance (pulled back on narrow windows), the selected unit centred.
     resetView() {
       castMoved(); cam.tactical(false);
+      view.compact = advancedBattle(field.g);
       view.moved = false; view.pitch = PITCH; view.pitchGoal = null; view.zoom = wv.st.sel && !wv.st.sel.gone ? 'mid' : 'whole'; view.zoomAcc = 0;
       if (wv.st.sel && !wv.st.sel.gone) { focusOn(wv.st.sel); view.distGoal = stepDist('mid'); } else view.fit = true;
     },
     // Centre a cell exactly at a given distance (close-ups, review captures).
     frame(x, y, dist = 10) { cam.tactical(false); view.panned = false; view.fit = false; view.atFit = false; view.moved = true; view.targetGoal.set(wx(x), topY(x, y), wz(y)); view.dist = dist; view.distGoal = null; },
     // Whole board in view (the opening shot, and 镜头复位 with nothing selected).
-    overview() { castMoved(); cam.tactical(false); wv.st.sel = null; wv.showOptions(); view.moved = false; view.pitch = PITCH; view.pitchGoal = null; view.zoom = 'whole'; view.fit = true; },
+    overview() { castMoved(); cam.tactical(false); wv.st.sel = null; wv.showOptions(); view.moved = false; view.pitch = PITCH; view.pitchGoal = null; view.zoom = 'whole'; view.fit = true; view.compact = advancedBattle(field.g); },
     // The board is read from one fixed angle (A2): a drag slides the map instead of turning or tilting it.
     orbit(dx, dy) { const k = view.dist * 0.0021; this.pan(-dx * k, -dy * k / Math.sin(view.pitch)); },
     // The wheel steps 全景 → far → mid → near: every 100 of wheel turned (wheel down pulls back) is one step, and the ends stop.
@@ -347,7 +366,7 @@ export function makeCamera(wv) {
       castMoved();
       const out = view.zoomAcc > 0, to = Math.min(STEPS.length - 1, Math.max(0, STEPS.indexOf(view.zoom) + (out ? -1 : 1))); view.zoomAcc = 0;
       // Pulling back at 全景 with the camera moved off it goes back to the overview.
-      if (STEPS[to] !== view.zoom || (out && !view.atFit)) {
+      if (STEPS[to] !== view.zoom || (out && (!view.atFit || (view.zoom === 'whole' && view.compact)))) {
         const from = view.zoom; setStep(STEPS[to]);
         // Pulling in, the cell under the pointer stays under it: with the turn and tilt kept, a point of the ground holds its place
         // on screen when its offset from the view's centre shrinks as the distance does. Without a pointed cell, as before.

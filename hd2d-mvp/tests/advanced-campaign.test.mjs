@@ -38,7 +38,7 @@ test('规则版本隔离旧专属技能，显式升级保留进度，为全部�
   const modern = new Tactical(old, lu, 40, 2, () => 0);
   const duel = new Duel(modern.side, () => 0, old), previous = new Duel(legacy.side, () => 0, before);
   assert.equal(duel.special('a'), null);
-  assert.equal(duel.hitChance('a'), Math.min(95, previous.hitChance('a') + 8));
+  assert.equal(duel.hitChance('a'), Math.min(95, previous.hitChance('a') + 7));
   assert.equal(officerPassive(expanded, old, zhuge).weatherproof, true);
   G.setData(base);
   assert.equal(battleWeather(G.newGame(4, 1, 7), 34), null);
@@ -362,7 +362,7 @@ test('编辑器扩展城市的出身、登场、售卖、开局年份和被动�
   const d = expandMap(applyScenario(base, s));
   G.setData(d, s.id);
   const g = G.newGame(4, 1, 7);
-  assert.equal(g.year, 193); assert.equal(g.campaignRevision, 7);
+  assert.equal(g.year, 193); assert.equal(g.campaignRevision, 8);
   const old = { ...structuredClone(g), campaignRevision: 2 };
   assert.ok(G.upgradeCampaign(old));
   assert.deepEqual(old, g, '自定义扩展剧本从修订 2 升级时保留人物、数据与进度');

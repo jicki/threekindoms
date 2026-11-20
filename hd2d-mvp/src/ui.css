@@ -453,6 +453,8 @@ body.phone .slots.scenario-choices .slot { min-height: var(--hit); }
 .unitpanel .bar.hp i { background: linear-gradient(#a6e07e, #5f9f3e); }
 .unitpanel dt { white-space: nowrap; }
 .unitpanel dl { display: grid; grid-template-columns: repeat(4, auto 1fr); gap: 1px 6px; margin: 2px 0; font-size: 14px; } .unitpanel dt { color: var(--dim); } .unitpanel dd { margin: 0; white-space: nowrap; }
+.unitpanel .terrain-label { grid-column: 1; }
+.unitpanel dd.terrain-detail { grid-column: 2 / -1; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 @container (max-width: 268px) { body:not(.flat2d) .unitpanel dl { font-size: 12.5px; column-gap: 3px; } } /* the foe's card squeezed beside ours just over 1200 px */
 .unitpanel .gear { display: flex; flex-wrap: wrap; gap: 0 16px; font-size: 14px; border-top: 1px solid color-mix(in srgb, var(--rule) 53.3%, transparent); padding-top: 3px; }
 .unitpanel .gear.flash { animation: gearFlash .6s ease-out; }

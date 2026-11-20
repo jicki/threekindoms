@@ -10,7 +10,7 @@ import { createSky2d } from './skyfx2d.js';
 import { layoutTags, measureTags } from './citytags.js';
 import { NONE } from './core/game.js';
 import { setCityLabel } from './strategy-label.js';
-import { expandedFlatBoard } from './core/expanded-map.js';
+import { expandedFlatBoard, isXiangyangRoad } from './core/expanded-map.js';
 import { readResource } from './resource.js';
 
 const DIR = 'assets/ai/sandtable/flat';
@@ -411,7 +411,8 @@ export async function createStrategyFlat(ctx) {
       if (r.a !== from && r.b !== from) continue;
       const n = r.p.length / 2, at = (k) => (r.a === from ? k : n - 1 - k) * 2, other = cities[r.a === from ? r.b : r.a], home = cities[from];
       let run = 0, next = 0.3;
-      for (let k = 1; k < n - 5; k++) {
+      const end = isXiangyangRoad(r.a, r.b) ? n : n - 5;
+      for (let k = 1; k < end; k++) {
         const [px, py, x, y] = [r.p[at(k - 1)], r.p[at(k - 1) + 1], r.p[at(k)], r.p[at(k) + 1]];
         run += Math.hypot(x - px, (y - py) / DOWN) / PAN_UNIT;
         if (run < next) continue;

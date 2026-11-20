@@ -2,7 +2,7 @@
 export const EXPANDED_MAP_ID = 'builtin-sovereigns-expanded-map';
 export const EXPANDED_NODES = Object.freeze([
   { id: 30, name: '襄阳', kind: 'city', road: [13, 21], template: 13, fraction: 0.50,
-    sandOffset: [-1.16, 0.24, 0.20], flatOffset: [-135, 22], geoOffset: [-1.32, -0.20] },
+    approach: 0.39, sandOffset: [-1.16, 0.24, 0.20], flatOffset: [-135, 22], geoOffset: [-1.32, -0.20] },
   { id: 31, name: '江州', kind: 'city', road: [26, 27], template: 27, fraction: 0.50 },
   { id: 32, name: '宛城', kind: 'city', road: [12, 13], template: 13, fraction: 0.50,
     sandOffset: [1.00, -0.025, 0.70], flatOffset: [124, 78], geoOffset: [1.11, -0.70] },
@@ -18,6 +18,7 @@ export const FRONTIER_PASS = Object.freeze({ id: 37, name: '望垣峡', kind: 'p
 export const FRONTIER_ISLAND = Object.freeze({ id: 38, name: '夷洲', kind: 'city', road: [17], template: 17,
   lon: 120.89, lat: 23.8, sand: [8.45, 0.30, 7.7], flat: [2942, 2226] });
 export const expandedNodes = (frontier = false) => frontier ? [...EXPANDED_NODES, FRONTIER_PASS, FRONTIER_ISLAND] : EXPANDED_NODES;
+export const isXiangyangRoad = (a, b) => a === 30 ? b === 13 || b === 21 : b === 30 && (a === 13 || a === 21);
 // 这两条原路在新地图经过新增城市；从两端出发都必须先到该城市。
 export const CROSSING_ROADS = Object.freeze([
   { road: [13, 22], via: 30 }, // 新野—衡阳经过襄阳
@@ -106,7 +107,14 @@ export function expandMap(data) {
   return d;
 }
 
-// 将预烘焙道路在同一个采样点拆分；偏离道路的据点通过短支路连接原线路。
+const approachSteps = 12;
+function roadSpur(point, site) {
+  if (point.every((value, i) => value === site[i])) return [];
+  const spur = [point];
+  for (let i = 1; i < approachSteps; i++) spur.push(point.map((v, axis) => v + (site[axis] - v) * i / approachSteps));
+  return [...spur, site];
+}
+
 export function splitMapRoads(roads, dimensions, addNode, frontier = false) {
   const sites = new Map();
   for (const node of frontier ? [...EXPANDED_NODES, FRONTIER_PASS] : EXPANDED_NODES) {
@@ -118,20 +126,24 @@ export function splitMapRoads(roads, dimensions, addNode, frontier = false) {
     const point = road.p.slice(cut * dimensions, (cut + 1) * dimensions);
     const site = addNode(node, point) ?? point;
     sites.set(node.id, site);
-    const first = { ...road, b: node.id, p: road.p.slice(0, (cut + 1) * dimensions) };
-    const second = { ...road, a: node.id, p: road.p.slice(cut * dimensions) };
-    if (road.sea) { first.sea = road.sea.slice(0, cut + 1); second.sea = road.sea.slice(cut); }
-    if (site.some((value, i) => value !== point[i])) {
-      const steps = 12, spur = [];
-      for (let i = 0; i <= steps; i++) for (let axis = 0; axis < dimensions; axis++) {
-        spur.push(i === 0 ? point[axis] : i === steps ? site[axis] : point[axis] + (site[axis] - point[axis]) * i / steps);
-      }
-      const reverse = [];
-      for (let i = steps; i >= 0; i--) reverse.push(...spur.slice(i * dimensions, (i + 1) * dimensions));
-      first.p.push(...spur.slice(dimensions)); second.p = [...reverse, ...second.p.slice(dimensions)];
-      if (road.sea) { first.sea.push(...Array(steps).fill(false)); second.sea = [...Array(steps).fill(false), ...second.sea]; }
-      first.spur = spur;
-      if (dimensions === 3) first.terrainAdjusted = second.terrainAdjusted = true;
+    // 襄阳到新野从更靠近新野的位置接回原路，避免两段在同一条支路上折返。
+    const approach = node.approach === undefined ? cut : Math.round((count - 1) * (road.a === a ? node.approach : 1 - node.approach));
+    const [left, right] = road.a === a ? [approach, cut] : [cut, approach];
+    const first = { ...road, b: node.id, p: road.p.slice(0, (left + 1) * dimensions) };
+    const second = { ...road, a: node.id, p: road.p.slice(right * dimensions) };
+    if (road.sea) { first.sea = road.sea.slice(0, left + 1); second.sea = road.sea.slice(right); }
+    const spurAt = (index) => roadSpur(road.p.slice(index * dimensions, (index + 1) * dimensions), site);
+    const firstSpur = spurAt(left), secondSpur = right === left ? firstSpur : spurAt(right);
+    if (firstSpur.length) {
+      first.spur = firstSpur.flat(); first.p.push(...firstSpur.slice(1).flat());
+      if (first.sea) first.sea.push(...Array(approachSteps).fill(false));
+      if (dimensions === 3) first.terrainAdjusted = true;
+    }
+    if (secondSpur.length) {
+      if (right !== left) second.spur = secondSpur.flat();
+      second.p.unshift(...secondSpur.slice(1).reverse().flat());
+      if (second.sea) second.sea.unshift(...Array(approachSteps).fill(false));
+      if (dimensions === 3) second.terrainAdjusted = true;
     }
     roads.splice(index, 1, first, second);
   }

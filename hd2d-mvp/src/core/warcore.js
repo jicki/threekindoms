@@ -293,7 +293,11 @@ export function fight(g, war) {
     const bonus = rulerPassive(g, faction)?.combat?.war ?? 0;
     const base = Math.floor(ids.reduce((a, id) => a + Math.max(O(id).war, Math.min(99, O(id).war + bonus)), 0) / 10) + Math.floor(ids.reduce((a, id) => a + O(id).soldiers, 0) / 100) + 10 * (O(ids[0])?.exp >> 12 || 0);
     if (!advancedBattle(g) || war.phantom) return base;
-    const qualified = ids.filter(id => O(id).soldiers >= 100 && O(id).hp > 0 && ['troops', 'guard', 'strategy', 'duel', 'tacticRecovery'].some(key => officerPassive(data(), g, id)?.[key]));
+    const qualified = ids.filter(id => {
+      if (O(id).soldiers < 100 || O(id).hp <= 0) return false;
+      const passive = officerPassive(data(), g, id);
+      return passive && ['troops', 'guard', 'strategy', 'duel', 'tacticRecovery', 'tacticPeriod', 'duelHit', 'duelAttack', 'duelDefense', 'firstDuelHit', 'lowHpDuelHit'].some(key => passive[key]);
+    });
     return base + Math.min(4, qualified.length, Math.floor(base / 20));
   };
   const baseA = strength(war.att.ids, war.attacker), baseD = war.def.ids.length ? strength(war.def.ids, war.defender) : 0;

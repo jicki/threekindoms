@@ -401,7 +401,9 @@ def validate(s, base):
             valid_city(o['birthCity'], '出生地')
         if 'passive' in o and o['passive'] not in (
             'kongming', 'fire', 'water', 'calculate', 'range', 'ward', 'charge', 'mountain',
-            'duel', 'endure', 'command', 'protection', 'morale', 'county', 'repair', 'goodwill'
+            'duel', 'endure', 'command', 'protection', 'morale', 'county', 'repair', 'goodwill',
+            'infantryDrill', 'bowDrill', 'horseDrill', 'shieldLine', 'openingTempo', 'feintDrill',
+            'ambushEye', 'fieldPlanner', 'woodland', 'farm', 'workshops', 'settlement',
         ):
             fail('人物被动无效')
         birth = o['birthYear']

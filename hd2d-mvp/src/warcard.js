@@ -23,7 +23,9 @@ export function unitCard({ u, o, field, D, mine, village, side = 'left', portrai
   const troopText = troop ? `兵种 · ${troop}` : null;
   const chips = [PHONE ? troopText : null, u.qimen ? `奇门 ${u.qimen}日` : null, u.stop ? `${u.stopBy ?? '受困'} ${u.stop}日` : null, field.ambush?.[u.side]?.u === u ? '伏兵中' : null].filter(Boolean);
   // 兵 and 体 are the bars' own figures above, so the list starts at 武力: four pairs a row fit even a card squeezed beside the other.
-  const dl = [['武力', o.war], ['智力', o.int], ['人德', o.virtue], ['忠诚', o.loyalty], ['等级', o.level], ['经验', expText(o)], ['军属性', o.army], ['地形', village ? '村落' : field.ground(u.x, u.y)]];
+  const ground = village ? '村落' : field.ground(u.x, u.y);
+  const groundDetail = ground.includes('（');
+  const dl = [['武力', o.war], ['智力', o.int], ['人德', o.virtue], ['忠诚', o.loyalty], ['等级', o.level], ['经验', expText(o)], ['军属性', o.army]];
   const gear = h('div', { class: `gear${flash ? ' flash' : ''}` },
     h('span', {}, gearIcon(w ? o.weapon : null), `武器 ${w ? `${w.name} 攻+${w.atk}` : '—'}`),
     h('span', {}, gearIcon(a ? 24 + o.armor : null), `防具 ${a ? `${a.name} 防+${a.dfn}` : '—'}`));
@@ -34,7 +36,8 @@ export function unitCard({ u, o, field, D, mine, village, side = 'left', portrai
       h('div', { class: 'head' }, h('h3', { class: mine ? 'mine' : 'foe' }, `${u.commander ? '★' : ''}${name(u.id)}`),
         !PHONE && troopText ? h('span', { class: 'unit-troop', title: troopText }, troop) : null,
         h('div', { class: 'bars' }, bar('troops', '兵', o.soldiers, TROOPS_FULL, o.soldiers), bar('hp', '体', o.hp, maxHp, `${o.hp}/${maxHp}`))),
-      h('dl', {}, ...dl.flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)])),
+      h('dl', {}, ...dl.flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]),
+        h('dt', groundDetail ? { class: 'terrain-label' } : {}, '地形'), h('dd', groundDetail ? { class: 'terrain-detail' } : {}, ground)),
       gear,
       chips.length || trapped ? h('div', { class: 'chips' }, ...chips.map((c) => h('i', { class: 'chip' }, c)), trapped ? h('span', { class: 'hint bad' }, trapped) : null) : null,
       hint ? h('div', { class: 'hint' }, hint) : null),

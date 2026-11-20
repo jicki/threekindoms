@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { SEA_Y } from './worldmap.js';
+import { isXiangyangRoad } from './core/expanded-map.js';
 
 // Quiet road ink follows the bake at roughly three CSS pixels wide; fresh water keeps its own surface.
 const ROAD_HALF_PX = 1.4, ROAD_CORE = 0.45, ROAD_ALPHA = 0.55, ROAD_SEA_ALPHA = 0.18, ROAD_END_ALPHA = 0.7, ROAD_LIFT = 0.012;
@@ -119,12 +120,14 @@ export function createStrategyRoads({ scene, data, sand, world, cityPos, groundY
     baseRoadMat.customProgramCacheKey = () => 'sandRoadInk';
     for (const c of data.cities) for (const n of c.roads) if (c.id < n) {
       const course = world.roadPath(c.id, n); if (!course?.length) continue; // never invent a second course beside the bake
+      const throughXiangyang = isXiangyangRoad(c.id, n);
       let run = 0;
       const pts = thin(course.map((p, k) => {
         if (k) run += p.distanceTo(course[k - 1]);
         const atSea = world.heightAt(p.x, p.z) < SEA_Y + 0.01, wet = waterAt(p.x, p.z);
-        let bridge = false;
-        if (wet && !atSea) for (let i = 0; i < bridges.length; i += 6) if ((p.x - bridges[i]) ** 2 + (p.z - bridges[i + 2]) ** 2 <= ROAD_BRIDGE_RADIUS ** 2) { bridge = true; break; }
+        // 襄阳的新接线经过河岸，保留跨河路面，避免旧桥遮罩截断道路。
+        let bridge = wet && !atSea && throughXiangyang;
+        if (wet && !atSea && !bridge) for (let i = 0; i < bridges.length; i += 6) if ((p.x - bridges[i]) ** 2 + (p.z - bridges[i + 2]) ** 2 <= ROAD_BRIDGE_RADIUS ** 2) { bridge = true; break; }
         const alpha = wet && !bridge ? 0 : atSea ? (dash(run) ? ROAD_SEA_ALPHA : 0) : ROAD_ALPHA * (run < 0.35 || k > course.length - 8 ? ROAD_END_ALPHA : 1);
         return { x: p.x, y: (bridge ? Math.max(world.surfaceAt(p.x, p.z), p.y) : world.surfaceAt(p.x, p.z)) + ROAD_LIFT, z: p.z, atSea, alpha };
       }));

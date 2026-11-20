@@ -1,5 +1,6 @@
 // Strategy markers: receives the scene, board, city footprints and road/height functions; owns rings, beads and pulses.
 import * as THREE from 'three';
+import { isXiangyangRoad } from './core/expanded-map.js';
 
 // Only the hidden portion of a marker is drawn again; a single instanced draw covers all the beads.
 const MARK_GHOST_OPACITY = 0.34, BEAD_GHOST_OPACITY = 0.35;
@@ -55,10 +56,12 @@ export function createStrategyMarks({ scene, data, sand, world, cityPos, cityRea
     for (const [from, to] of links) {
       // Beads along the road as drawn, from this city outward.
       const pts = pathOf(from, to);
+      const throughXiangyang = isXiangyangRoad(from, to), end = pts.at(-1);
       let run = 0, next = 0.3;
       pts.forEach((p, k) => {
         if (k) run += p.distanceTo(pts[k - 1]);
-        if (run < next || k > pts.length - 6) return;
+        // 新接线的采样间距与旧路不同，按到达城边的距离收尾。
+        if (run < next || (throughXiangyang ? p.distanceTo(end) < 0.15 : k > pts.length - 6)) return;
         const d = new THREE.Mesh(flowGeo, flowMat); d.position.copy(p); d.userData = { t: run, y: Math.max(p.y, groundY(p.x, p.z)) + 0.06 }; d.position.y = d.userData.y; scene.add(d); flow.push(d); next += 0.18;
       });
     }

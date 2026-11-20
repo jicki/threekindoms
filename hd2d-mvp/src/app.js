@@ -1363,7 +1363,8 @@ const saveCity = () => (sel != null && mineCity(sel) ? sel : g.factions[g.player
 async function upgradeCampaignRules() {
   if (!mapCalm()) return toast('请在己方战略回合完成当前操作后升级', 3500);
   const campaign = g;
-  const mechanics = g.campaignRevision === 6 ? '地图情报和新版选城'
+  const mechanics = g.campaignRevision === 7 ? '新版人物被动'
+    : g.campaignRevision === 6 ? '地图情报、新版选城和新版人物被动'
     : g.campaignRevision === 5 ? '普通步兵守城新编队与地图情报'
     : g.campaignRevision === 4 ? '新版兵种配置及守城编队'
     : fullStrategyWeather(g) ? '主辅兵种编队' : advancedBattle(g) ? '计策天气及主辅兵种编队' : '新版战场、计策天气、同盟援军、人物被动及主辅兵种编队';

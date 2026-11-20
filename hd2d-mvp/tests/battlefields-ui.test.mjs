@@ -37,7 +37,19 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
         return { shown: points.every(p => p.x > 8 && p.x < innerWidth - 8 && p.y > 42 && p.y < innerHeight - 24), zoom: w.viewState?.().zoom };
       });
       assert.equal(framing.shown, true, '默认视角包含双方队伍与整圈护城河');
-      if (mode === '3d') assert.equal(framing.zoom, 'whole');
+      if (mode === '3d') {
+        assert.equal(framing.zoom, 'whole');
+        const near = await p.evaluate(() => {
+          const w = window.__game.war, dist = w.viewState().dist;
+          w.zoom(120); return dist;
+        });
+        await p.waitForFunction(() => window.__game.war.viewState().still);
+        const wide = await p.evaluate(() => {
+          const w = window.__game.war, dist = w.viewState().dist;
+          w.overview(); return dist;
+        });
+        assert.ok(near < wide, `新版默认视角 ${near} 应比旧构图 ${wide} 更近`);
+      }
       assert.ok(spriteRequests.some(path => /\/march\/(attacker|defender)\.png$/.test(path)), '进入战场后加载行军素材');
       const state = await p.evaluate(() => {
         const w = window.__game.war, pass = [], doors = [], masonry = [];
@@ -63,8 +75,22 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
       }
       await p.locator('.deploybtn .btn', { hasText: '布阵完成' }).click();
       await p.waitForFunction(() => !window.__game.war.st.deploying);
+      await p.waitForFunction(() => window.__game.war.myTurn && !window.__game.war.st.busy && !document.querySelector('.banner,.panel.msg,.shade'));
+      const labels = await p.evaluate(() => {
+        const w = window.__game.war, f = w.field, u = f.side('att')[0], saved = { x: u.x, y: u.y };
+        const rows = [f.siege.outer, f.siege.inner].map(ring => {
+          const gate = f.siege.gates.find(candidate => candidate.ring === ring);
+          w.cancel(); Object.assign(u, { x: gate.x, y: gate.y }); w.clickCell(u.x, u.y);
+          document.body.classList.add('card-open');
+          const value = document.querySelector('.unitpanel .terrain-detail'), box = value.closest('.unitpanel').getBoundingClientRect();
+          const text = document.createRange(); text.selectNodeContents(value);
+          return { label: value.textContent, fits: [...text.getClientRects()].every(rect => rect.right <= box.right - 1 && rect.left >= box.left + 1) };
+        });
+        w.cancel(); Object.assign(u, saved); document.body.classList.remove('card-open');
+        return rows;
+      });
+      assert.deepEqual(labels, ['外', '内'].map(ring => ({ label: `${ring}城门（封闭，攻方突破消耗＋2）`, fits: true })));
       if (mode === 'phone') {
-        await p.waitForFunction(() => window.__game.war.myTurn && !window.__game.war.st.busy && !document.querySelector('.banner,.panel.msg,.shade'));
         const cdp = await p.context().newCDPSession(p);
         await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
         const tap = async (locator) => { const r = await locator.boundingBox(); assert.ok(r); await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: r.x + r.width / 2, y: r.y + r.height / 2 }] }); await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); };
