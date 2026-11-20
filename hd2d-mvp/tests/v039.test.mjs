@@ -34,6 +34,49 @@ test('新版侦察跨年有效三个月，超过期限或易主后重新侦察�
   assert.equal(cityIntel(g, city, 255), false);
 });
 
+for (const [mode, query] of [['3d', ''], ['flat', '&phone&flat']]) {
+  test(`${mode} 大地图己方城名在选城时保留势力色，旧城签保持原配色`, async () => {
+    const page = await game.open(query);
+    try {
+      if (mode === 'flat') await page.setViewportSize({ width: 844, height: 390 });
+      await newCampaign(page, '刘备');
+      await page.waitForFunction(() => {
+        const { g, strategy } = window.__game;
+        return strategy.tagOf(g.factions[g.player].city)?.isConnected;
+      });
+      const colors = await page.evaluate(() => {
+        const { g, strategy } = window.__game;
+        const id = g.factions[g.player].city, tag = strategy.tagOf(id);
+        const probe = document.createElement('span');
+        document.body.append(probe);
+        const base = tag.style.getPropertyValue('--c');
+        const read = el => getComputedStyle(el).color;
+        probe.style.color = `color-mix(in srgb, ${base} 67%, #fff5d4)`;
+        const expected = read(probe), regular = read(tag);
+        strategy.pickMode([id]);
+        strategy.highlight(id);
+        const candidate = read(tag), highlighted = tag.classList.contains('cand') && tag.classList.contains('hl');
+        strategy.highlight(null);
+        strategy.pickMode(null);
+        strategy.refresh({ ...g, campaignRevision: 6 });
+        probe.style.color = '#fff3d6';
+        const result = { kind: strategy.kind, expected, regular, candidate, highlighted,
+          legacy: read(tag), legacyWhite: read(probe), mine: tag.classList.contains('mine') };
+        probe.remove();
+        strategy.refresh(g);
+        return result;
+      });
+      assert.equal(colors.kind, mode);
+      assert.equal(colors.mine, true);
+      assert.equal(colors.highlighted, true);
+      assert.equal(colors.regular, colors.expected);
+      assert.equal(colors.candidate, colors.expected);
+      assert.equal(colors.legacy, colors.legacyWhite);
+      assert.deepEqual(page.errors, []);
+    } finally { await page.context().close(); }
+  });
+}
+
 test('新版地图遮蔽敌方兵力，鼠标、键盘和手柄均可进入侦察', async () => {
   const page = await game.open('&flat', { setup: fakePad });
   try {

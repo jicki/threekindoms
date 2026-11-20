@@ -284,7 +284,6 @@ body.handoff .dock, body.handoff .endturn { pointer-events: none; opacity: .45; 
 .ctag.hov { opacity: 1; background: #4a3214f0; color: #fff4d0; box-shadow: inset 0 -2px 0 var(--c), 0 0 0 2px #ffe890, 0 0 18px #ffe06099; }
 .ctag.hov small { display: block; }
 .ctag small { display: block; font-size: 12px; font-weight: 400; color: var(--c); filter: brightness(1.45) saturate(.8); }
-.ctag.compact-city { color: color-mix(in srgb, var(--c) 67%, #fff5d4); }
 .ctag.mine { font-weight: 900; color: #fff3d6; box-shadow: inset 0 -2px 0 var(--c), 0 0 0 1px #ffd89070, 0 2px 6px #0006; }
 .ctag.news { box-shadow: inset 0 -2px 0 var(--c), 0 0 0 2px var(--news), 0 0 20px var(--news); animation: newsBlink .45s ease-in-out 4 alternate; }
 .ctag.news::before { content: attr(data-news); position: absolute; left: 50%; bottom: calc(100% + 4px); z-index: 1; pointer-events: none; transform: translateX(-50%); padding: 1px 8px; border-radius: 3px; white-space: nowrap; font: 17px var(--brush); letter-spacing: 2px; color: #fff4dc; background: #120c08e8; box-shadow: inset 0 -2px 0 var(--news), 0 2px 8px #000a; }
@@ -293,6 +292,8 @@ body.handoff .dock, body.handoff .endturn { pointer-events: none; opacity: .45; 
 /* Map picking: candidate cities glow, the others step back. */
 .ctag.cand { opacity: 1; background: #3a2610f0; color: #fff4d0; box-shadow: inset 0 -2px 0 var(--c), 0 0 0 2px #ffd860, 0 0 16px #ffd04a90; animation: candGlow 1.2s ease-in-out infinite alternate; }
 .ctag.cand.hl { background: #6a4618f4; box-shadow: inset 0 -2px 0 var(--c), 0 0 0 3px #fff0a0, 0 0 24px #ffe060; }
+/* 简洁城签的文字使用势力色，己方和候选状态用字重及边框区分。 */
+.ctag.compact-city { color: var(--c); color: color-mix(in srgb, var(--c) 67%, #fff5d4); }
 .ctag.dim { opacity: .28; filter: grayscale(.7); }
 @keyframes candGlow { to { box-shadow: inset 0 -2px 0 var(--c), 0 0 0 2px #ffe890, 0 0 26px #ffd04ac0; } }
 .mappick { position: fixed; top: 62px; left: 50%; transform: translateX(-50%); z-index: 15; width: max-content; max-width: min(760px, 94vw); padding: 10px 14px 12px; animation: modalIn .22s cubic-bezier(.2,.9,.3,1.1); }
