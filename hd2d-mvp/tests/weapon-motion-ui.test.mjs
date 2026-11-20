@@ -155,7 +155,6 @@ test('原版换装继续使用原有单挑素材和音效', { timeout: 60000 }, 
   page.on('request', (request) => { if (request.url().includes('/characters/action-')) requests.push(request.url()); });
   try {
     const result = await page.evaluate(async () => {
-      window.__timeScale(4);
       const { G, debug, audio } = window.__game, { Tactical } = await import('./src/core/tactical.js');
       const view = debug.duelView, g = G.newGame(4, 1, 7), officer = 38, enemy = 51, textures = [];
       const sounds = [], previous = audio.sfx;
@@ -163,7 +162,10 @@ test('原版换装继续使用原有单挑素材和音效', { timeout: 60000 }, 
       try {
         for (const equip of [8, 18]) {
           G.wearEquip(g, officer, equip);
+          // 素材加载按真实时间计时，只有演出使用加速时钟。
+          window.__timeScale(1);
           await debug.loadOfficerSprites([officer, enemy], g);
+          window.__timeScale(4);
           const battle = new Tactical(g, officer, enemy, 2, () => 0, { human: 'a' });
           battle.deploy();
           view.setPlace({ month: 2, city: 12, siege: null }); debug.show('dview');
