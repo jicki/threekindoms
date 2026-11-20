@@ -163,16 +163,12 @@ async function loadDuelStrip(key, details = null, sprite = `duel-${key}`) {
 
 let guoJiaDuelLoad;
 async function loadGuoJiaDuel(details) {
-  const original = loadDuelStrip(24, details, 'duel-guojia-original');
   guoJiaDuelLoad ??= stripSource('duel', 'guojia-v2').then(packSpriteStrip).catch(() => {
     guoJiaDuelLoad = null;
     return null;
   });
-  const [fallback, remade] = await Promise.all([original, guoJiaDuelLoad]);
-  if (!remade) return fallback;
-  // 掉头、落马特写和败北演出沿用完整的个人动作。
-  const { turn, wheel, extra } = fallback ?? {};
-  return { ...remade, turn, wheel, extra };
+  // 新旧郭嘉是两套不同装束。重制图缺失时整套回退，避免落马或掉头时突然换装。
+  return (await guoJiaDuelLoad) ?? loadDuelStrip(24, details, 'duel-guojia-original');
 }
 
 // War-map march strips: each side's general from the side, three-quarter front and three-quarter back,

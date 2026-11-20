@@ -28,10 +28,9 @@ const FOREST = 0, RIVER = 3, MOUNT = 4, CASTLE = 5;
 // carries on beyond it, back to the wall line (BACK) and out past every framing.
 const CW = 34, CD = 14, S = 0.8, Z0 = 5, BACK = -9.5;
 const HERO_H = 2.1; // idle rider + horse height in world units (0.1.0's 2.3 read as too big)
-// Strips are cut to one figure height including the weapon, so a raised glaive shrank its rider. Riders
-// are sized by their solid body instead (meta.body px, thin weapons left out), within -15 %…+20 %.
-const BODY_PX = 110;
-const unitOf = (meta) => (HERO_H / meta.figH) * Math.min(1.2, Math.max(0.85, meta.body ? BODY_PX / meta.body : 1)) * (meta.scale ?? 1);
+// 按待机帧的骑手和坐骑实体高度定比例。长兵、头饰和透明留白仍保留各自的轮廓。
+const RIDER_BODY_H = 2.06, FALLEN_W = 2.45, FALLEN_H = 1.0;
+const unitOf = (meta) => (meta.body ? RIDER_BODY_H / meta.body : HERO_H / meta.figH) * (meta.scale ?? 1);
 export { unitOf as duelMotionUnit };
 const GALLOP = 5.5, WALK = 1.4, DRIVE = 9; // world units per second; DRIVE: the fastest a blow's drive in covers ground
 // Gaits are driven by ground covered, not by time: one frame per STEP of travel, so hooves never slide.
@@ -346,6 +345,7 @@ export function createDuelView(T, sprites = {}, audio) {
     const tex = A.tex.clone(); spriteFrame(tex, meta, 0); tex.needsUpdate = true;
     const body = billboard(tex, cw * unit, ch * unit, false);
     body.position.y = (ch * unit) / 2; body.userData.ax = (cw / 2 - meta.anchor) * unit;
+    body.userData.y0 = body.position.y;
     return { body, unit };
   }
   function rider(battle, side, look, dir, personal) {
@@ -361,10 +361,14 @@ export function createDuelView(T, sprites = {}, audio) {
       for (const S of [A.turn, A.wheel]) if (S) { const c = { body: framePlane(S, unit).body, meta: S.meta }; c.body.position.x = c.body.userData.ax; c.body.visible = false; cards.push(c); g.add(c.body); }
       // The third sheet is drawn facing right like the side strip and turns with him (show()); each of its frames
       // stands on its own ground line, meta.base px above the frame's bottom edge, so the frame sinks by that much.
-      if (A.extra) { const c = { body: framePlane(A.extra, unit).body, meta: A.extra.meta, follows: true }; c.body.userData.y0 = c.body.position.y; c.body.visible = false; cards.push(c); g.add(c.body); }
+      if (A.extra) { const c = { body: framePlane(A.extra, unit).body, meta: A.extra.meta, follows: true }; c.body.visible = false; cards.push(c); g.add(c.body); }
     } else {
-      const own = sprites[`officer-${id}`], tex = own || sprites[look] || unitTex(look), img = tex.image, hh = own ? HERO_H : HERO_H * 0.9;
-      body = billboard(tex, (hh * img.width) / img.height, hh, false); body.position.y = hh / 2; body.userData.ax = 0;
+      const tex = sprites[`officer-${id}`] || sprites[look] || unitTex(look), img = tex.image;
+      const box = frameBox({ tex, meta: { frames: ['stand'], cell: [img.width, img.height] } }, 'stand');
+      unit = box ? Math.min(RIDER_BODY_H / (box.y1 - box.y0), HERO_H * 1.35 / img.height) : HERO_H / img.height;
+      body = billboard(tex, img.width * unit, img.height * unit, false);
+      body.position.y = (img.height / 2 - (box ? img.height - box.y1 : 0)) * unit;
+      body.userData.ax = 0;
     }
     // A ground ring in the side's colour (as on the 白兵 field) under a soft contact shadow.
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.9, 32), new THREE.MeshBasicMaterial({ color: look === 'attacker' ? '#3f9cff' : '#ff6a4a', transparent: true, opacity: 0.35, depthWrite: false }));
@@ -380,6 +384,7 @@ export function createDuelView(T, sprites = {}, audio) {
   function setFace(R, f, width = 1) { R.face = f; R.body.scale.x = f * width; R.body.position.x = R.body.userData.ax * f * width; }
   const hasFrame = (R, name) => !!R.meta?.frames.includes(name);
   const cardOf = (R, name) => R.cards.find((c) => c.meta.frames.includes(name));
+  const frameBase = (meta, name) => name === 'downed' ? meta.rest ?? meta.base?.[name] ?? 0 : meta.base?.[name] ?? 0;
   // Whether he has this pose drawn (on the side strip or a card), without falling back to a stand-in.
   const hasPose = (R, name) => hasFrame(R, name) || !!cardOf(R, name);
   // The meta (strip or card) a pose is drawn on, and its tip for that pose, after following the stand-ins.
@@ -393,13 +398,16 @@ export function createDuelView(T, sprites = {}, audio) {
       spriteFrame(card.body.material.map, card.meta, card.meta.frames.indexOf(n));
       if (card.follows) {
         card.body.scale.x = R.face; card.body.position.x = card.body.userData.ax * R.face;
-        card.body.position.y = card.body.userData.y0 - (card.meta.base?.[n] || 0) * R.unit;
       }
+      card.body.position.y = card.body.userData.y0 - frameBase(card.meta, n) * R.unit;
       return;
     }
     if (!R.meta) { R.body.rotation.z = R.face * (LEAN[name] ?? LEAN[ALIAS[name]] ?? 0); return; }
     const i = R.meta.frames.indexOf(n);
-    if (i >= 0) spriteFrame(R.body.material.map, R.meta, i);
+    if (i >= 0) {
+      spriteFrame(R.body.material.map, R.meta, i);
+      R.body.position.y = R.body.userData.y0 - frameBase(R.meta, n) * R.unit;
+    }
   }
   const clip = (R, name) => duelMotionClip(R.meta, name);
   // The idle breath runs in update(); a clip or a ride takes the rider over until it ends.
@@ -802,15 +810,21 @@ export function createDuelView(T, sprites = {}, audio) {
     const A = sprites[`troop-${W.look}-soldier`];
     if (!A?.meta || !man) return;
     const unit = 1.3 / A.meta.figH, mx = man.g.position.x, mz = man.g.position.z;
+    const figure = cardOf(man, man.frame) ? man.strip.extra : man.strip;
+    const box = frameBox(figure, man.frame);
+    const edges = box ? [figure.meta.anchor - box.x0, box.x1 - figure.meta.anchor] : [0, 0];
+    if (man.face < 0) edges.reverse();
     const run = A.meta.clips.walk, lap = run.reduce((a, f) => a + f[1], 0) * 0.6; // the walk cycle, quickened to a jog
     const go = [-1, 1].map(async (s, i) => {
       const { body } = framePlane(A, unit), g = new THREE.Group();
       const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.28, 16), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.28, depthWrite: false }));
       shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.01; shadow.scale.y = 0.45;
+      g.name = 'duel-capture-guard';
       g.add(body, shadow); scene.add(g); cast.push(g);
       const M = { g, body, cards: [], meta: A.meta, unit, face: 1 };
       // One on each side of him along the line, clear of his body and his weapon, a step nearer the camera.
-      const x0 = -W.dir * (5.6 + i * 0.4), z0 = -0.9 + i * 0.3, x1 = mx + s * 1.05, z1 = mz + 0.35 + i * 0.08;
+      const clearance = Math.max(1.05, 0.4 + edges[i] * man.unit);
+      const x0 = -W.dir * (5.6 + i * 0.4), z0 = -0.9 + i * 0.3, x1 = mx + s * clearance, z1 = mz + 0.35 + i * 0.08;
       g.position.set(x0, 0.25, z0); setFace(M, Math.sign(x1 - x0) || W.dir);
       await wait(i * 160);
       const ms = (Math.hypot(x1 - x0, z1 - z0) / 2.8) * 1000;
@@ -836,36 +850,47 @@ export function createDuelView(T, sprites = {}, audio) {
   function frameBox(A, name, from = 0) {
     const { frames, cell: [cw, ch] } = A.meta, i = frames.indexOf(name), img = A.tex.image;
     if (i < 0 || !img) return null;
-    let d = pixels.get(img);
-    if (!d) { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const g = c.getContext('2d'); g.drawImage(img, 0, 0); d = g.getImageData(0, 0, c.width, c.height); pixels.set(img, d); }
+    let framesOf = pixels.get(img);
+    if (!framesOf) { framesOf = new Map(); pixels.set(img, framesOf); }
+    let d = framesOf.get(i);
+    if (!d) {
+      const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+      const g = c.getContext('2d', { willReadFrequently: true });
+      const cols = A.meta.atlasCols || frames.length;
+      g.drawImage(img, (i % cols) * cw, Math.floor(i / cols) * ch, cw, ch, 0, 0, cw, ch);
+      d = g.getImageData(0, 0, cw, ch).data; framesOf.set(i, d);
+    }
     let x0 = cw, y0 = ch, x1 = -1, y1 = -1;
-    const cols = A.meta.atlasCols || frames.length, px = (i % cols) * cw, py = Math.floor(i / cols) * ch;
-    for (let y = from; y < ch; y++) for (let x = 0; x < cw; x++) if (d.data[((py + y) * d.width + px + x) * 4 + 3] >= 128) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    for (let y = from; y < ch; y++) for (let x = 0; x < cw; x++) if (d[(y * cw + x) * 4 + 3] >= 128) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
     return x1 < 0 ? null : { x0, y0, x1: x1 + 1, y1: y1 + 1, cx: (x0 + x1 + 1) / 2, cy: (y0 + y1 + 1) / 2 };
   }
   // The general on foot, apart from his horse: a copy of his side strip (DOWNED) and his third card (thrown, landing,
   // struggling, kneeling). lying: drawn over the ground (onTop; see the DOWNED note below).
   function onFoot(R, lying) {
-    const A = R.strip, u = unitOf(A.meta);
-    const { body } = framePlane(A), c = { body: framePlane(A.extra, u).body, meta: A.extra.meta, follows: true };
-    c.body.userData.y0 = c.body.position.y; c.body.visible = false;
-    // The strip's bottom row is often his dropped weapon lying in front of him: sink the plane so his body
-    // (meta.rest px up) meets the ground, and draw it over the ground so the weapon shows below that line.
-    body.position.y -= (A.meta.rest || 0) * u;
+    const A = R.strip, { meta } = A, b = frameBox(A, 'downed'), cards = [];
+    // 倒地图按同一比例缩放，避免离开坐骑后仍有整匹马的体积。落马、倒地和兵器沿用这套比例。
+    const u = lying && b ? Math.min(R.unit, FALLEN_W / (b.x1 - b.x0),
+      FALLEN_H / Math.max(1, meta.cell[1] - frameBase(meta, 'downed') - b.y0)) : R.unit;
+    const { body } = framePlane(A, u);
+    if (A.extra) {
+      const c = { body: framePlane(A.extra, u).body, meta: A.extra.meta, follows: true };
+      c.body.visible = false; cards.push(c);
+    }
     // Drawn late and over the ground (onTop), so his sunk bottom rows still show; he writes his depth, so the
     // haze backdrop behind him does not paint over whatever of him rises above the ground's far edge.
-    for (const b of [body, c.body]) { b.material.transparent = true; if (lying) onTop(b, 10); }
+    for (const plane of [body, ...cards.map(c => c.body)]) { plane.material.transparent = true; if (lying) onTop(plane, 10); }
     const shadow = new THREE.Mesh(new THREE.CircleGeometry(1, 24), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.3, depthWrite: false }));
     shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.01; shadow.scale.set(A.meta.cell[0] * u * 0.42, 0.32, 1);
-    const man = { ...R, g: new THREE.Group(), body, cards: [c], shadow, loop: null, hold: 0, A };
-    man.g.add(body, c.body, shadow); man.g.position.copy(R.g.position); scene.add(man.g);
+    const man = { ...R, g: new THREE.Group(), body, cards, unit: u, shadow, loop: null, hold: 0 };
+    man.g.name = 'duel-fallen-rider';
+    man.g.add(body, ...cards.map(c => c.body), shadow); man.g.position.copy(R.g.position); scene.add(man.g);
     setFace(man, R.face);
     return man;
   }
   // His weapon on its own (the third card's WEAPON frame), turning about its middle; rest: { x, y } its middle
   // where it comes to lie flat (y above the stand line).
   function looseWeapon(R, A, over = true) {
-    const u = unitOf(A.meta), [cw, ch] = A.extra.meta.cell, b = frameBox(A.extra, 'weapon');
+    const u = R.unit, [cw, ch] = A.extra.meta.cell, b = frameBox(A.extra, 'weapon');
     const { body } = framePlane(A.extra, u), g = new THREE.Group();
     spriteFrame(body.material.map, A.extra.meta, A.extra.meta.frames.indexOf('weapon'));
     body.scale.x = R.face; body.position.set(-(b ? b.cx - cw / 2 : 0) * u * R.face, (b ? b.cy - ch / 2 : 0) * u, 0);
@@ -903,10 +928,10 @@ export function createDuelView(T, sprites = {}, audio) {
     man.g.position.y = 0.25 + 0.75; R.ring.visible = false;
     show(R, 'horse_rear'); show(man, 'man_fly');
     // Where the weapon comes to rest, from the DOWNED frame's bottom rows (its weapon) or before the kneeling man.
-    const dn = !captured && frameBox(A, 'downed', A.meta.cell[1] - (A.meta.rest || 0));
-    const wpn = looseWeapon(R, A), w0 = new THREE.Vector3(sx + f * 0.5, 0.25 + 1.55, R.g.position.z + 0.05);
+    const rest = frameBase(A.meta, 'downed'), dn = !captured && rest && frameBox(A, 'downed', A.meta.cell[1] - rest);
+    const wpn = looseWeapon(man, A), w0 = new THREE.Vector3(sx + f * 0.5, 0.25 + 1.55, R.g.position.z + 0.05);
     const wx = dn ? landX + f * (dn.cx - A.meta.anchor) * u : landX - f * 0.2, wz = R.g.position.z + (dn ? 0.2 : 0.55); // kneeling: laid on the ground before him
-    const wy = dn ? 0.25 - (A.meta.rest || 0) * u + (A.meta.cell[1] - dn.cy) * u : 0.25 + wpn.half;
+    const wy = dn ? 0.25 - rest * u + (A.meta.cell[1] - dn.cy) * u : 0.25 + wpn.half;
     wpn.g.position.copy(w0);
     const spin = tween(620, (k) => {
       wpn.g.position.set(lerp(w0.x, wx, k), lerp(w0.y, wy, k) + 1.1 * Math.sin(Math.PI * k), lerp(w0.z, wz, k));
@@ -932,7 +957,7 @@ export function createDuelView(T, sprites = {}, audio) {
     if (captured) { man.face = -f; show(man, 'man_struggle'); man.face = f; }
     await Promise.all([spin, wait(captured ? 420 : 240)]);
     if (captured) { show(man, 'man_kneel'); man.g.position.x += f * 0.15; }
-    else { show(man, 'downed'); scene.remove(wpn.g); }
+    else { show(man, 'downed'); scene.remove(wpn.g); release([wpn.g], scene); }
     if (fx) dustPuff(scene, man.g.position.clone().setY(0.35), 0.7, tween);
     cast.push(man.g); if (captured) cast.push(wpn.g);
     await horse;
@@ -942,17 +967,13 @@ export function createDuelView(T, sprites = {}, audio) {
   // 缺少落马特写时沿用简化倒地；没有独立空马帧的自定义素材不能用骑乘帧冒充空马。
   async function fallPlain(R, { captured = false } = {}) {
     await wait(160);
-    show(R, 'fall'); if (fx) dustPuff(scene, R.g.position.clone().setY(0.5), 1.0, tween); await wait(420);
+    if (!R.meta?.flatFall) {
+      show(R, 'fall'); if (fx) dustPuff(scene, R.g.position.clone().setY(0.5), 1.0, tween); await wait(420);
+    }
     let man = null;
     if (R.meta) {
-      const A = R.strip;
-      const { body } = framePlane(A); man = { ...R, g: new THREE.Group(), body, cards: [], loop: null };
-      const shadow = new THREE.Mesh(new THREE.CircleGeometry(1, 24), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.3, depthWrite: false }));
-      shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.01; shadow.scale.set(A.meta.cell[0] * unitOf(A.meta) * 0.42, 0.32, 1);
-      body.position.y -= (A.meta.rest || 0) * unitOf(A.meta);
-      onTop(body, 10);
-      man.g.add(body, shadow); man.g.position.copy(R.g.position); man.g.position.x -= R.face * 0.5; scene.add(man.g);
-      setFace(man, R.face); show(man, 'downed'); if (fx) dustPuff(scene, man.g.position.clone().setY(0.4), 1.2, tween);
+      man = onFoot(R, true); man.g.position.x -= R.face * 0.5;
+      show(man, 'downed'); if (fx) dustPuff(scene, man.g.position.clone().setY(0.4), 1.2, tween);
       R.ring.visible = false;
       if (captured && R.meta.clips?.loose?.length) {
         if (R.face === R.dir) await wheel(R, 'front', { x: R.g.position.x - R.dir * 0.4, gait: 'loose' });
@@ -979,7 +1000,7 @@ export function createDuelView(T, sprites = {}, audio) {
     R.loop = null; show(R, 'slump'); await wait(500);
     const A = R.strip;
     if (!R.meta || !A?.extra) { show(R, 'follow'); await tween(500, (k) => { R.body.rotation.z = -R.face * 0.12 * ease(k); }); return; }
-    const f = R.face, man = onFoot(R, false), wpn = looseWeapon(R, A, false);
+    const f = R.face, man = onFoot(R, false), wpn = looseWeapon(man, A, false);
     man.g.position.x += f * 0.45; man.g.position.z += 0.3; // before his horse, toward the winner, clear of it as it turns away
     wpn.g.position.set(man.g.position.x - f * 0.2, 0.25 + wpn.half, man.g.position.z + 0.3); // a long glaive reaches past him either way: centred back from the winner
     // Down from the saddle in a puff of dust: he kneels beside the horse, now riderless. (No fade: the sprites are

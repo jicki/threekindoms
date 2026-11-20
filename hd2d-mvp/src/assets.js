@@ -95,16 +95,30 @@ export async function loadGridMotion(url, { builtinSize = false, mirrorSide = fa
     read.drawImage(image, 0, 0, 512, 512);
     const pixels = read.getImageData(0, 0, 512, 512).data, bounds = [];
     for (let index = 0; index < 16; index++) {
-      let top = cell, bottom = -1;
-      for (let y = 0; y < cell; y++) for (let x = 0; x < cell; x++) {
-        const offset = ((Math.floor(index / 4) * cell + y) * 512 + (index % 4) * cell + x) * 4 + 3;
-        if (pixels[offset] > 127) { top = Math.min(top, y); bottom = y; }
+      let top = cell, bottom = -1, solidTop = cell, feet = -1;
+      const rows = [], start = Math.floor(index / 4) * cell * 512 + (index % 4) * cell;
+      const opaque = (x, y) => x >= 0 && x < cell && y >= 0 && y < cell && pixels[(start + y * 512 + x) * 4 + 3] > 127;
+      for (let y = 0; y < cell; y++) {
+        let run = 0, width = 0;
+        for (let x = 0; x < cell; x++) {
+          if (!opaque(x, y)) { run = 0; continue; }
+          top = Math.min(top, y); bottom = y;
+          if (++run >= 4) feet = y;
+          if (run >= 9) solidTop = Math.min(solidTop, y);
+          // 倒地图可能包括落在身体下方的兵器，取有一定厚度的像素估计身体接地行。
+          if (index === 15 && run >= 5 && opaque(x - 2, y - 2) && opaque(x - 2, y + 2)) width++;
+        }
+        if (index === 15) rows.push(width);
       }
-      bounds.push(bottom < 0 ? null : { top, bottom });
+      const widest = Math.max(1, ...rows);
+      let rest = rows.length - 1;
+      while (rest >= 0 && rows[rest] < widest * 0.5) rest--;
+      bounds.push(bottom < 0 ? null : { top, bottom, solidTop: solidTop < cell ? solidTop : top, feet: feet < 0 ? bottom : feet, rest });
     }
     // 小幅去除各帧脚底透明留白；整帧使用同一比例，避免人物在动作切换时忽大忽小。
     const stand = bounds[0], height = stand ? Math.max(80, Math.min(cell, stand.bottom - stand.top + 1)) : 112;
     const groundShift = (index) => bounds[index] ? Math.min(16, cell - 1 - bounds[index].bottom) : 0;
+    const duelBase = (index) => bounds[index] ? cell - 1 - bounds[index].feet - groundShift(index) : 0;
     const make = (names, indices, extra = {}) => {
       const canvas = document.createElement('canvas'); canvas.width = cell * names.length; canvas.height = cell;
       const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('无法处理动作图');
@@ -131,12 +145,18 @@ export async function loadGridMotion(url, { builtinSize = false, mirrorSide = fa
       feint: [['fan_ready', 90], ['fan_sweep', 70, 'hit'], ['fan_follow', 100]],
       desperate: [['fan_ready', 330], ['fan_sweep', 155, 'hit'], ['fan_follow', 230]],
     } : {};
-    const duel = make(names, indices, { weapon, clips: {
+    const body = stand ? Math.max(64, stand.feet - stand.solidTop + 1) : 104;
+    const rest = bounds[15]?.rest;
+    const duel = make(names, indices, { weapon, body, flatFall: true,
+      base: Object.fromEntries(names.map((name, i) => [name, duelBase(indices[i])])),
+      rest: rest >= 0 ? cell - 1 - rest - groundShift(15) : duelBase(15),
+      tips: { strike: [52, 48 - groundShift(9) - duelBase(9)] }, clips: {
       walk: [1, 2, 3, 4].map((n) => [`walk_${n}`, 160]), gallop: [1, 2, 3, 4].map((n) => [`gallop_${n}`, 120]),
       ...weaponClips,
     } });
     const turnNames = ['front_idle', 'front_walk_1', 'front_walk_2', 'front_walk_3', 'front_walk_4', 'front_windup', 'front_strike', 'front_hurt', 'back_idle', 'back_walk_1', 'back_walk_2', 'back_walk_3', 'back_walk_4', 'back_windup', 'back_strike', 'back_hurt'];
-    duel.turn = make(turnNames, [4, 4, 5, 4, 5, 4, 5, 4, 6, 6, 7, 6, 7, 6, 7, 6], { clips: {
+    const turnIndices = [4, 4, 5, 4, 5, 4, 5, 4, 6, 6, 7, 6, 7, 6, 7, 6];
+    duel.turn = make(turnNames, turnIndices, { base: Object.fromEntries(turnNames.map((name, i) => [name, duelBase(turnIndices[i])])), clips: {
       'front:idle': [['front_idle', 900]], 'front:walk': [['front_walk_1', 160], ['front_walk_2', 160]],
       'front:charge': [['front_walk_1', 120], ['front_walk_2', 120]],
       'back:idle': [['back_idle', 900]], 'back:walk': [['back_walk_1', 160], ['back_walk_2', 160]],

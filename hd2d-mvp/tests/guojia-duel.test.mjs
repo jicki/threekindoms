@@ -67,12 +67,17 @@ for (const { side, phone, missing } of [
           await view.act({ by: 24, cmd: 'desperate', hit: true, dmg: 18, self: 0 }, { hp: { 111: 62 }, onHit: (id, dmg) => hits.push([id, dmg]) });
         } finally { clearInterval(timer); }
         const controls = document.querySelector('.tq-duel-acts').getBoundingClientRect();
-        return { initial, top, bottom, hits, frames: [...frames], closer: before - nearest, home: view.probe(24).x,
+        const home = view.probe(24).x;
+        await view.finish({ dead: 24, winner: 111 });
+        const fallen = view.scene.getObjectByName('duel-fallen-rider');
+        const fallenImage = fallen?.children.find(child => child.visible && child.material?.map)?.material.map.image;
+        return { initial, top, bottom, hits, frames: [...frames], closer: before - nearest, home, sameOutfit: image === fallenImage,
           bodyHeight: rider.geometry.parameters.height * (bottom - top + 1) / row.height,
           buttonsFit: controls.left >= 0 && controls.right <= innerWidth + 1 && controls.bottom <= innerHeight + 1 };
       }, { missing });
       const has = suffix => [...loaded].some(path => path.endsWith(suffix));
-      assert.ok(has('/characters/guojia/motion.png') && has('/duel/24.png') && has('/duel/111.png'));
+      assert.ok(has('/characters/guojia/motion.png') && has('/duel/111.png'));
+      assert.equal(has('/duel/24.png'), missing);
       assert.equal(has('/duel/guojia-v2.png'), !missing);
       assert.equal(Math.sign(result.initial.x), side === 'a' ? -1 : 1);
       assert.equal(Math.sign(result.initial.foe), -Math.sign(result.initial.x));
@@ -88,6 +93,7 @@ for (const { side, phone, missing } of [
         assert.ok(result.frames.includes('strike') && result.frames.includes('follow'), JSON.stringify(result.frames));
         assert.ok(result.closer > 2 && result.home === result.initial.x, JSON.stringify(result));
         assert.equal(result.buttonsFit, true);
+        assert.equal(result.sameOutfit, true);
       }
       assert.deepEqual(page.errors, []);
     } finally { await page.context().close(); }

@@ -318,7 +318,20 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
       let chipT = 0;
       el.show = (v) => { const w = `${Math.max(0, (100 * v) / full[s])}%`; bar.style.width = w; clearTimeout(chipT); chipT = setTimeout(() => (chip.style.width = w), 380); hp.textContent = `体力 ${Math.max(0, v)}`; };
       el.sync = () => el.show(X.hp);
-      el.mood = (m) => { if (dface.firstChild?.dataset.mood !== m) dface.replaceChildren(face(X.id, '', m)); };
+      let mood = 'calm', shownMood = 'calm';
+      el.mood = (m) => {
+        if (mood === m) return;
+        mood = m;
+        if (shownMood === m) return;
+        const next = face(X.id, '', m);
+        // 换表情期间保留上一张头像，避免结算画面因异步读图而露出空白。
+        const show = async () => {
+          try { await next.decode(); } catch { return; }
+          if (mood === m && shownMood !== m && el.isConnected) { dface.replaceChildren(next); shownMood = m; }
+        };
+        if (next.complete && next.naturalWidth) show();
+        else next.addEventListener('load', show, { once: true });
+      };
       el.hit = () => { el.classList.remove('hit'); void el.offsetWidth; el.classList.add('hit'); };
       return el;
     };

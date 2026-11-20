@@ -10,6 +10,7 @@
 
 | 更新日期 | 更新内容 |
 | --- | --- |
+| 2026-11-20 | [单挑人物比例、倒地和结算头像](docs/changelog/2026-11-20-duel-proportions.md) |
 | 2026-11-20 | [v0.3.12 君主列传名册、地方武器与操作优化](docs/changelog/v0.3.12.md) · [桌面下载](https://github.com/jicki/threekindoms/releases/tag/v0.3.12) |
 | 2026-11-20 | [君主列传修订 11 · 十一名武将与名臣](docs/changelog/2026-11-20-officer-roster-11.md) |
 | 2026-11-20 | [君主列传修订 10 · 名将名臣与地方铁铺](docs/changelog/2026-11-20-regional-content.md) |
