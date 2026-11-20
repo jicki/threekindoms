@@ -32,6 +32,7 @@ const HERO_H = 2.1; // idle rider + horse height in world units (0.1.0's 2.3 rea
 // are sized by their solid body instead (meta.body px, thin weapons left out), within -15 %…+20 %.
 const BODY_PX = 110;
 const unitOf = (meta) => (HERO_H / meta.figH) * Math.min(1.2, Math.max(0.85, meta.body ? BODY_PX / meta.body : 1)) * (meta.scale ?? 1);
+export { unitOf as duelMotionUnit };
 const GALLOP = 5.5, WALK = 1.4, DRIVE = 9; // world units per second; DRIVE: the fastest a blow's drive in covers ground
 // Gaits are driven by ground covered, not by time: one frame per STEP of travel, so hooves never slide.
 const STEP = { gallop: 0.55, walk: 0.3, loose: 0.6, flee: 0.55 };
@@ -84,6 +85,7 @@ const ALIAS = { walk_1: 'gallop_2', walk_2: 'idle_a', walk_3: 'gallop_3', walk_4
   allin_land: 'recover', hurt_crush: 'hurt', slump: 'off_balance', triumph: 'taunt' };
 // The pose a rider actually has for `name`: itself, or its stand-in, followed down the chain.
 const resolve = (has, name) => { for (let n = name, i = 0; n && i < 4; n = ALIAS[n], i++) if (has(n)) return n; return null; };
+export { resolve as resolveDuelPose };
 
 export function createDuelView(T, sprites = {}, audio) {
   const scene = new THREE.Scene();
@@ -399,7 +401,7 @@ export function createDuelView(T, sprites = {}, audio) {
     const i = R.meta.frames.indexOf(n);
     if (i >= 0) spriteFrame(R.body.material.map, R.meta, i);
   }
-  const clip = (R, name) => R.meta?.clips[name] || DEFAULT_CLIPS[name];
+  const clip = (R, name) => duelMotionClip(R.meta, name);
   // The idle breath runs in update(); a clip or a ride takes the rider over until it ends.
   function runLoop(R, dt) {
     if (!R.loop) return;
@@ -1124,3 +1126,4 @@ const DEFAULT_CLIPS = {
   flee: [['allin_charge_1', 90], ['allin_charge_2', 90]], // beaten and running, low over the neck (stand-ins: two gallop frames)
   taunt: [['taunt', 700]], idle: [['idle_a', 900], ['idle_b', 520]], gallop: [['idle_a', 120], ['idle_b', 120]], loose: [['idle_a', 200]],
 };
+export const duelMotionClip = (meta, name) => meta?.clips[name] || DEFAULT_CLIPS[name];

@@ -1,5 +1,5 @@
 """Static dev server for the game with caching disabled (ES modules otherwise go stale).
-  python3 hd2d-mvp/tools/serve.py [port=8642]   → http://localhost:8642/hd2d-mvp/ (the bare origin redirects there, muted)
+  python3 hd2d-mvp/tools/serve.py [port=8642]   → http://localhost:8642/hd2d-mvp/ (the bare origin redirects there)
 Serves the repository root, so hd2d-mvp/ is served under /hd2d-mvp/ as in the desktop package's layout.
 The page loads three.js and its two web fonts from vendor/, the layout desktop/build-app.mjs ships; here they come
 straight from desktop/node_modules (npm --prefix hd2d-mvp/desktop install, once), so the game needs no network."""
@@ -292,16 +292,15 @@ class NoCache(SimpleHTTPRequestHandler):
                     if f.exists(): return str(f)
             return str(mods / '.missing')
         return super().translate_path(path)
-    # The repository root has no page of its own: a bare origin (what a preview opens) goes to the game,
-    # muted, since development and tests never play sound (AGENTS.md).
+    # 根地址跳转到游戏，保留显式传入的查询参数及游戏本身的声音偏好。
     def send_head(self):
-        p = self.path.split('?', 1)[0]
+        p, separator, query = self.path.partition('?')
         decoded = unquote(p).replace('\\', '/')
         if any(part.startswith('.') for part in decoded.split('/') if part):
             self.send_error(404); return None
         if p == '/':
             self.send_response(302)
-            self.send_header('Location', '/hd2d-mvp/?mute')
+            self.send_header('Location', '/hd2d-mvp/' + (separator + query if query else ''))
             self.send_header('Content-Length', '0')
             self.end_headers()
             return None

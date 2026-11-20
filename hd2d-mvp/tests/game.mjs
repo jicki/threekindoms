@@ -16,7 +16,7 @@ const freePort = () => new Promise((resolve, reject) => {
 // with the game booted and muted (?mute); `query` adds parameters, e.g. '&flat' for the flat war map (3D is the default), and `save` (a
 // record from saveCampaign) is put in the page's save slot 1 before the game boots, for resumeCampaign; `setup(context)` runs before
 // that boot too (stored settings, network routes, listeners).
-export async function startGame({ width = 1280, height = 800, scenario = null } = {}) {
+export async function startGame({ width = 1280, height = 800, scenario = null, touch = false } = {}) {
   // 开发服务器监听 IPv4。localhost 还会解析为 ::1，macOS 上可能误连到客户端自己的临时端口。
   const port = await freePort(), url = `http://127.0.0.1:${port}/hd2d-mvp/?mute`;
   // 浏览器测试使用临时服务，不应读取或覆盖调用者的持久管理员配置。
@@ -37,7 +37,7 @@ export async function startGame({ width = 1280, height = 800, scenario = null } 
   return {
     url,
     async open(query = '', { save, setup, clock = false } = {}) {
-      const ctx = await browser.newContext({ viewport: { width, height } });
+      const ctx = await browser.newContext({ viewport: { width, height }, hasTouch: touch });
       const errors = [], pending = new Map(), failed = [];
       const describe = (r) => `${r.method()} ${new URL(r.url()).pathname}`;
       let phase = '浏览器上下文设置';

@@ -274,7 +274,7 @@ export function officerTable(g, ids, { selected = null, onPick, extra, disabled,
 // Multi/single select of officers. Resolves to array of ids (or null).
 // summary(selected ids) replaces the plain count in the footer (出阵: troops taken, garrison left).
 // last: the officer picked for this the time before, if he is still in the list: his row is marked 上次 and the keys start on it.
-export function pickOfficers(g, title, ids, { min = 1, max = 1, note = '', extra, summary, cols, last = null } = {}) {
+export function pickOfficers(g, title, ids, { min = 1, max = 1, note = '', extra, summary, cols, last = null, preview = null } = {}) {
   if (!ids.includes(last)) last = null;
   const extra0 = extra; if (last != null) extra = (id) => [extra0?.(id), id === last ? '上次' : null].filter(Boolean).join(' ') || null;
   return modal(title, (close) => {
@@ -295,7 +295,7 @@ export function pickOfficers(g, title, ids, { min = 1, max = 1, note = '', extra
       all.textContent = sel.size ? '清除' : ids.length > max ? `选前${max}人` : '全选';
     };
     draw();
-    return [note ? h('p', { class: 'hint' }, note) : null, h('div', { class: 'otable-wrap' }, table),
+    return [preview, note ? h('p', { class: 'hint' }, note) : null, h('div', { class: 'otable-wrap' }, table),
       !single ? h('div', { class: 'foot' }, count, h('span', { style: { flex: 1 } }), all, h('button', { class: 'btn', onclick: () => close(null) }, '取消'), ok) : h('p', { class: 'hint' }, '点选一名武将　点表头可排序　Esc 取消')];
   }, { wide: true, focus: (box) => (last != null ? box.querySelector(`tr[data-id="${last}"]`) : null) });
 }

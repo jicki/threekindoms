@@ -35,7 +35,8 @@ for (const { side, phone, missing } of [
         battle.side[side].cmd.gen = 'advance';
         battle.queue.unshift(battle.gen(side));
       }, side);
-      await start.click();
+      // 确认按钮出现后仍有防误触保护，等这次按键可提交才开始交战。
+      await start.and(page.locator(':not(.arming)')).click();
       await page.locator('.tq-duel-acts .dcmd.primary').waitFor({ timeout: 50000 });
       const result = await page.evaluate(async ({ missing }) => {
         const view = window.__game.debug.duelView;

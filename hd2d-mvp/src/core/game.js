@@ -143,6 +143,7 @@ export const isPass = (cid) => D.cities[cid]?.kind === 'pass';
 export const holdingsOf = (g, f) => g.cities.filter((c) => c.faction === f);
 export const citiesOf = (g, f) => holdingsOf(g, f).filter((c) => !isPass(c.id));
 export const cityCount = () => D.cities.filter((c) => c.kind !== 'pass').length;
+export const unificationGoal = () => D.expandedMap ? `${cityCount()}城` : '三十州';
 export const alive = (g, f) => g.factions[f].ruler != null;
 export const isRuler = (g, id) => g.factions.some((f) => f.ruler === id);
 export const boundRulerWeapon = (g, id) => D.equipment[g.officers[id]?.weapon]?.exclusiveRuler === id;

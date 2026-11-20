@@ -2,17 +2,19 @@
 // io bridge the rules core (core/game.js run loop) calls for events, AI turns, wars and the player turn.
 import * as THREE from 'three';
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
-import { terrainTextures } from './pixel.js';
+import { terrainTextures, unitTex } from './pixel.js';
 import { createPost } from './post.js';
 import { createQuality, savedQuality, warView } from './quality.js';
 import { frameCap, pacer } from './framecap.js';
 import { loadManifest, loadPixelTexture, equipIcon, packSpriteStrip, loadGridMotion } from './assets.js';
 import { readResource } from './resource.js';
-import { authoredGridWeapon, replacementWeaponMotion } from './weapon-motion.js';
+import { authoredGridWeapon, replacementWeaponMotion, riderStrip, equippedWeaponStyle } from './weapon-motion.js';
 import { Audio } from './audio.js';
 import { SPECIAL_TROOPS, officerMainTroop, officerSpecialty, officerSquadLimit, officerTroopLabel, officerTroopType } from './core/troop-specialties.js';
 import { playVignette, sceneFor, cueFor, sceneFrame, vignettesOn, setVignettes, recordText } from './vignette.js';
 import { playUnification, playFall } from './ending.js';
+import { sortiePreview } from './sortie-preview.js';
+import { officerMotionPreview } from './officer-motion-preview.js';
 import { createStrategy, colorOf } from './strategy.js';
 import { createStrategyFlat } from './strategyflat.js';
 import { createStrategyShell } from './strategyshell.js';
@@ -108,15 +110,27 @@ const officerSprites = Array.isArray(officerList) ? officerList : [];
 const duelKeys = Array.isArray(duelList) ? duelList : duelList?.keys;
 const duelStrips = Array.isArray(duelKeys) ? duelKeys : [];
 const duelLoads = new Map(), duelExtras = new WeakMap(), duelNativeKeys = new WeakMap();
+let extraStrips = null;
+function duelDetails() {
+  extraStrips ??= json('assets/ai/sprites/duel/extra.json').then(list => {
+    if (!Array.isArray(list)) throw new Error('单挑特写索引格式无效');
+    return list;
+  }).catch(error => {
+    if (error.status === 404) return [];
+    extraStrips = null;
+    return undefined;
+  });
+  return { index: extraStrips, attempts: new Map() };
+}
 const stripSource = async (dir, key) => {
   const root = `assets/ai/sprites/${dir}/${key}`;
   const extension = dir === 'duel' && duelList?.format === 'webp' ? 'webp' : 'png';
   const [meta, tex] = await Promise.allSettled([readResource(`${root}.json`, r => r.json(), { timeout: 3500 }), loadPixelTexture(`${root}.${extension}`)]);
+  if (meta.status === 'rejected') { if (tex.status === 'fulfilled') tex.value.dispose(); throw meta.reason; }
   if (tex.status === 'rejected') throw tex.reason;
-  if (meta.status === 'rejected') { tex.value.dispose(); throw meta.reason; }
   return { meta: meta.value, tex: tex.value };
 };
-async function loadDuelStrip(key, complete = true, sprite = `duel-${key}`) {
+async function loadDuelStrip(key, details = null, sprite = `duel-${key}`) {
   key = String(key);
   if (!duelStrips.includes(key)) return;
   const asset = (k) => stripSource('duel', k).then(pack => packSpriteStrip(pack)).catch(() => null);
@@ -129,19 +143,26 @@ async function loadDuelStrip(key, complete = true, sprite = `duel-${key}`) {
     await duelLoads.get(sprite);
   }
   const strip = sprites[sprite];
-  if (!complete || duelNativeKeys.get(strip) !== key) return strip;
-  extraStrips ||= json('assets/ai/sprites/duel/extra.json').catch(() => []);
-  if (!duelExtras.has(strip)) duelExtras.set(strip, Promise.all([asset(`${key}-wheel`),
-    extraStrips.then(list => Array.isArray(list) && list.includes(key) ? asset(`${key}-c`) : null)])
-    .then(([wheel, extra]) => Object.assign(strip, { wheel, extra })));
+  if (!details || duelNativeKeys.get(strip) !== key) return strip;
+  // undefined 允许下次单挑重试，null 表示素材清单明确未提供该帧。
+  const optionalStrip = (k) => {
+    if (!details.attempts.has(k)) details.attempts.set(k, stripSource('duel', k).then(packSpriteStrip)
+      .catch(error => error.status === 404 ? null : undefined));
+    return details.attempts.get(k);
+  };
+  if (!duelExtras.has(strip) && (strip.wheel === undefined || strip.extra === undefined)) {
+    duelExtras.set(strip, Promise.all([
+      strip.wheel === undefined ? optionalStrip(`${key}-wheel`) : strip.wheel,
+      strip.extra === undefined ? details.index.then(list => list?.includes(key) ? optionalStrip(`${key}-c`) : list ? null : undefined) : strip.extra,
+    ]).then(([wheel, extra]) => Object.assign(strip, { wheel, extra })).finally(() => duelExtras.delete(strip)));
+  }
   await duelExtras.get(strip);
   return strip;
 }
-let extraStrips = null;
 
 let guoJiaDuelLoad;
-async function loadGuoJiaDuel() {
-  const original = loadDuelStrip(24, true, 'duel-guojia-original');
+async function loadGuoJiaDuel(details) {
+  const original = loadDuelStrip(24, details, 'duel-guojia-original');
   guoJiaDuelLoad ??= stripSource('duel', 'guojia-v2').then(packSpriteStrip).catch(() => {
     guoJiaDuelLoad = null;
     return null;
@@ -167,7 +188,7 @@ const officerMotion = (id) => {
   const officer = G.data().officers[id];
   return officer?.clone ? null : officer?.visual?.motion ?? (id === 24 && officer?.name === '郭嘉' ? 'b-guojia-motion' : null);
 };
-async function loadConfiguredMotion(id, complete = true) {
+async function loadConfiguredMotion(id, details) {
   const ref = officerMotion(id);
   // 新人物和旧记录的动态武将可能共用编号，动作缓存按素材来源切换。
   if (motionBindings.has(id) && motionBindings.get(id) !== ref) {
@@ -180,7 +201,7 @@ async function loadConfiguredMotion(id, complete = true) {
   if (existing) {
     const key = existing[1];
     if (marchStrips.includes(key) && !sprites[`march-${key}`]) await loadMarch(key);
-    await loadDuelStrip(key, complete);
+    await loadDuelStrip(key, details);
     if (officerMotion(id) !== ref) return;
     if (sprites[`march-${key}`]) sprites[`march-${id}`] = sprites[`march-${key}`];
     if (sprites[`duel-${key}`]) sprites[`duel-${id}`] = sprites[`duel-${key}`];
@@ -204,7 +225,7 @@ async function loadConfiguredMotion(id, complete = true) {
   }
 }
 const loadOfficerMarch = async (ids) => {
-  await Promise.all(ids.map(id => loadConfiguredMotion(id, false)));
+  await Promise.all(ids.map(id => loadConfiguredMotion(id)));
   await Promise.all(ids.filter((id) => marchStrips.includes(String(id)) && !sprites[`march-${id}`]).map(loadMarch));
 };
 // 兵队只在进入白兵前加载，特色兵队失败时保留普通素材回退。
@@ -280,19 +301,21 @@ async function loadBattleWeapon(style) {
   }
   await weaponMotionLoads.get(style);
 }
+async function loadOfficerCombatSprite(id, game, details) {
+  await loadConfiguredMotion(id, details);
+  await loadDuelStrip(id, details);
+  const style = replacementWeaponMotion(game, id, G.weaponGroup(game?.officers[id]?.weapon), sprites[`duel-${id}`]);
+  if (style) await loadBattleWeapon(style);
+  if (!sprites[`duel-${id}`] && officerSprites.includes(id) && !sprites[`officer-${id}`]) {
+    try { sprites[`officer-${id}`] = await loadPixelTexture(`assets/ai/sprites/officers/${id}.png`); }
+    catch (error) { console.warn('武将战斗立姿无法读取，使用通用动作', error); }
+  }
+}
 async function loadOfficerSprites(ids, game = g, battle, looks) {
-  const officers = ids.map(async (id) => {
-    await loadConfiguredMotion(id, !battle);
-    await loadDuelStrip(id, !battle);
-    const style = replacementWeaponMotion(game, id, G.weaponGroup(game?.officers[id]?.weapon), sprites[`duel-${id}`]);
-    if (style) await loadBattleWeapon(style);
-    if (!sprites[`duel-${id}`] && officerSprites.includes(id) && !sprites[`officer-${id}`]) {
-      try { sprites[`officer-${id}`] = await loadPixelTexture(`assets/ai/sprites/officers/${id}.png`); }
-      catch (error) { console.warn('武将战斗立姿无法读取，使用通用动作', error); }
-    }
-  });
+  const details = battle ? null : duelDetails();
+  const officers = ids.map(id => loadOfficerCombatSprite(id, game, details));
   await Promise.all([loadFieldSprites(), battle ? loadBattleTroops(battle, looks) : loadTacticalSprites(),
-    ...(!battle ? [loadSpecialTroops(ids, game)] : []), ...officers, ...battleSides.map(side => loadDuelStrip(side, !battle))]);
+    ...(!battle ? [loadSpecialTroops(ids, game)] : []), ...officers, ...battleSides.map(side => loadDuelStrip(side, details))]);
 }
 
 // ---------- Renderer ----------
@@ -1481,7 +1504,7 @@ async function quickRecord() {
   await runCommand(saveCity(), '快捷记录');
 }
 async function quickLoad() {
-  if (quickLoading) return;
+  if (quickLoading || (starting && document.body.dataset.screen === 'title')) return;
   const screen = document.body.dataset.screen;
   if (blocking() || $('#fade.on') || $('.banner')) return toast('<em>请先完成当前动作</em>', 3000);
   if (screen === 'title') { if (!$('.tt.done, .tt.instant, .tt.menu-on')) return; }
@@ -1537,8 +1560,11 @@ async function pendingLoad() {
 let titleSeen = (() => { try { const v = sessionStorage.getItem('hd2d-title-seen') === '1'; sessionStorage.removeItem('hd2d-title-seen'); return v; } catch { return false; } })(); // back from 记录编辑
 async function title() {
   document.body.dataset.screen = 'title'; g = null; sel = null;
-  const demo = G.newGame(4, 1, 7); strategy.refresh(demo); strategy.select(null);
-  setMode(strategy); audio.playBgm('bgm-title');
+  try {
+    const demo = G.newGame(4, 1, 7); strategy.refresh(demo); strategy.select(null);
+    setMode(strategy);
+  } catch (error) { console.error('标题背景地图初始化失败', error); }
+  audio.playBgm('bgm-title');
   clear();
   const list = G.saves(), quick = G.loadQuick({preview:true}), auto = PHONE ? G.loadAuto({preview:true}) : null; // auto: what a page the phone threw away left behind (自动续玩 below)
   const records = [...list, quick, auto].filter(Boolean), saved = G.latest(records), count = records.filter((r) => r !== auto).length;
@@ -1546,20 +1572,21 @@ async function title() {
   // The opening (arrow, flash, band) plays once per visit; coming back from 选择君主 shows the finished title.
   const screen = createTitle({ audio, intro: !titleSeen, sys: sysButtons(),
     menu: [held ? h('button', { class: 'btn', onclick: (e) => {
-        if (e.currentTarget.disabled) return;
+        if (starting || e.currentTarget.disabled) return;
         e.currentTarget.disabled = true; audio.unlock();
         if (suspendToken() !== token) { title(); return toast('<em>中断战斗已改变，请重新选择</em>', 3500); }
         begin(held.g, true, held, { resumeToken: token });
       } }, '继续战斗',
         h('small', {}, `${cityName(held.war.city)}之战 · 第${held.field.day}日 · ${held.g.year}年${held.g.month + 1}月 · ${G.recordOfficerName(held.g,held.g.factions[held.g.player].ruler)}`)) : null,
       saved ? h('button', { class: 'btn', onclick: () => { audio.unlock(); begin(saved, true); } }, saved.auto ? '继续上次' : '继续记录', h('small', {}, `${saved.auto ? '离开时的进度' : recordName(saved.slot)} · ${saved.year}年${saved.month + 1}月 · ${G.recordOfficerName(saved,saved.factions[saved.player].ruler)}`)) : null,
-      count > 1 ? h('button', { class: 'btn', onclick: async () => {
+      (count > 1 || (saved?.auto && count > 0)) ? h('button', { class: 'btn', onclick: async () => {
+        if (starting || blocking()) return;
         audio.unlock(); const pick = await pickSlot('load', list, saved.slot); if (!pick) return;
         const current = recordAt(pick.n);
         if (!current || JSON.stringify(current) !== JSON.stringify(pick.record)) return toast('<em>记录已改变，请重新选择</em>', 3500);
         begin(pick.record, true);
       } }, '读取记录') : null,
-      h('button', { class: 'btn', onclick: () => { audio.unlock(); setup(); } }, '新的征程')],
+      h('button', { class: 'btn', onclick: () => { if (!starting) { audio.unlock(); setup(); } } }, '新的征程')],
     footnote: [h('p', {}, '原作《三国志II 霸王的大陆》© 1992 NAMCO · 以FC日版规则为准 · 立绘由AI生成 · ' +
         (audio.sets.length > 1 ? `曲目可在「☰ 系统 → 曲目」切换 ${audio.sets.map((t) => t.label).join('／')}` : `音乐：${audio.sets[0]?.label ?? '合成音'}`))] });
   titleSeen = true;
@@ -1656,12 +1683,22 @@ async function setup() {
 
 // ---------- Game ----------
 // resume: a suspended war (src/core/suspend.js) to take up first; its game keeps its seed, as it never stopped.
-async function begin(state, loaded, resume = null, { keepSuspend = false, notice = null, pendingRaw = null, expectedHeld = null, source = state.slot, resumeToken = null } = {}) {
+let starting = false;
+async function begin(state, loaded, resume = null, options) {
+  if (starting) return;
+  starting = true;
+  try { await beginGame(state, loaded, resume, options); }
+  finally { starting = false; }
+}
+async function beginGame(state, loaded, resume, { keepSuspend = false, notice = null, pendingRaw = null, expectedHeld = null, source = state.slot, resumeToken = null } = {}) {
   const autoAtStart = G.autoToken();
-  if (!resume && !keepSuspend && !(await leaveSuspend())) return title();
+  // 确认先于初始化，实际放弃战斗须等记录可玩，避免读档失败将两份进度一起丢失。
+  if (!resume && !keepSuspend) {
+    expectedHeld = await confirmLeaveSuspend();
+    if (expectedHeld === false) return title();
+  }
   delete state.auto;
   quickCostExplained = false;
-  focusedFaction = null; strategy.focusTerritoryFaction(null);
   let resumeNotice = '战斗恢复失败，可从标题重试';
   const resumeFailed = async (error) => {
     console.error('中断战斗恢复失败', error);
@@ -1672,6 +1709,7 @@ async function begin(state, loaded, resume = null, { keepSuspend = false, notice
     toast(`<em>${resumeNotice}</em>`, 6000);
   };
   try {
+    focusedFaction = null; strategy.focusTerritoryFaction(null);
     g = loaded && !resume && !new URLSearchParams(location.search).has('fixedseed') ? G.reseed(state) : state;  // ?fixedseed: replay a record exactly
     G.registerClones(g);
     if (resume?.war.raid && !registerRaidTemplates(g, resume.war)) throw new Error('无效的守城中断名册');
@@ -1684,21 +1722,25 @@ async function begin(state, loaded, resume = null, { keepSuspend = false, notice
     hud(); audio.playBgm('bgm-strategy');
   } catch (error) {
     if (resume) return resumeFailed(error);
-    if (!pendingRaw) throw error;
     // An unexpected initialization failure must not strand the player in a reload loop or discard a battle.
-    try { if (sessionStorage.getItem(LOAD_KEY) === pendingRaw) sessionStorage.removeItem(LOAD_KEY); } catch {}
-    console.error('记录初始化失败', error);
+    try { if (pendingRaw && sessionStorage.getItem(LOAD_KEY) === pendingRaw) sessionStorage.removeItem(LOAD_KEY); } catch {}
+    console.error('战役初始化失败', error);
     await title(); await fade(false);
-    toast(`<em>读取失败，已返回标题${expectedHeld !== 'null' ? '；中断战斗仍保留' : ''}</em>`, 6000);
+    toast(`<em>${loaded ? '读取失败' : '开始战役失败'}，已返回标题，可重试${peekSuspend() ? '；中断战斗仍保留' : ''}</em>`, 6000);
     return;
   }
   // A confirmed load remains recoverable until its snapshot has initialized. Only then can the exact
   // suspended battle that was approved for removal be discarded, under the same lock as other tabs.
-  if (pendingRaw) {
-    const result = expectedHeld === 'null' ? (peekSuspend() ? 'changed' : 'none') : await withSuspendLock(() => dropSuspend(expectedHeld));
+  if (!resume && expectedHeld != null) {
+    const result = expectedHeld === 'null' ? (peekSuspend() ? 'changed' : 'none') : await withSuspendLock(() => dropSuspend(expectedHeld), { legacyFallback: !pendingRaw });
     if (result === 'changed') notice = '中断战斗已改变，已为您保留';
     else if (result !== 'dropped' && result !== 'none') notice = '中断战斗未能放弃，已为您保留';
-    try { if (sessionStorage.getItem(LOAD_KEY) === pendingRaw) sessionStorage.removeItem(LOAD_KEY); } catch {}
+    if (!keepSuspend && expectedHeld !== 'null' && notice) {
+      await title(); await fade(false);
+      toast(`<em>${notice}，请重新选择</em>`, 3500);
+      return;
+    }
+    try { if (pendingRaw && sessionStorage.getItem(LOAD_KEY) === pendingRaw) sessionStorage.removeItem(LOAD_KEY); } catch {}
   }
   if (!resume) {
     G.dropAuto(autoAtStart);
@@ -1708,7 +1750,7 @@ async function begin(state, loaded, resume = null, { keepSuspend = false, notice
     if (notices.length) toast(`<em>${notices.join('；')}</em>`, 6000);
     await fade(false); // a resumed war fades in on its own field (fieldWar)
   }
-  if (!loaded) await message('出征', `${g.year}年，天下大乱。${name(g.factions[g.player].ruler)}于${cityName(g.factions[g.player].city)}起兵，志在一统${D.expandedMap ? '三十三城' : '三十州'}。<br>每月君主领取<b>命令书</b>，按占城数发放；用尽即结束本月行动。<br>进度<b>不会自动保存</b>：在己方城市选「录」，或「☰ 系统 → 记录进度」存档（消耗一张命令书）。`, g.factions[g.player].ruler);
+  if (!loaded) await message('出征', `${g.year}年，天下大乱。${name(g.factions[g.player].ruler)}于${cityName(g.factions[g.player].city)}起兵，志在一统${G.unificationGoal()}。<br>每月君主领取<b>命令书</b>，按占城数发放；用尽即结束本月行动。<br>进度<b>不会自动保存</b>：在己方城市选「录」，或「☰ 系统 → 记录进度」存档（消耗一张命令书）。`, g.factions[g.player].ruler);
   if (loaded) g.endTurn = false;
   try {
     if (resume) await resumeWar(resume, async () => {
@@ -2062,7 +2104,7 @@ async function roster({ city = null } = {}) {
       h('tbody', {}, ...ids.map((id) => {
         const st = statusOf(id), fc = G.factionOf(g, id), at = placeOf(id), d = G.debutInfo(id);
         const wait = st === G.UNAPPEARED ? waitText(id) : null;
-        return h('tr', { class: st === G.DEAD ? 'dead' : st === G.UNAPPEARED ? 'yet' : '', 'data-id': id, ...pressable(() => officerCard(id)) },
+        return h('tr', { class: st === G.DEAD ? 'dead' : st === G.UNAPPEARED ? 'yet' : '', 'data-id': id, ...pressable(() => officerCard(id, { preview: true })) },
           h('td', { class: 'nm' }, avatar(id), name(id), G.isRuler(g, id) ? h('em', {}, '君主') : null),
           ...cols.map((c) => h('td', {}, c[2] ? c[2](id) : c[1](id))),
           h('td', { class: 'tx' }, st === G.SERVING ? h('span', { class: 'fac' }, h('i', { class: 'dot', style: { background: colorOf(fc) } }), factionName(fc))
@@ -2166,8 +2208,38 @@ function officerSheet(id, { live = null, foot = null } = {}) {
         [...(D.relationships ?? []), ...(g?.campaignRules ? D.campaignRelationships ?? [] : [])].filter((r) => r.from === id || r.to === id).map((r) => `${r.kind} ${name(r.from === id ? r.to : r.from)}`).join('　·　')),
       foot));
 }
-async function officerCard(id) {
-  await modal(name(id), (close) => officerSheet(id, { foot: h('div', { class: 'foot' }, h('button', { class: 'btn', onclick: () => close() }, '关闭')) }), { wide: true });
+async function loadPreviewMotion(game, id, scene) {
+  const look = G.factionOf(game, id) === game.player ? 'attacker' : 'defender';
+  const standing = () => sprites[`officer-${id}`] || sprites[look] || unitTex(look);
+  if (scene === 'march') {
+    await Promise.all([loadFieldSprites(), loadOfficerMarch([id])]);
+    return { strip: sprites[`march-${id}`] || sprites[`march-${look}`] || { tex: standing() } };
+  }
+  await Promise.all([loadFieldSprites(), loadOfficerCombatSprite(id, game), loadDuelStrip(look)]);
+  // 郭嘉的单挑使用重新绘制的比例，白兵和行军使用各自的格图。
+  const personal = scene === 'duel' && id === 24 && officerMotion(id) === 'b-guojia-motion' ? await loadGuoJiaDuel() : undefined;
+  const wgrp = G.weaponGroup(game.officers[id].weapon);
+  const strip = riderStrip(sprites, game, { id, eq: { wgrp } }, look, personal);
+  return { strip: strip || { tex: standing() }, style: equippedWeaponStyle(game, wgrp) };
+}
+async function showOfficerMotion(id) {
+  const game = g, officer = game.officers[id];
+  const personal = officerPassive(D, game, id);
+  const faction = game.factions.find(fac => fac.ruler === id);
+  const ruler = faction ? G.rulerPassive(game, faction.id) : null;
+  const summary = [
+    [`武器 ${D.equipment[officer.weapon]?.name ?? '—'}`, officerTroopLabel(D, game, id)].filter(Boolean).join(' · '),
+    ...[personal, ruler].filter(Boolean).map(({ name, text }) => `${name} · ${text}`),
+  ];
+  const preview = officerMotionPreview(scene => loadPreviewMotion(game, id, scene), summary);
+  try { await modal(`${name(id)} · 动作预览`, close => [preview.element,
+    h('div', { class: 'foot' }, h('button', { class: 'btn', onclick: () => close() }, '关闭'))]); }
+  finally { preview.dispose(); }
+}
+async function officerCard(id, { preview = false } = {}) {
+  await modal(name(id), (close) => officerSheet(id, { foot: h('div', { class: 'foot' },
+    preview ? h('button', { class: 'btn', onclick: () => showOfficerMotion(id) }, '动作预览') : null,
+    h('button', { class: 'btn', onclick: () => close() }, '关闭')) }), { wide: true });
 }
 // The 白兵 / 单挑 资料 (feedback R09, 2026-11-02; the original's 单挑 menu has it): both generals side by side in the order given
 // (tacticalhud.js: the attacker left, the defender right, as they stand on the screen), each marked 我军 / 敌军 and 攻 / 守.
@@ -2873,7 +2945,8 @@ async function expedition(cid) {
   if (t.faction !== NONE && g.factions[g.player].alliance[t.faction] > 0) return toast('<em>与该势力有同盟</em>　可在「城 → 外交 → 同盟」中废除', 4000);
   const keep = G.mustGuardLastCity(g, cid, to), max = Math.min(10, c.officers.length - (keep ? 1 : 0));
   if (max < 1) return toast('<em>前往关隘时须在最后一座城市留守至少一名武将</em>', 3500);
-  const ids = await pickOfficers(g, `出阵${cityName(to)}：选择武将（最多10人）`, c.officers, { max, note: keep ? '前往关隘时须在最后一座城市留守至少一名武将。' : '留守城中的武将将继续守城；全部出阵则此城成为空城。',
+  const ids = await pickOfficers(g, `出阵${cityName(to)}：选择武将（最多10人）`, c.officers, { max, preview: sortiePreview(D, g, cid, to),
+    note: keep ? '前往关隘时须在最后一座城市留守至少一名武将。' : '留守城中的武将将继续守城；全部出阵则此城成为空城。',
     summary: (sel) => { const troops = (ids) => ids.reduce((a, id) => a + g.officers[id].soldiers, 0), stay = c.officers.filter((id) => !sel.includes(id));
       return `出阵兵力 <b>${troops(sel)}</b>　留守 ${stay.length ? `${stay.length}将 ${troops(stay)}兵` : '<em>无（空城）</em>'}`; } });
   if (!ids?.length) return;
@@ -2983,14 +3056,13 @@ async function resumeWar(rec, onReady) {
   else if (rec.after.kind !== 'raid' && g.books <= 0) await banner('命令书用尽　本月行动结束', colorOf(g.player));
 }
 // Before a new game or a record replaces it: a suspended war is given up only when the player says so.
-async function leaveSuspend() {
-  const token = suspendToken(), s = peekSuspend(token); if (!s) return true;
+async function confirmLeaveSuspend() {
+  const token = suspendToken(), s = peekSuspend(token); if (!s) return 'null';
   const yes = await confirmBox('放弃中断的战斗', `还有一场中断的${cityName(s.war.city)}之战（第${s.field.day}日）没有继续。开始后它将被放弃，确定吗？`);
   if (!yes) return false;
-  const result = await withSuspendLock(() => dropSuspend(token), { legacyFallback: true });
-  if (result === 'changed') toast('<em>中断战斗已改变，请重新选择</em>', 3500);
-  else if (result !== 'dropped') toast('<em>未能放弃中断战斗</em>', 3500);
-  return result === 'dropped';
+  if (suspendToken() === token) return token;
+  toast('<em>中断战斗已改变，请重新选择</em>', 3500);
+  return false;
 }
 const WHY = { castle: '攻占了城池', commander: '总大将失去了战斗能力', retreat: '总大将撤退', timeout: '战事持续30日未分胜负', rice: '军粮耗尽' };
 // opts.after: what follows once the war is settled, kept for 中断 (suspendWar). opts.field / opts.start: a suspended war
@@ -3597,15 +3669,17 @@ async function cutIn(field, a, d, res, terrain, ready = prepareSkirmish(field, r
   } finally { restore(); }
 }
 // 单挑 cut: letterbox, white flash and the 单挑 mark, then the duel scene; the reverse on exit.
+async function loadDuelActor(id, details) {
+  if (id === 24 && officerMotion(id) === 'b-guojia-motion') return loadGuoJiaDuel(details);
+  await loadConfiguredMotion(id, details);
+  await loadDuelStrip(id, details);
+}
 function duelStage() {
   const cine = $('#cine');
   async function prepare(battle) {
-    const [a, d] = await Promise.all(['a', 'd'].map(async (side) => {
-      const { id } = battle.side[side];
-      // 郭嘉在白兵和行军仍使用原来的格图。
-      if (id === 24 && officerMotion(id) === 'b-guojia-motion') return loadGuoJiaDuel();
-      await loadConfiguredMotion(id); await loadDuelStrip(id);
-    }).concat(battleSides.map(side => loadDuelStrip(side))));
+    const details = duelDetails();
+    const [a, d] = await Promise.all(['a', 'd'].map(side => loadDuelActor(battle.side[side].id, details))
+      .concat(battleSides.map(side => loadDuelStrip(side, details))));
     return { a, d };
   }
   return {

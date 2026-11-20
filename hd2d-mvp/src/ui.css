@@ -355,6 +355,18 @@ body.picking #ui > :is(.endturn, .dock, .sysbtns, .citypanel) { opacity: .45; fi
 .modal h3 { font: 26px var(--brush); letter-spacing: 3px; margin-bottom: 10px; color: #fff3d6; }
 .modal .row { display: flex; gap: 10px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
 .modal .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.sortie-preview { margin: 8px 0 12px; padding: 10px; border: 1px solid var(--rule); border-radius: 4px; background: #0003; }
+.sortie-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.sortie-preview p { margin-top: 4px; }
+.sortie-map:not([hidden]) { display: grid; grid-template-columns: minmax(0, 256px) minmax(0, 1fr); align-items: center; gap: 8px; margin-top: 8px; }
+.sortie-map canvas { display: block; max-width: 100%; height: auto; image-rendering: pixelated; }
+.sortie-map span { display: block; }
+.motion-preview { display: grid; gap: 8px; width: min(340px, 100%); margin: 0 auto; }
+.motion-preview canvas { display: block; width: 100%; height: auto; background: linear-gradient(#233239, #514531); image-rendering: pixelated; }
+.motion-preview p:empty { display: none; }
+.motion-tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.motion-tools .btn { flex: 1; }
+@media (max-width: 540px) { .sortie-map:not([hidden]) { grid-template-columns: minmax(0, 1fr); } }
 .war-roster { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
 .war-roster .btn { min-width: 0; min-height: 48px; text-align: left; overflow-wrap: anywhere; }
 .war-roster .btn.on { border-color: #ffd890; background: linear-gradient(var(--btn-on), var(--btn-hi-b)); }

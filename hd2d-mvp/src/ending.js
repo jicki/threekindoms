@@ -4,7 +4,7 @@
 // to those people, not earned by the player. Paintings: tools/gen_ending_codex.sh → build_ending.py.
 // A click or key finishes what is being written, or moves on; nothing here can skip the result by accident, since the
 // hall waits for its own click and the input is ignored for a moment after each screen opens.
-import { name, data } from './core/game.js';
+import { name, unificationGoal } from './core/game.js';
 import { h, avatar, figure } from './ui.js';
 
 const ART = { dusk: 'assets/ai/ending/dusk.webp', dawn: 'assets/ai/ending/dawn.webp', court: 'assets/ai/ending.webp', hall: 'assets/ai/ending/hall.webp', fallen: 'assets/ai/ending/fallen.webp' };
@@ -80,7 +80,7 @@ async function hall(stage, g, ruler, score, parts) {
     h('div', { class: 'end-frame' }, figure(ruler)),
     h('div', { class: 'end-result-body' },
       h('h2', {}, '天下统一'),
-      h('p', { class: 'end-when' }, `${g.year}年${g.month + 1}月　${name(ruler)}平定${data()?.expandedMap ? '三十三城' : '三十州'}`),
+      h('p', { class: 'end-when' }, `${g.year}年${g.month + 1}月　${name(ruler)}平定${unificationGoal()}`),
       h('p', { class: 'end-level' }, LEVEL[g.level] ?? ''),
       h('div', { class: 'end-score' }, h('span', {}, '统一度'), h('b', {}, score)),
       h('div', { class: 'end-parts' },
@@ -171,7 +171,7 @@ export async function playUnification({ g, D, ruler, score, parts, officers, lis
     const years = g.year - 189;
     if (score >= 70) await scene(stage, ART.dusk, [years > 0 ? `${cnYears(years)}年干戈，到今日为止。` : '不足一年的干戈，到今日为止。', '刀枪入库，征人还乡，炊烟又升起来了。']);
     if (score >= 40) {
-      await scene(stage, ART.dawn, [`${data()?.expandedMap ? '三十三城' : '三十州'}的山河，在晨光里一点点亮起来。`, `走到这里的人，是${name(ruler)}。`]);
+      await scene(stage, ART.dawn, [`${unificationGoal()}的山河，在晨光里一点点亮起来。`, `走到这里的人，是${name(ruler)}。`]);
       await scene(stage, ART.court, ['百官列于阶下，四方的旗帜都到齐了。', '乱世从这一天起，翻过了最后一页。'], { hold: 5000 });
     }
     await hall(stage, g, ruler, score, parts);

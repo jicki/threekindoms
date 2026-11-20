@@ -36,6 +36,7 @@ const FALLBACK = {
 };
 const TILT = 0.3; // standing men lean back this much (rad); the dead lie back to face the camera
 const CLIP_ALIAS = { charge: 'gallop' }, FRAME_ALIAS = { dead: 'downed', stagger: 'hurt', guard: 'idle_a' };
+export const tacticalMotionClip = (meta, action) => meta?.clips[action] || meta?.clips[CLIP_ALIAS[action]] || FALLBACK[action] || FALLBACK.idle;
 
 const blobTex = canvasTex(32, 32, (g) => {
   const gr = g.createRadialGradient(16, 16, 0, 16, 16, 16);
@@ -312,7 +313,7 @@ export function createTacticalView(T, sprites) {
     if (i >= 0) spriteFrame(M.tex, M.meta, i);
   }
   const mats = (M) => (M.tv ? [M.mat, M.tv.mat] : [M.mat]);
-  const clipOf = (M, c) => (M.dir !== 'side' && M.tv?.meta.clips[`${M.dir}:${c}`]) || M.meta?.clips[c] || M.meta?.clips[CLIP_ALIAS[c]] || FALLBACK[c] || FALLBACK.idle;
+  const clipOf = (M, c) => (M.dir !== 'side' && M.tv?.meta.clips[`${M.dir}:${c}`]) || tacticalMotionClip(M.meta, c);
   function runLoop(M, dt) {
     if (M.busy || !M.loop) return;
     const c = clipOf(M, M.loop), total = c.reduce((a, f) => a + f[1], 0);
