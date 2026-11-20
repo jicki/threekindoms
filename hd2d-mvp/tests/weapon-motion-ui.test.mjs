@@ -94,7 +94,6 @@ test('旧版扩展记录的装备驱动手机单挑的拉弓与挥扇，左右�
   try {
     await page.setViewportSize({ width: 812, height: 375 });
     const result = await page.evaluate(async () => {
-      window.__timeScale(3);
       const { G, debug } = window.__game, view = debug.duelView;
       const { Tactical } = await import('./src/core/tactical.js');
       const { tableDraws } = await import('./src/core/origrng.js');
@@ -103,13 +102,16 @@ test('旧版扩展记录的装备驱动手机单挑的拉弓与挥扇，左右�
       const bow = 38, fan = 237;
       G.wearEquip(legacy, bow, 32); G.wearEquip(legacy, fan, 34);
       G.saveQuick(legacy);
-      const g = G.loadQuick(), cases = [];
-      await debug.loadOfficerSprites([bow, fan], g);
+      const g = G.loadQuick(), cases = [], looks = { a: 'attacker', d: 'defender' };
       for (const swapped of [false, true]) {
+        window.__timeScale(1);
         const battle = new Tactical(g, swapped ? fan : bow, swapped ? bow : fan, 2, () => 0, { human: 'a' });
         battle.deploy(); const { duel } = battle.startDuel('a');
+        // 沿用实战按参战编队加载素材，避免调试入口把无关兵队一起排入请求队列。
+        await debug.loadOfficerSprites([bow, fan], g, battle, looks);
         view.setPlace({ month: 2, city: 12, siege: null }); debug.show('dview');
-        await view.enter(battle, { a: 'attacker', d: 'defender' });
+        await view.enter(battle, looks);
+        window.__timeScale(3);
         for (const s of ['a', 'd']) {
           const fighter = duel.side[s], style = fighter.id === bow ? 'bow' : 'fan';
           const target = duel.side[s === 'a' ? 'd' : 'a'];
@@ -157,30 +159,35 @@ test('原版换装继续使用原有单挑素材和音效', { timeout: 60000 }, 
     const result = await page.evaluate(async () => {
       const { G, debug, audio } = window.__game, { Tactical } = await import('./src/core/tactical.js');
       const view = debug.duelView, g = G.newGame(4, 1, 7), officer = 38, enemy = 51, textures = [];
-      const sounds = [], previous = audio.sfx;
+      const sounds = [], previous = audio.sfx, looks = { a: 'attacker', d: 'defender' };
       audio.sfx = (key) => sounds.push(key);
       try {
         for (const equip of [8, 18]) {
           G.wearEquip(g, officer, equip);
           // 素材加载按真实时间计时，只有演出使用加速时钟。
           window.__timeScale(1);
-          await debug.loadOfficerSprites([officer, enemy], g);
-          window.__timeScale(4);
           const battle = new Tactical(g, officer, enemy, 2, () => 0, { human: 'a' });
           battle.deploy();
+          await debug.loadOfficerSprites([officer, enemy], g, battle, looks);
+          // 渲染器直进单挑会跳过实战的单挑预备，再走一次加载以补齐白兵阶段暂缺的个人动作。
+          await debug.loadOfficerSprites([officer, enemy], g, battle, looks);
           view.setPlace({ month: 2, city: 12, siege: null }); debug.show('dview');
-          await view.enter(battle, { a: 'attacker', d: 'defender' });
+          await view.enter(battle, looks);
           const { x } = view.probe(officer);
           const rider = view.scene.children.find(o => o.isGroup && Math.abs(o.position.x - x) < 0.001
             && o.children.some(c => c.geometry?.type === 'RingGeometry'));
           textures.push(rider.children.find(c => c.visible && c.material?.map).material.map.image);
+          window.__timeScale(4);
           await view.act({ by: officer, cmd: 'attack', hit: true, dmg: 10, self: 0 });
         }
-        return { original: G.currentScenario() === 'original', sameTexture: textures[0] === textures[1], sounds };
+        return { original: G.currentScenario() === 'original', sameTexture: textures[0] === textures[1],
+          nativeMotion: textures.every(image => image instanceof HTMLCanvasElement),
+          textureSources: textures.map(image => image.currentSrc || image.src || 'canvas'), sounds };
       } finally { audio.sfx = previous; }
     });
     assert.equal(result.original, true);
-    assert.equal(result.sameTexture, true);
+    assert.equal(result.nativeMotion, true, JSON.stringify(result.textureSources));
+    assert.equal(result.sameTexture, true, JSON.stringify(result.textureSources));
     assert.equal(result.sounds.filter(key => key === 'sfx-duel-blow').length, 2);
     assert.ok(!result.sounds.includes('sfx-tactic-xbow'));
     assert.deepEqual(requests, []);

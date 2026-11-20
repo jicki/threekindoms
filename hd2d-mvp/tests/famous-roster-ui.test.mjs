@@ -14,7 +14,9 @@ async function openPlayerTurn(page) {
     g.books = G.books(g, g.player);
     G.save(g, 1);
   });
-  await page.reload();
+  // 先等游戏壳就绪，再开始等待标题动画。远程素材可能在导航完成后仍在初始化。
+  await page.reload({ waitUntil: 'commit' });
+  await page.waitForFunction(() => Boolean(window.__game?.debug), null, { timeout: 60000 });
   await resumeCampaign(page);
 }
 
