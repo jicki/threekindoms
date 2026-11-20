@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { MONTHS, lookOf } from '../seasons.js';
 import { W, H } from '../core/field.js';
+import { siegeExtent } from '../core/siege.js';
 
 export const WATER_Y = 0.2;
 // The four corner views (the board turns a quarter at a time on Q / E), the tilt they share, and the straight-down tilt of the
@@ -16,8 +17,8 @@ export const KIND = ['forest', 'sand', 'grass', 'river', 'hill', 'castle'], PLAT
 // 护城河外沿和当前部队占据的范围，共用于手机平面与三维战场。
 export function siegeFrame(field) {
   if (!(field.siege?.revision >= 2)) return null;
-  const { cx, cy, moat } = field.siege;
-  const x = [cx - moat, cx + moat], y = [cy - moat, cy + moat];
+  const { cx, cy } = field.siege, [mx, my] = siegeExtent(field.siege, 'moat');
+  const x = [cx - mx, cx + mx], y = [cy - my, cy + my];
   for (const u of field.alive) { x.push(u.x); y.push(u.y); }
   return { x0: Math.min(...x), x1: Math.max(...x), y0: Math.min(...y), y1: Math.max(...y) };
 }

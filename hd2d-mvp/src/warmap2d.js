@@ -12,6 +12,7 @@ import { createSky2d } from './skyfx2d.js';
 import { rng } from './pixel.js';
 import { PHONE, margins } from './phone.js';
 import { siegeFrame } from './war/shared.js';
+import { fortressStyle } from './fortress-style.js';
 
 const KIND = ['forest', 'sand', 'grass', 'river', 'hill', 'castle'];
 // px kept for the HUD strips (ui.css body.flat2d). Under 1200 px the foe's card stacks as a strip above ours (ui.css .unitpanel.compare), so the bottom strip is that much taller.
@@ -121,7 +122,8 @@ export function paintFlatMap(G, field, { px = 80 } = {}) {
     g.fillStyle = 'rgba(10, 10, 4, 0.35)'; g.beginPath(); g.ellipse((cx + 0.1) * px, (cy + footDown - 0.08) * px, w * 0.48, w * 0.16, 0, 0, Math.PI * 2); g.fill();
     g.drawImage(img, cx * px - w / 2, (cy + footDown) * px - h, w, h);
   };
-  if (castle && field.sceneProfile?.kind === 'pass') {
+  if (castle && field.siege?.style) paintFlatFortress(g, field.siege, px);
+  else if (castle && field.sceneProfile?.kind === 'pass') {
     const x = (castle[0] + 0.5) * px, y = (castle[1] + 0.7) * px;
     g.fillStyle = '#4b3b2b'; g.fillRect(x - px * 0.8, y - px * 0.32, px * 1.6, px * 0.42);
     g.fillStyle = '#a79570'; g.fillRect(x - px * 0.75, y - px * 0.4, px * 1.5, px * 0.3);
@@ -131,6 +133,49 @@ export function paintFlatMap(G, field, { px = 80 } = {}) {
   } else if (castle) prop(G.img.castle, castle[0] + 0.5, castle[1] + 0.5, 2.8, 0.8);
   for (const v of field.villages) prop(G.img.village, v.x + 0.5, v.y + 0.5, 1.45, 0.4);
   return P.canvas;
+}
+
+// 城体静态绘入战场底图，实况层只重绘开合中的门道和操作标记。
+function paintFlatFortress(g, siege, px) {
+  const style = fortressStyle(siege);
+  const drawAt = ({x,y,face}, draw) => {
+    g.save(); g.translate(x + 0.5, y + 0.5);
+    if (face === 'w' || face === 'e') g.rotate(Math.PI / 2);
+    draw(); g.restore();
+  };
+  const rect = (color, x, y, w, h) => { g.fillStyle = color; g.fillRect(x,y,w,h); };
+  const roof = (w,h,y=0) => {
+    rect(style.shade,-w/2-0.05,y-h/2+0.07,w+0.10,h);
+    g.fillStyle = style.roof; g.beginPath();
+    g.moveTo(-w/2,y-h/2); g.lineTo(w/2,y-h/2); g.lineTo(w*0.45,y+h/2); g.lineTo(-w*0.45,y+h/2); g.closePath(); g.fill();
+    rect(style.ridge,-w*0.37,y-0.02,w*0.74,0.04);
+  };
+  g.save(); g.scale(px, px);
+  for (const cell of siege.paving) drawAt(cell, () => rect('#ac9b7d',-0.26,-0.5,0.52,1));
+  for (const crossing of siege.crossings) drawAt(crossing, () => {
+    rect(style.shade,-0.43,-0.52,0.86,1.04);
+    rect(style.timberBridge ? style.wood : style.light,-0.35,-0.52,0.70,1.04);
+    for (const side of [-0.40,0.34]) rect(style.light,side,-0.52,0.06,1.04);
+  });
+  for (const wall of siege.walls) drawAt(wall, () => {
+    const half = wall.corner ? 0.5 : wall.ring === siege.outer ? 0.31 : 0.23;
+    rect(style.shade,-0.5,-half+0.08,1,half*2);
+    rect(style.stone,-0.5,-half,1,half*2);
+    rect(style.light,-0.5,-half,1,0.07);
+    for (const x of [-0.42,-0.08,0.25]) rect(style.light,x,half-0.08,0.17,0.1);
+    if (wall.corner && wall.ring === siege.outer) roof(0.85*style.scale,0.73*style.scale);
+  });
+  for (const gate of siege.gates) drawAt(gate, () => {
+    rect(style.stone,-0.5,-0.34,1,0.68);
+    rect(style.shade,-0.27,-0.5,0.54,1);
+    roof(0.96*style.scale,gate.ring === siege.outer ? 0.40 : 0.34,-0.31);
+  });
+  const [w,h] = style.keep;
+  drawAt({x:siege.cx,y:siege.cy,face:siege.direction}, () => {
+    rect(style.stone,-w/2-0.12,-h/2-0.04,w+0.24,h+0.20);
+    for (let tier = 0; tier < style.tiers; tier++) roof(w * 0.73 ** tier,h * 0.70 ** tier,-0.19*tier);
+  });
+  g.restore();
 }
 
 // --- The live layer ---
@@ -325,8 +370,18 @@ export function flatten(war, G, blankScene) {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
     if (field.siege) {
-      for (const p of field.siege.walls) { g.fillStyle=p.ring===field.siege.outer?'#746a58':'#aa9673'; g.fillRect(ox+p.x*c,oy+p.y*ch,c,ch); g.strokeStyle='#423a2b'; g.strokeRect(ox+p.x*c,oy+p.y*ch,c,ch); }
-      for (const p of field.siege.gates) { g.fillStyle=p.open?'#d6c495':'#7b4226'; g.fillRect(ox+p.x*c+c*0.12,oy+p.y*ch+ch*0.12,c*0.76,ch*0.76); g.strokeStyle='#e5c16c'; g.strokeRect(ox+p.x*c+c*0.12,oy+p.y*ch+ch*0.12,c*0.76,ch*0.76); }
+      const style = fortressStyle(field.siege);
+      if (style) for (const gate of field.siege.gates) {
+        const horizontal = gate.face === 'w' || gate.face === 'e';
+        const w = horizontal ? 0.54 : 0.42, h = horizontal ? 0.42 : 0.54;
+        const x = ox + (gate.x + (1 - w) / 2) * c, y = oy + (gate.y + (1 - h) / 2) * ch;
+        g.fillStyle = gate.open ? '#f0dab4' : '#522c22'; g.fillRect(x,y,c*w,ch*h);
+        g.strokeStyle = gate.open ? '#fff2c9' : style.ridge; g.lineWidth = 1.1; g.strokeRect(x,y,c*w,ch*h);
+      }
+      else {
+        for (const p of field.siege.walls) { g.fillStyle=p.ring===field.siege.outer?'#746a58':'#aa9673'; g.fillRect(ox+p.x*c,oy+p.y*ch,c,ch); g.strokeStyle='#423a2b'; g.strokeRect(ox+p.x*c,oy+p.y*ch,c,ch); }
+        for (const p of field.siege.gates) { g.fillStyle=p.open?'#d6c495':'#7b4226'; g.fillRect(ox+p.x*c+c*0.12,oy+p.y*ch+ch*0.12,c*0.76,ch*0.76); g.strokeStyle='#e5c16c'; g.strokeRect(ox+p.x*c+c*0.12,oy+p.y*ch+ch*0.12,c*0.76,ch*0.76); }
+      }
     }
     // The range, as the 3D board draws it (src/war/overlay.js, 2026-11-13): the reach is one region, a faint fill the painted ground
     // reads through, hairlines between its cells and a bright contour round the outside only; a target is corner brackets over a

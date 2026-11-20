@@ -1,3 +1,6 @@
+import { advancedBattle } from './battle-rules.js';
+import { siegeLayout } from './siege.js';
+
 // 君主列传新开局的战场配置。原版和没有 battlefields 标记的旧记录仍使用导出数据。
 // battlefields=1 的布局需要保持稳定；后续调整应新增版本，不能改写已中断战斗的布局。
 // 主题只描述画面；战斗数值仍由地形、兵种和原有规则决定。
@@ -109,4 +112,16 @@ export function battlefieldLayout(data, g, city, from) {
   const map = newMap(city, Object.values(dirs), villages);
   if (g.battlefields === 2) connectRivers(map, villages, Object.values(dirs));
   return { profile, map, dep: deployment(direction), villages, direction };
+}
+
+// 战场、中断校验和电脑自动结算共用同一个场地入口。
+export function resolveBattlefield(data, g, city, from, revision) {
+  const layout = battlefieldLayout(data, g, city, from), profile = battlefieldProfile(g, city);
+  const entry = layout?.direction ?? (advancedBattle(g) ? battleEntryDirection(data, city, from) : null);
+  const dep = layout?.dep ?? (data.deploy[city]?.[from] || Object.values(data.deploy[city] ?? {})[0]);
+  const map = layout?.map ?? data.maps[city], villages = layout?.villages ?? data.villages[city] ?? [];
+  if (g.battlefields !== 2 || !dep) return { map, dep, villages, profile, entry, siege: null };
+  const current = g.campaignRevision >= 9 ? 4 : advancedBattle(g) ? 3 : 2;
+  if (revision === 4 && current < 4) throw new Error('当前战役不支持该城防布局');
+  return { ...siegeLayout(map, dep, villages, layout?.direction, city === 30 || city === 31, revision ?? current, profile), profile, entry };
 }

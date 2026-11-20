@@ -49,6 +49,7 @@ test('手机可取消或确认战役升级，另存并重新读取后保留新�
     await recordMenu();
     await upgrade.click();
     assert.equal(await dialog.count(), 1, await page.locator('body > .toast').allTextContents());
+    assert.match(await dialog.textContent(), /新版城防与布阵/);
     await dialog.getByRole('button', { name: '取消' }).click();
     assert.equal(await page.evaluate(() => window.__game.g.famousSkills), true);
     await recordMenu();
@@ -72,8 +73,8 @@ test('手机可取消或确认战役升级，另存并重新读取后保留新�
     await page.waitForFunction(() => document.body.dataset.screen === 'strategy' && window.__game.g?.slot === 2);
     assert.deepEqual(await page.evaluate(() => {
       const { G, g } = window.__game;
-      return [g.slot, g.famousSkills, g.year, g.month, g.cities[2].gold, g.freeSave, G.name(264), G.slotToken(1)];
-    }), [2, 2, 196, 6, 1789, true, '张绣', old]);
+      return [g.slot, g.famousSkills, g.campaignRevision, g.year, g.month, g.cities[2].gold, g.freeSave, G.name(264), G.slotToken(1)];
+    }), [2, 2, 9, 196, 6, 1789, true, '张绣', old]);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });

@@ -2,12 +2,16 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { canvasTex, rng } from './pixel.js';
 import { roofTex } from './structures.js';
+import { gateNormal } from './core/siege.js';
+import { fortressStyle } from './fortress-style.js';
 
 // 城墙按格对齐。合并静态构件，城门只移动门扇，城楼和门道始终保留。
 export function buildFortification(siege, { wx, wz, topY }) {
   const fort = new THREE.Group(), batches = new Map(), gates = [];
   fort.name = 'siege-fortification';
   fort.userData.landmark = true;
+  const style = fortressStyle(siege), scale = style?.scale ?? 1;
+  if (style) fort.userData.style = siege.style;
   const material = (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.91 });
   const stonework = canvasTex(128, 64, ctx => {
     const random = rng(53);
@@ -25,9 +29,11 @@ export function buildFortification(siege, { wx, wz, topY }) {
       ctx.fillRect(random() * 128, random() * 64, 1 + random() * 2, 1);
     }
   }, { repeat: true });
-  const masonry = ['#aa9d88', '#c1b6a0', '#857c70'].map(color => new THREE.MeshStandardMaterial({ color, map: stonework, roughness: 0.94 }));
-  const cap = material('#b5a489'), timber = material('#593621');
-  const tile = roofTex('#444d46', '#323c36', '#5e695e');
+  const masonry = (style ? [style.stone, style.light, new THREE.Color(style.stone).multiplyScalar(0.75)] : ['#aa9d88', '#c1b6a0', '#857c70'])
+    .map(color => new THREE.MeshStandardMaterial({ color, map: stonework, roughness: 0.94 }));
+  const cap = material(style?.light ?? '#b5a489'), timber = material(style?.wood ?? '#593621');
+  const ridge = style ? material(style.ridge) : timber;
+  const tile = roofTex(style?.roof ?? '#444d46', style?.shade ?? '#323c36', style?.ridge ?? '#5e695e');
   tile.repeat.set(3, 2);
   const roof = new THREE.MeshStandardMaterial({ map: tile, roughness: 0.9 });
   const gateWood = material('#946541');
@@ -63,7 +69,7 @@ export function buildFortification(siege, { wx, wz, topY }) {
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(faces.flatMap(i => [corners[i][0] / width + 0.5, corners[i][2] / depth + 0.5]), 2));
     geo.computeVertexNormals(); geo.setIndex(faces.map((_, i) => i));
     staticPart(geo, roof, x, y, z, angle);
-    local(cell, angle)(2*r + 0.1, 0.065, 0.075, 0, h, 0, timber);
+    local(cell, angle)(2*r + 0.1, 0.065, 0.075, 0, h, 0, ridge);
   }
   function gateArch(cell, angle, height) {
     const profile = new THREE.Shape();
@@ -82,9 +88,10 @@ export function buildFortification(siege, { wx, wz, topY }) {
     staticPart(arch.translate(0, 0, -0.30), masonry[1], wx(cell.x), topY(cell.x, cell.y), wz(cell.y), angle);
   }
   for (const wall of siege.walls) {
-    const rx = Math.abs(wall.x - siege.cx), ry = Math.abs(wall.y - siege.cy), angle = rx === wall.ring ? Math.PI / 2 : 0;
-    const box = local(wall, angle), corner = rx === ry, outer = wall.ring === siege.outer;
-    const h = outer ? 0.54 : 0.43, depth = corner ? 0.99 : 0.54;
+    const rx = Math.abs(wall.x - siege.cx), ry = Math.abs(wall.y - siege.cy);
+    const angle = (wall.face ? wall.face === 'w' || wall.face === 'e' : rx === wall.ring) ? Math.PI / 2 : 0;
+    const box = local(wall, angle), corner = wall.corner ?? rx === ry, outer = wall.ring === siege.outer;
+    const h = (outer ? 0.54 : 0.43) * scale, depth = corner ? 0.99 : 0.54;
     const rampart = new THREE.BoxGeometry(1.005, h, depth), pos = rampart.attributes.position;
     for (let i = 0; i < pos.count; i++) if (pos.getY(i) > 0) pos.setZ(i, pos.getZ(i) * 0.78);
     rampart.computeVertexNormals();
@@ -96,18 +103,24 @@ export function buildFortification(siege, { wx, wz, topY }) {
     }
     if (corner && outer) {
       box(0.5, 0.22, 0.52, 0, h + 0.14, 0, timber);
-      tiledRoof(wall, angle, h + 0.29, 0.87, 0.82);
-      box(0.30, 0.17, 0.29, 0, h + 0.49, 0, timber);
-      tiledRoof(wall, angle, h + 0.60, 0.62, 0.54);
+      tiledRoof(wall, angle, h + 0.29, 0.87 * scale, 0.82 * scale);
+      if (!style || scale >= 1) {
+        box(0.30, 0.17, 0.29, 0, h + 0.49, 0, timber);
+        tiledRoof(wall, angle, h + 0.60, 0.62 * scale, 0.54 * scale);
+      }
     }
   }
   for (const gate of siege.gates) {
-    const vertical = gate.x !== siege.cx, angle = vertical ? Math.PI / 2 : 0;
-    const box = local(gate, angle), outer = gate.ring === siege.outer, h = outer ? 0.65 : 0.52;
+    const [dx, dy] = gateNormal(siege, gate), angle = dx ? Math.PI / 2 : 0;
+    const box = local(gate, angle), outer = gate.ring === siege.outer, h = (outer ? 0.65 : 0.52) * scale;
     gateArch(gate, angle, h);
     box(0.99, 0.065, 0.68, 0, h + 0.075, 0, stone(2));
     box(0.57, 0.23, 0.42, 0, h + 0.14, 0, timber);
-    tiledRoof(gate, angle, h + 0.27, outer ? 1.16 : 0.98, 0.84);
+    tiledRoof(gate, angle, h + 0.27, (outer ? 1.16 : 0.98) * scale, 0.84 * scale);
+    if (outer && style?.tiers >= 2) {
+      box(0.42, 0.19, 0.34, 0, h + 0.46, 0, timber);
+      tiledRoof(gate, angle, h + 0.58, 0.78 * scale, 0.64 * scale);
+    }
     const door = new THREE.Group(); door.name = 'siege-door';
     door.position.set(wx(gate.x), topY(gate.x, gate.y), wz(gate.y)); door.rotation.y = angle;
     for (const side of [-1, 1]) {
@@ -119,14 +132,27 @@ export function buildFortification(siege, { wx, wz, topY }) {
     door.scale.y = gate.open ? 0.1 : 1;
     gates.push({ door, gate }); fort.add(door);
     if (outer) {
-      const bridge = vertical ? { x: siege.cx + Math.sign(gate.x - siege.cx) * siege.moat, y: gate.y }
-        : { x: gate.x, y: siege.cy + Math.sign(gate.y - siege.cy) * siege.moat };
+      const bridge = style ? { x: gate.x + dx, y: gate.y + dy } : { x: siege.cx + dx * siege.moat, y: siege.cy + dy * siege.moat };
       const deck = local(bridge, angle);
-      deck(0.82, 0.09, 1.06, 0, 0.035, 0, paving);
+      deck(0.82, 0.09, 1.06, 0, 0.035, 0, style?.timberBridge ? timber : paving);
       for (const side of [-1, 1]) deck(0.075, 0.12, 1, side * 0.40, 0.085, 0, cap);
     }
   }
-  if (siege.inner > 1) {
+  if (style) {
+    for (const cell of siege.paving) local(cell, cell.face === 'e' || cell.face === 'w' ? Math.PI / 2 : 0)(0.56, 0.018, 0.99, 0, 0.012, 0, paving);
+    const keep = { x: siege.cx, y: siege.cy };
+    const angle = ['e', 'w'].includes(siege.direction) ? Math.PI / 2 : 0;
+    const box = local(keep, angle);
+    let [width, depth] = style.keep;
+    box(width + 0.20, 0.20, depth + 0.20, 0, 0.02, 0, masonry[0]);
+    for (let level = 0; level < style.tiers; level++) {
+      const y = level * 0.41;
+      box(width * 0.78, 0.38, depth * 0.76, 0, 0.28 + y, 0, timber);
+      for (const x of [-0.30, 0, 0.30]) for (const z of [-0.42, 0.42]) box(0.07, 0.35, 0.09, width * x, 0.28 + y, depth * z, cap);
+      tiledRoof(keep, angle, 0.49 + y, width, depth);
+      width *= 0.73; depth *= 0.76;
+    }
+  } else if (siege.inner > 1) {
     // 铺装沿门轴展开，内院四角留给站位和单位轮廓。
     for (let offset = -siege.outer; offset <= siege.outer; offset++) {
       if (!offset) continue;

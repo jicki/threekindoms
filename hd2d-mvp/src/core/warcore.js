@@ -6,8 +6,7 @@ import { officerSquads, SPECIAL_TROOPS } from './troop-specialties.js';
 import { passiveRiceUse } from './ruler-passives.js';
 import { relationshipAffinity } from './relationships.js';
 import { CROSSING_ROADS } from './expanded-map.js';
-import { battlefieldLayout, battlefieldProfile } from './battlefields.js';
-import { siegeLayout } from './siege.js';
+import { resolveBattlefield } from './battlefields.js';
 import { advancedBattle, officerPassive } from './battle-rules.js';
 
 // 旧版已中断的战斗仍可沿当时的出阵路线撤回，不恢复这条路线的出阵资格。
@@ -331,12 +330,7 @@ export function fight(g, war) {
   const gate = !war.phantom && g.campaignRules === true && war.def.ids.length && isPass(war.city) ? Math.min(3, Math.floor(baseD / 50)) : 0;
   let riverMap;
   const hasRiver = () => {
-    if (!riverMap) {
-      const D=data(), layout=battlefieldLayout(D,g,war.city,war.from);
-      const dep=g.battlefields===2 ? layout?.dep ?? (D.deploy[war.city]?.[war.from] || Object.values(D.deploy[war.city] ?? {})[0]) : null;
-      riverMap=dep ? siegeLayout(layout?.map ?? D.maps[war.city],dep,layout?.villages ?? D.villages[war.city] ?? [],layout?.direction,
-        [30,31].includes(war.city), advancedBattle(g) ? 3 : 2, battlefieldProfile(g,war.city)).map : layout?.map ?? D.maps[war.city];
-    }
+    riverMap ??= resolveBattlefield(data(), g, war.city, war.from).map;
     return riverMap?.some(row => row.includes(3));
   };
   // 自动结算没有逐格地形与白兵行动，用有上限的近似值体现可判断的专属战斗效果。

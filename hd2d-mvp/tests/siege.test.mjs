@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import * as G from '../src/core/game.js';
 import { Field } from '../src/core/field.js';
 import { battlefieldLayout } from '../src/core/battlefields.js';
-import { blockedStrategy, siegeLayout, wallAt } from '../src/core/siege.js';
+import { blockedStrategy, gateDefense, gateNormal, siegeExtent, siegeLayout, siegeRing, wallAt } from '../src/core/siege.js';
+import { fortressPlan } from '../src/core/fortress-plans.js';
 import { applyScenario } from '../src/core/scenario.js';
 import { loadScenario } from '../src/core/scenario-store.js';
 import { SOVEREIGN_SCENARIO_ID } from '../src/core/visuals.js';
@@ -56,6 +57,73 @@ test('城门消耗、突破和中断恢复一致，计策只能穿过对应已�
   assert.equal(blockedStrategy(f.siege,{x:cx-(edge-1),y:cy},{x:cx+(edge-1),y:cy}),true,'不能从同一外城区横穿未突破的内城');
   const restored=Field.restore(g,war(),f.snapshot()); assert.deepEqual(restored.siege.gates,gates);
   const bad=f.snapshot(); bad.siegeGates[0].x=999; assert.throws(()=>Field.restore(g,war(),bad));
+});
+
+test('修订 9 的 39 处城防覆盖所有来路，十将可部署且各门均可通往内外阵地', () => {
+  const signature = new Set(), labels = new Set();
+  const validRect = ([x0,x1,y0,y1], {x,y}) => x >= x0 && x <= x1 && y >= y0 && y <= y1;
+  for (const city of expanded.cities) for (const from of city.roads) {
+    const g = game(7,9), w = war(city.id,from), title = `${city.name} ← ${expanded.cities[from].name}`;
+    w.att.ids = Array.from({length:10},(_,i)=>i);
+    w.def.ids = Array.from({length:10},(_,i)=>i+10);
+    const f = new Field(g,w,'att'), s = f.siege, [mx,my] = siegeExtent(s,'moat');
+    assert.equal(s.revision,4,title);
+    labels.add(f.sceneProfile.label); signature.add(JSON.stringify(fortressPlan(city.id)));
+    assert.equal(new Set(f.units.map(u=>[u.x,u.y].join(','))).size,20,title);
+    assert.ok(f.units.every(u=>f.deployable(u.x,u.y) && validRect(f.dep[u.side==='att'?'attacker_rect':'defender_rect'],u)),title);
+    assert.ok(f.side('att').every(u=>Math.abs(u.x-s.cx)>mx || Math.abs(u.y-s.cy)>my),title);
+    assert.ok(f.side('def').every(u=>siegeRing(s,u) <= s.outer),title);
+    assert.ok(f.villages.every(v=>Math.abs(v.x-s.cx)>mx || Math.abs(v.y-s.cy)>my),title);
+    assert.equal(s.gates.length,city.kind==='pass'?4:8,title);
+    const a = f.side('att')[0], [d] = f.side('def');
+    f.units = [a];
+    const reach = f.reach(a,500).dist;
+    assert.ok(reach.has(f.castle().join(',')),title);
+    f.units = [d];
+    const outgoing = f.reach(d,500).dist;
+    for (const gate of s.gates) {
+      const [dx,dy] = gateNormal(s,gate), outside = {x:gate.x+dx,y:gate.y+dy};
+      assert.ok(reach.has([gate.x,gate.y].join(',')) && outgoing.has([outside.x,outside.y].join(',')),title);
+      assert.equal(gateDefense(s,gate,outside),gate,title);
+      assert.equal(blockedStrategy(s,gate,outside),true,title);
+      assert.equal(blockedStrategy(s,outside,gate),true,title);
+      gate.open = true;
+      assert.equal(blockedStrategy(s,outside,gate),false,title);
+      gate.open = false;
+    }
+  }
+  assert.equal(labels.size,39);
+  assert.equal(signature.size,39);
+});
+
+test('洛阳与长安采用不同外廓，水岸固定在城市一侧，偏门方向和中断状态可验证', () => {
+  const g = game(7,9);
+  const luo = new Field(g,war(12,32),'att'), chang = new Field(g,war(8,34),'att'), xinye = new Field(g,war(13,30),'att');
+  assert.deepEqual(siegeExtent(luo.siege,'outer'),[6,4]);
+  assert.deepEqual(siegeExtent(chang.siege,'outer'),[5,5]);
+  assert.deepEqual(siegeExtent(xinye.siege,'outer'),[4,3]);
+  for (const from of [13,21,22]) {
+    const f = new Field(g,war(30,from),'att'), {cx,cy} = f.siege, [mx,my] = siegeExtent(f.siege,'moat');
+    assert.equal(f.terr(cx-mx,cy-my),3,'襄阳北岸');
+    assert.equal(f.terr(cx-mx,cy+my),0,'襄阳南侧林带不随来路旋转');
+  }
+  const w = war(12,32), s = luo.siege, gate = s.gates.find(v=>v.face==='s' && v.ring===s.outer);
+  assert.notEqual(gate.x,s.cx);
+  gate.open = true;
+  const record = luo.snapshot(), resumed = Field.restore(g,w,record);
+  assert.deepEqual(resumed.siege,s);
+  assert.deepEqual(resumed.units,luo.units);
+  const wrong = structuredClone(record); wrong.siegeGates.find(v=>v.open).face = 'w';
+  assert.throws(()=>Field.restore(g,w,wrong));
+  const oldGame = game(7,8), old = new Field(oldGame,w,'def');
+  assert.equal(old.siege.revision,3);
+  assert.deepEqual(Field.restore(oldGame,w,old.snapshot()).siege,old.siege);
+  assert.throws(()=>Field.restore(oldGame,w,record));
+  const before = structuredClone(oldGame);
+  assert.ok(G.upgradeCampaign(oldGame));
+  assert.deepEqual(oldGame,{...before,campaignRevision:9});
+  assert.equal(new Field(oldGame,w,'def').siege.revision,4);
+  assert.deepEqual(Field.restore(oldGame,w,old.snapshot()).siege,old.siege);
 });
 
 test('内院扩到九格，驻门守军受闭门保护且普通移动负责突破', () => {
@@ -194,11 +262,13 @@ test('真实战场中断存取保留城门状态，损坏的城门记录不能�
   const descriptor=Object.getOwnPropertyDescriptor(globalThis,'localStorage'), store=new Map();
   Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v)),removeItem:k=>store.delete(k)}});
   try {
-    const g=game(), w=war(), f=new Field(g,w,'att'); f.siege.gates[0].open=true;
-    assert.equal(suspend(g,w,f,{side:'att',start:{},after:{kind:'att'}}),true);
-    const rec=takeSuspend(); assert.ok(rec); assert.deepEqual(Field.restore(rec.g,rec.war,rec.field).siege.gates,f.siege.gates);
-    const bad=new Field(g,war(),'att'); bad.siege.gates[0].x=-1;
-    assert.equal(suspend(g,war(),bad,{side:'att',start:{},after:{kind:'att'}}),false);
+    for (const revision of [1,8,9]) {
+      const g=game(7,revision), w=war(), f=new Field(g,w,'att'); f.siege.gates[0].open=true;
+      assert.equal(suspend(g,w,f,{side:'att',start:{},after:{kind:'att'}}),true);
+      const rec=takeSuspend(); assert.ok(rec); assert.deepEqual(Field.restore(rec.g,rec.war,rec.field).siege,f.siege);
+      const bad=new Field(g,war(),'att'); bad.siege.gates[0].x=-1;
+      assert.equal(suspend(g,war(),bad,{side:'att',start:{},after:{kind:'att'}}),false);
+    }
   } finally { if(descriptor) Object.defineProperty(globalThis,'localStorage',descriptor); else delete globalThis.localStorage; }
 });
 
@@ -254,11 +324,14 @@ test('襄阳和江州新版天然河道四向连通，上一版保持不变',() 
     const seen=new Set([cells[0].join(',')]), queue=[cells[0]];
     for (let i=0;i<queue.length;i++) for (const [dx,dy] of [[0,1],[0,-1],[1,0],[-1,0]]) { const x=queue[i][0]+dx,y=queue[i][1]+dy,k=`${x},${y}`; if (layout.map[y]?.[x]===3&&!seen.has(k)) {seen.add(k);queue.push([x,y]);} }
     assert.equal(seen.size,cells.length,`${city}河道断开`);
-    const f=new Field(g,war(city,from),'att'), outside=(x,y)=>Math.max(Math.abs(x-f.siege.cx),Math.abs(y-f.siege.cy))>f.siege.moat;
-    const natural=[]; for(let y=0;y<19;y++) for(let x=0;x<32;x++) if(outside(x,y)&&f.map[y][x]===3) natural.push([x,y]);
-    const actualSeen=new Set([natural[0].join(',')]), actualQueue=[natural[0]];
-    for(let i=0;i<actualQueue.length;i++) for(const [dx,dy] of [[0,1],[0,-1],[1,0],[-1,0]]) {const x=actualQueue[i][0]+dx,y=actualQueue[i][1]+dy,k=`${x},${y}`;if(f.map[y]?.[x]===3&&outside(x,y)&&!actualSeen.has(k)){actualSeen.add(k);actualQueue.push([x,y]);}}
-    assert.equal(actualSeen.size,natural.length,`${city}城防地形截断天然河道`);
+    for (const revision of [1,9]) for (const approach of revision === 1 ? [from] : expanded.cities[city].roads) {
+      const f=new Field({...g,campaignRevision:revision},war(city,approach),'att'), [mx,my]=siegeExtent(f.siege,'moat');
+      const outside=(x,y)=>Math.abs(x-f.siege.cx)>mx || Math.abs(y-f.siege.cy)>my;
+      const natural=[]; for(let y=0;y<19;y++) for(let x=0;x<32;x++) if(outside(x,y)&&f.map[y][x]===3) natural.push([x,y]);
+      const actualSeen=new Set([natural[0].join(',')]), actualQueue=[natural[0]];
+      for(let i=0;i<actualQueue.length;i++) for(const [dx,dy] of [[0,1],[0,-1],[1,0],[-1,0]]) {const x=actualQueue[i][0]+dx,y=actualQueue[i][1]+dy,k=`${x},${y}`;if(f.map[y]?.[x]===3&&outside(x,y)&&!actualSeen.has(k)){actualSeen.add(k);actualQueue.push([x,y]);}}
+      assert.equal(actualSeen.size,natural.length,`${city}城防地形截断天然河道`);
+    }
     const old=structuredClone(g); old.battlefields=1; assert.notDeepEqual(battlefieldLayout(expanded,old,city,from).map,layout.map);
   }
 });
@@ -274,6 +347,24 @@ test('各新增据点电脑可接敌并结束，兵力优势可突破城防', {t
     if (f.over.loser==='def') wins++;
   }
   assert.ok(wins>0,'兵力优势应能攻破城防');
+});
+
+test('从洛阳攻函谷关的电脑能正面攻打偏门守军', () => {
+  const g = game(2701,9), w = war(34,12);
+  g.month = 4;
+  w.att.ids.push(46,47,48); w.att.rice = w.def.rice = 9999;
+  for (const id of [...w.att.ids,...w.def.ids]) {
+    Object.assign(g.officers[id],{soldiers:700,hp:90,loyalty:100,war:70,int:60,level:3});
+  }
+  const f = new Field(g,w,null);
+  const east = f.siege.gates.find(g=>g.face==='e' && g.ring===f.siege.outer);
+  let attackAtGate = false;
+  for (let turn=0; !f.over && turn<64; turn++) {
+    for (const act of f.aiActions(f.turn)) if (act.type==='attack' && act.a.side==='att' && act.d.x===east.x && act.d.y===east.y) attackAtGate = true;
+    f.endTurn();
+  }
+  assert.ok(attackAtGate,'近路的守门将领应成为白兵目标');
+  assert.ok(f.over);
 });
 
 test('相同城防和种子下，兵力占优的两类电脑攻城优于旧决策', {timeout:120000}, ()=>{

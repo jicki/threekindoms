@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { blurWeight } from '../post.js';
 import { W, H } from '../core/field.js';
 import { advancedBattle } from '../core/battle-rules.js';
+import { siegeExtent } from '../core/siege.js';
 import { YAWS, PITCH, TOP_PITCH, TURN_MS, EDGE, tween, siegeFrame } from './shared.js';
 
 export function makeCamera(wv) {
@@ -83,11 +84,12 @@ export function makeCamera(wv) {
     const margin = closer ? 1.05 : 1.2;
     const siege = pitch <= 1.2 && siegeFrame(field);
     if (siege) {
-      const { cx, cy, moat, outer } = field.siege;
+      const { cx, cy } = field.siege;
+      const [mx, my] = siegeExtent(field.siege, 'moat'), [ox, oy] = siegeExtent(field.siege, 'outer');
       const points = [];
       for (const dx of [-1, 1]) for (const dy of [-1, 1]) {
-        points.push(new THREE.Vector3(wx(cx + dx * (moat + 0.5)), 0, wz(cy + dy * (moat + 0.5))));
-        points.push(new THREE.Vector3(wx(cx + dx * (outer + 0.5)), fortHeight, wz(cy + dy * (outer + 0.5))));
+        points.push(new THREE.Vector3(wx(cx + dx * (mx + 0.5)), 0, wz(cy + dy * (my + 0.5))));
+        points.push(new THREE.Vector3(wx(cx + dx * (ox + 0.5)), fortHeight, wz(cy + dy * (oy + 0.5))));
       }
       for (const u of field.alive) for (const dx of [-0.65, 0.65]) {
         points.push(new THREE.Vector3(wx(u.x + dx), topY(u.x, u.y) + 2.6, wz(u.y - 0.5)));

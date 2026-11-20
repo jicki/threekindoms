@@ -188,7 +188,9 @@ export function makeBoard(wv) {
   const before = new Set(scene.children);
   const fortification = field.siege && !flat ? buildFortification(field.siege, { wx, wz, topY }) : null;
   if (fortification) scene.add(fortification.fort);
-  const dressing = flat ? { billboards: [], lights: [], labels: [], update() {} } : dressBoard(scene, S, field.war.city * 31 + 5, { calm: true, painted: !!G });
+  // 新版城防组包含中央建筑，保留 S.castle 供取景和植被使用。
+  const decor = field.siege?.style ? { ...S, castle: null } : S;
+  const dressing = flat ? { billboards: [], lights: [], labels: [], update() {} } : dressBoard(scene, decor, field.war.city * 31 + 5, { calm: true, painted: !!G });
   const woods = G && !flat && plantWoods(scene, G, woodsOf(S, rng(field.war.city * 53 + 1)), PITCH, field.war.city);
   // Everything the dressing stood up (castle, villages, cottages, trees, rocks, grass) thins out in front of a general (src/seethrough.js):
   // cleared over him with a soft blended rim; the castle and the village houses only thin to 0.45 of their picture, so a keep still reads as a keep.

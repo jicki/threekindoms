@@ -1363,13 +1363,14 @@ const saveCity = () => (sel != null && mineCity(sel) ? sel : g.factions[g.player
 async function upgradeCampaignRules() {
   if (!mapCalm()) return toast('请在己方战略回合完成当前操作后升级', 3500);
   const campaign = g;
-  const mechanics = g.campaignRevision === 7 ? '新版人物被动'
+  const mechanics = g.campaignRevision === 8 ? ''
+    : g.campaignRevision === 7 ? '新版人物被动'
     : g.campaignRevision === 6 ? '地图情报、新版选城和新版人物被动'
     : g.campaignRevision === 5 ? '普通步兵守城新编队与地图情报'
     : g.campaignRevision === 4 ? '新版兵种配置及守城编队'
     : fullStrategyWeather(g) ? '主辅兵种编队' : advancedBattle(g) ? '计策天气及主辅兵种编队' : '新版战场、计策天气、同盟援军、人物被动及主辅兵种编队';
   const confirmed = await confirmBox('升级当前战役',
-    `启用${mechanics}。保留进度、兵力、装备及已有设置。升级后可另存一格，保留原记录。`);
+    `启用${[mechanics, '新版城防与布阵'].filter(Boolean).join('、')}。保留进度、兵力、装备及已有设置。升级后可另存一格，保留原记录。`);
   if (!confirmed) return;
   if (g !== campaign || !mapCalm()) return toast('当前战役状态已变化，请重新选择升级', 3500);
   if (!G.upgradeCampaign(g)) return toast('当前战役无法安全升级，仍可按原规则继续', 4500);

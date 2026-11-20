@@ -58,7 +58,7 @@ const officerRecord = (o) => ({
 });
 
 // 战役规则修订号独立于存档结构。读取旧记录保留其规则，由玩家在战略回合选择升级。
-const CAMPAIGN_REVISION = 8;
+const CAMPAIGN_REVISION = 9;
 const FAMOUS_CAMPAIGN_RULES = { battlefields: 2, famousSkills: 2, famousRoster: 1, siegeTactics: true };
 const supportsNewBattle = () => D.expandedMap === true && (scenarioId === EXPANDED_MAP_ID || D.newBattleRules === true);
 function campaignDefaults() {

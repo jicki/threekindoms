@@ -44,7 +44,7 @@ test('修订7旧档保留旧被动，手动升级保留个人和城市数据', (
   assert.equal(officerPassive(D, loaded, 38).name, '骁勇');
   assert.ok(G.upgradeCampaign(loaded));
   assert.equal(officerPassive(D, loaded, 38).name, '武圣');
-  assert.deepEqual(loaded, { ...g, campaignRevision: 8 });
+  assert.deepEqual(loaded, { ...g, campaignRevision: 9 });
   G.setData(base);
   assert.equal(officerPassive(base, G.newGame(4, 1, 31), 38), null);
 });

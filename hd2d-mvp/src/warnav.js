@@ -4,6 +4,7 @@
 // the camera: nothing here touches the rules. The flat painted map shows the whole field at once and has none of this.
 import { W, H, FOREST, SAND, PLAIN, RIVER, MOUNT, CASTLE } from './core/field.js';
 import { name } from './core/game.js';
+import { fortressStyle } from './fortress-style.js';
 
 const CELL = 6, MINI_KEY = 'hd2d-minimap', EDGE_KEY = 'hd2d-edgescroll';
 const GROUND = { [FOREST]: '#3c6434', [SAND]: '#b9a26c', [PLAIN]: '#76924a', [RIVER]: '#3b6ca3', [MOUNT]: '#6b6658', [CASTLE]: '#d9a24c' };
@@ -14,7 +15,7 @@ export const edgeScroll = () => read(EDGE_KEY, '0') === '1';
 export const setEdgeScroll = (on) => write(EDGE_KEY, on ? '1' : '0');
 
 export function createWarNav(war, host) {
-  const field = war.field, ours = (u) => (field.human ? u.side === field.human : u.side === 'att');
+  const field = war.field, style = fortressStyle(field.siege), ours = (u) => (field.human ? u.side === field.human : u.side === 'att');
   // --- The minimap: the ground once, then each frame the generals and the camera's frame over it.
   const box = Object.assign(document.createElement('div'), { className: 'warmini' });
   const cv = Object.assign(document.createElement('canvas'), { width: W * CELL * 2, height: H * CELL * 2 }); // drawn at 2× for sharp dots
@@ -32,6 +33,14 @@ export function createWarNav(war, host) {
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { g.fillStyle = GROUND[field.terr(x, y)] ?? GROUND[PLAIN]; g.fillRect(x * k, y * k, k, k); }
     g.fillStyle = 'rgba(0, 0, 0, 0.14)'; for (let y = 0; y < H; y++) for (let x = (y & 1); x < W; x += 2) g.fillRect(x * k, y * k, k, k); // a faint chequer: cells can be counted
     g.fillStyle = '#f1e2b8'; for (const v of field.villages ?? []) g.fillRect(v.x * k + k * 0.3, v.y * k + k * 0.3, k * 0.4, k * 0.4);
+    if (field.siege) {
+      for (const p of field.siege.walls) {
+        g.fillStyle = p.ring === field.siege.outer ? style?.stone ?? '#756650' : style?.light ?? '#c5ab7b';
+        g.fillRect(p.x*k,p.y*k,k,k);
+      }
+      g.fillStyle = style?.light ?? '#c5ab7b';
+      for (const p of field.siege.crossings ?? []) g.fillRect(p.x*k+k*0.2,p.y*k+k*0.2,k*0.6,k*0.6);
+    }
   }
   // Short windows start with it put away (the cards and the log leave it no room); the player's own choice is kept.
   let open = read(MINI_KEY, innerHeight < 680 ? '0' : '1') === '1';
@@ -48,7 +57,6 @@ export function createWarNav(war, host) {
     const g = cv.getContext('2d'), k = CELL * 2;
     g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(ground, 0, 0);
     if (field.siege) {
-      for (const p of field.siege.walls) { g.fillStyle = p.ring === field.siege.outer ? '#756650' : '#c5ab7b'; g.fillRect(p.x*k,p.y*k,k,k); }
       for (const p of field.siege.gates) { g.fillStyle = p.open ? '#e9d69e' : '#914b29'; g.fillRect(p.x*k,p.y*k,k,k); }
     }
     for (const u of field.units) {

@@ -87,7 +87,7 @@ test('受天气影响的火水伤害、火箭烧粮和十面埋伏按倍率结�
 
 test('十面埋伏不能跨过未突破城门，破门后同一路径可触发', () => {
   const { f, u, target } = encounter(11, 'rain', { keepSiege: true });
-  const { cx, cy, outer } = f.siege, gate = f.siege.gates.find(g => g.x === cx - outer && g.y === cy);
+  const gate = f.siege.gates.find(g => g.face === 'w' && g.ring === f.siege.outer);
   Object.assign(u, { x: gate.x - 1, y: gate.y }); f.map[u.y][u.x] = FOREST;
   Object.assign(target, { x: gate.x, y: gate.y }); f.map[target.y][target.x] = FOREST;
   assert.ok(f.cast(u, 11, null).hit);
@@ -116,6 +116,6 @@ test('修订 2 的既有记录和中断按原天气恢复，升级后才生效',
   assert.equal(prior.hitChance(prior.side('att')[0], prior.side('def')[0], 1), f.hitChance(u, target, 1));
   const g = structuredClone(before);
   assert.ok(G.upgradeCampaign(g));
-  assert.deepEqual(g, { ...before, campaignRevision: 8 });
+  assert.deepEqual(g, { ...before, campaignRevision: 9 });
   assert.equal(impact(5, 'rain', { revision: 2 }), impact(5, 'clear', { revision: 2 }));
 });

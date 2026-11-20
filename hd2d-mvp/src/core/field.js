@@ -7,8 +7,8 @@ import { Tactical } from './tactical.js';
 import { roll100, realChance } from './origrng.js';
 import { relationshipAffinity, recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
 import { passiveRiceUse } from './ruler-passives.js';
-import { battleEntryDirection, battlefieldLayout, battlefieldProfile } from './battlefields.js';
-import { siegeLayout, siegeRing, wallAt, gateAt, gateDefense, blockedStrategy, restoreGates } from './siege.js';
+import { resolveBattlefield } from './battlefields.js';
+import { siegeRing, wallAt, gateAt, gateDefense, blockedStrategy, restoreGates } from './siege.js';
 import { abilityStrategy, abilityStrategyIds, strategySpecs } from './famous-skills.js';
 import { advancedBattle, aiBattleBonus, battleWeather, fullStrategyWeather, officerPassive, tacticWeather, WEATHER_NAMES, weatherPenalty } from './battle-rules.js';
 import { strategyBonus, strategyWard } from './officer-passives.js';
@@ -100,15 +100,9 @@ export class Field {
     this.g = g; this.war = war; this.human = humanSide; // 'att' | 'def' | null
     this.weather = battleWeather(g, war.city);
     takeLevelUps(g); // level-ups from fights the player did not see (AI wars, a test 白兵) are not told in this one
-    const layout = battlefieldLayout(D, g, war.city, war.from);
-    this.sceneProfile = battlefieldProfile(g, war.city);
-    this.entryDirection = layout?.direction ?? (advancedBattle(g) ? battleEntryDirection(D, war.city, war.from) : null);
+    const { map, dep, villages, siege, profile, entry } = resolveBattlefield(D, g, war.city, war.from);
+    Object.assign(this, { map, dep, villages, siege, sceneProfile: profile, entryDirection: entry });
     this.r = rng(g);
-    const baseDep = layout?.dep ?? (D.deploy[war.city][war.from] || Object.values(D.deploy[war.city])[0]);
-    const baseMap = layout?.map ?? D.maps[war.city], baseVillages = layout?.villages ?? D.villages[war.city] ?? [];
-    const siege = g.battlefields === 2 ? siegeLayout(baseMap, baseDep, baseVillages, layout?.direction, [30,31].includes(war.city), advancedBattle(g) ? 3 : 2, this.sceneProfile) : null;
-    this.map = siege?.map ?? baseMap; this.dep = siege?.dep ?? baseDep; this.villages = siege?.villages ?? baseVillages; this.siege = siege?.siege ?? null;
-    const dep = this.dep;
     this.units = [];
     for (const side of ['def', 'att']) {
       const ids = war[side].ids, block = side === 'def' ? dep.defender : dep.attacker;
@@ -141,13 +135,8 @@ export class Field {
     configureStrategies(g);
     f.g = g; f.war = war; f.human = s.human;
     f.weather = battleWeather(g, war.city);
-    const layout = battlefieldLayout(D, g, war.city, war.from);
-    f.sceneProfile = battlefieldProfile(g, war.city);
-    f.entryDirection = layout?.direction ?? (advancedBattle(g) ? battleEntryDirection(D, war.city, war.from) : null);
-    const baseDep = layout?.dep ?? (D.deploy[war.city][war.from] || Object.values(D.deploy[war.city])[0]);
-    const baseMap = layout?.map ?? D.maps[war.city], baseVillages = layout?.villages ?? D.villages[war.city] ?? [];
-    const siege = g.battlefields === 2 ? siegeLayout(baseMap, baseDep, baseVillages, layout?.direction, [30,31].includes(war.city), s.siegeRevision ?? 1, f.sceneProfile) : null;
-    f.map = siege?.map ?? baseMap; f.dep = siege?.dep ?? baseDep; f.villages = siege?.villages ?? baseVillages; f.siege = siege?.siege ?? null; f.r = rng(g);
+    const { map, dep, villages, siege, profile, entry } = resolveBattlefield(D, g, war.city, war.from, s.siegeRevision ?? 1);
+    Object.assign(f, { map, dep, villages, siege, sceneProfile: profile, entryDirection: entry, r: rng(g) });
     if (f.siege && !restoreGates(f.siege, s.siegeGates)) throw new Error('无效的城门中断记录');
     Object.assign(f, { units: s.units, pool: s.pool, day: s.day, turn: s.turn, over: s.over, log: s.log ?? [], lastAmbush: null, resumed: true });
     if (s.commanderRetreat) f.commanderRetreat = s.commanderRetreat;
@@ -902,8 +891,8 @@ export class Field {
     const posts = threats.length ? threats : gates.filter(g => enemies.some(e => distance(e, g) <= 5));
     if (!posts.length && inside(u)) return null;
     const goals = posts.length ? posts : gates;
-    const stationed = inside(u);
-    const reach = this.reach(u, this.pool.def, (x, y) => !stationed || inside({ x, y }));
+    const stationed = inside(u), canGuard = (x, y) => !stationed || inside({ x, y });
+    const reach = this.reach(u, this.pool.def, canGuard);
     const score = (v) => Math.min(...goals.map(g => distance(v, g) + (threats.length ? siegeRing(siege, g) : 0)));
     let best = { x: u.x, y: u.y, score: score(u), cost: 0 };
     for (const [key, cost] of reach.dist) {
@@ -912,7 +901,12 @@ export class Field {
       if (candidate < best.score || (candidate === best.score && cost < best.cost)) best = { x, y, score: candidate, cost };
     }
     const step = this.path(reach, best.x, best.y)[0];
-    if (!step) return null;
+    if (!step) {
+      // 偏置门和长方形内墙有时需要先侧移，仍只在墙内寻找去路。
+      if (siege.revision < 4 || goals.some(g => distance(u, g) <= Number(threats.length > 0))) return null;
+      const goal = [...goals].sort((a,b) => distance(u,a) - distance(u,b))[0];
+      return this.siegeApproach(u, goal, canGuard);
+    }
     const cost = this.cost(u, ...step);
     this.move(u, ...step, cost);
     return { type: 'move', u, path: [step], cost };
@@ -996,24 +990,33 @@ export class Field {
     return { type: 'move', u, path: [step], cost };
   }
   // 城墙需要允许暂时远离目标的绕行；逐格行动，移动消耗与玩家一致。
-  siegeApproach(u, target) {
+  siegeApproach(u, target, canEnter = null) {
     const start = `${u.x},${u.y}`, occupied = this.unitAt(target.x,target.y);
     const dist = new Map([[start,0]]), prev = new Map(), open = [[0,u.x,u.y]];
+    // 驻门的敌将和可绕行的门同属进攻选择。走到驻门敌将面前可白兵夺门。
+    const siege = this.siege;
+    const guarded = siege.revision >= 4 && u.side === 'att' && siegeRing(siege, target) <= siege.outer
+      ? siege.gates.filter(g => !g.open && this.unitAt(g.x,g.y)?.side === 'def') : [];
+    let breach = null;
     let end = null, best = start, bestDistance = Math.abs(u.x-target.x)+Math.abs(u.y-target.y), bestCost = 0;
     while (open.length) {
       open.sort((a,b) => a[0]-b[0]); const [d,x,y] = open.shift(), k = `${x},${y}`;
       if (d !== dist.get(k)) continue;
+      if (breach && d > breach.cost) { end = breach.key; break; }
       const remaining=Math.abs(x-target.x)+Math.abs(y-target.y);
       if (remaining<bestDistance || (remaining===bestDistance && d<bestCost)) { best=k; bestDistance=remaining; bestCost=d; }
       if (occupied ? Math.abs(x-target.x)+Math.abs(y-target.y)===1 : x===target.x && y===target.y) { end=k; break; }
+      if (k !== start && !breach && guarded.some(g => Math.abs(g.x-x)+Math.abs(g.y-y)===1)) {
+        breach = { key:k, cost:d+ATTACK_COST+4 };
+      }
       for (const [dx,dy] of DIRS) {
         const nx=x+dx, ny=y+dy, nk=`${nx},${ny}`;
-        if (!this.inside(nx,ny) || this.unitAt(nx,ny)) continue;
+        if (!this.inside(nx,ny) || (canEnter && !canEnter(nx,ny)) || this.unitAt(nx,ny)) continue;
         const nd=d+this.cost(u,nx,ny); if (!Number.isFinite(nd) || nd >= (dist.get(nk) ?? Infinity)) continue;
         dist.set(nk,nd); prev.set(nk,k); open.push([nd,nx,ny]);
       }
     }
-    end ||= best;
+    end ||= breach?.key ?? best;
     if (end===start) return null;
     while (prev.get(end)!==start) end=prev.get(end);
     const step=end.split(',').map(Number), cost=this.cost(u,...step);
