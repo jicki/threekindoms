@@ -420,6 +420,8 @@ async function stageMap(swap, still) {
 const ndc = (e) => new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
 let drag = null;
 const canvas = renderer.domElement;
+// 画布也需要参与浏览器的触控命中，避免贴近工具栏的地格被当成按钮。地格操作仍在 pointerup 处理。
+if (PHONE) canvas.addEventListener('click', (e) => { if (e.pointerType === 'touch') e.preventDefault(); });
 // Any click starts the sound, including on the title screen's overlay above the canvas.
 addEventListener('pointerdown', () => audio.unlock(), { capture: true });
 // A touch only counts as the gesture that may start sound when the finger lifts (pointerup, touchend, click), so those unlock it too.

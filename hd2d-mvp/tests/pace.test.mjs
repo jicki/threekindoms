@@ -58,6 +58,7 @@ for (const speed of [1, 4]) {
   test(`a timed vignette lasts its duration at ${speed}× (AI war 7.09 s at 1×)`, async () => {
     const ms = await page.evaluate(async (speed) => {
       const V = await import('./src/vignette.js');
+      if (!(await V.warmVignette('sortie'))) throw new Error('无法加载出阵分镜');
       const t = performance.now();
       await V.playVignette({ scene: 'sortie', caption: '董卓军出阵　进攻袁绍的邺……', result: '攻陷！', duration: 7090 / speed, force: true });
       return performance.now() - t;

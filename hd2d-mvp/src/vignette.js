@@ -49,7 +49,7 @@ async function load(scene) {
   const storyImg = await img(S.story.src);
   return storyImg ? { ...S, storyImg } : null;
 }
-export function warmVignette(scene) { if (enabled && scene) void load(scene); }
+export function warmVignette(scene) { if (enabled && scene) return load(scene); }
 const CN = '〇一二三四五六七八九';
 const cnum = (n) => String(n).split('').map((d) => CN[d]).join('');
 const MONTH = ['正', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二'];

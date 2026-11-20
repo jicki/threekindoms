@@ -498,15 +498,18 @@ for (const human of ['a', 'd']) test(`the 攻击, 牵制 and 舍身 buttons show
   assert.ok(calm.attack.pct > calm.base, `the table roll lands more often than the matrix ${calm.base}: ${calm.attack.pct}`);
   assert.equal(calm.attack.text, `命中 ${calm.attack.pct}%`);
   assert.equal(calm.feint.pct, 100); assert.equal(calm.feint.text, '必中·1/3伤');
-  assert.equal(calm.desperate.pct, 37); assert.equal(calm.desperate.text, '37%·2倍伤');
+  assert.equal(calm.desperate.pct, human === 'a' ? 44 : 39); // 张飞与文丑的被动给出不同的舍身命中率。
+  assert.equal(calm.desperate.text, `${calm.desperate.pct}%·2倍伤`);
+  assert.doesNotMatch(calm.desperate.title, /37%/);
   const cursed = await read(3, 0); // our counter drops by one as our action starts
   assert.equal(cursed.mine, 2); assert.deepEqual(cursed.schemes, [true, true]);
   assert.ok(cursed.attack.pct < calm.attack.pct);
   assert.equal(cursed.attack.text, `命中 ${cursed.attack.pct}%伤害 +30%`, 'the button shows what the rules give');
   assert.match(cursed.attack.title, new RegExp(`命中由 ${calm.attack.pct}% 降为 ${cursed.attack.pct}%，命中后伤害加三成，还有 2 次出手`));
   assert.equal(cursed.feint.pct, 84); assert.equal(cursed.feint.text, '84%·1/3伤伤害 +30%');
-  assert.equal(cursed.desperate.pct, 14); assert.equal(cursed.desperate.text, '14%·2倍伤伤害 +30%');
-  assert.match(cursed.desperate.title, /命中由 37% 降为 14%/);
+  assert.ok(cursed.desperate.pct < calm.desperate.pct);
+  assert.equal(cursed.desperate.text, `${cursed.desperate.pct}%·2倍伤伤害 +30%`);
+  assert.match(cursed.desperate.title, new RegExp(`命中由 ${calm.desperate.pct}% 降为 ${cursed.desperate.pct}%`));
   const worn = await read(1, 0); // the last count runs out as this action starts
   assert.equal(worn.mine, 0); assert.deepEqual([worn.attack.text, worn.feint.text, worn.desperate.text], [calm.attack.text, calm.feint.text, calm.desperate.text]);
   const his = await read(0, 9); // his counter is his own: it weakens his aim and hardens his blows, not ours

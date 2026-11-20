@@ -153,11 +153,13 @@ for (const [mode, label] of [['&flat', '平面'], ['', '3D']]) test(`专属计�
       await page.evaluate(() => window.__game.war.finishDeploy());
       await page.waitForFunction(() => { const w = window.__game.war; return w.field.turn === w.field.human && !document.querySelector('.banner,.panel.msg'); }, null, { timeout: 60000 });
       const played = await page.evaluate(async () => {
-        (await import('./src/vignette.js')).setVignettes(true);
+        const { setVignettes, warmVignette } = await import('./src/vignette.js');
+        setVignettes(true);
         const { STRATS } = await import('./src/core/field.js'), w = window.__game.war, f = w.field;
         const me = f.alive.find((u) => u.side === f.human), foe = f.alive.find((u) => u.side !== f.human), out = [];
         const audio = window.__game.audio, oldSfx = audio.sfx, sounds = []; audio.sfx = (key) => sounds.push(key);
         for (const [i, skill] of STRATS.filter((item) => item.visualEffect).entries()) {
+          if (!(await warmVignette(`skill-${skill.visualEffect}`))) throw new Error(`计策分镜无法加载：${skill.visualEffect}`);
           sounds.length = 0;
           let scene = null; const from = w.flatState().fx.length;
           const watch = setInterval(() => { scene ||= document.querySelector('.vig')?.dataset.scene ?? null; }, 10);
@@ -177,7 +179,20 @@ for (const [mode, label] of [['&flat', '平面'], ['', '3D']]) test(`专属计�
       assert.equal(new Set(played.map((item) => item.fx[0].color)).size, 5, '计略特效应有可区分的主色');
       // 较早加入的专属计策没有独立素材，仍应按含义播放相符的画面和音效；
       // 管理员新增计策也要根据效果类型安全回退，而不是全部播放火计。
-      const fallback = await page.evaluate(async () => {
+      const expected = {
+        '八阵奇谋': ['st-magic', 'sfx-tactic-bind'], '赤壁烈谋': ['st-firestorm', 'sfx-tactic-fire'],
+        '公台断谋': ['st-ambush', 'sfx-clash'], '胡笳扰阵': ['st-ruse', 'sfx-tactic-bind'],
+        '冀城九策': ['st-bow', 'sfx-tactic-xbow'], '奉孝奇谋': ['st-ambush', 'sfx-clash'],
+        '鹰视潜谋': ['st-magic', 'sfx-tactic-bind'], '宪英明鉴': ['st-ruse', 'sfx-tactic-bind'],
+        '白马掩袭': ['st-ambush', 'sfx-clash'], '淮南筹粮': ['st-ambush', 'sfx-clash'],
+        '荆襄固阵': ['st-chain', 'sfx-tactic-bind'], '长史守谋': ['st-magic', 'sfx-tactic-bind'],
+        '阎象明策': ['st-ruse', 'sfx-tactic-bind'], '异度定荆': ['st-ruse', 'sfx-tactic-bind'],
+        '新制扰阵': ['st-ruse', 'sfx-tactic-bind'], '新制火攻': ['st-fire', 'sfx-tactic-fire'],
+        '新制伤将': ['st-trap', 'sfx-clash'], ['__proto__']: ['st-ambush', 'sfx-clash'],
+      };
+      const fallback = await page.evaluate(async (scenes) => {
+        const { warmVignette } = await import('./src/vignette.js');
+        const sceneBySkill = new Map(scenes);
         const { STRATS } = await import('./src/core/field.js'), w = window.__game.war, f = w.field;
         const me = f.alive.find((u) => u.side === f.human), foe = f.alive.find((u) => u.side !== f.human);
         const audio = window.__game.audio, oldSfx = audio.sfx, sounds = [], out = [];
@@ -189,6 +204,7 @@ for (const [mode, label] of [['&flat', '平面'], ['', '3D']]) test(`专属计�
         audio.sfx = (key) => sounds.push(key);
         try {
           for (const skill of STRATS.filter((item) => item.custom && !item.visualEffect)) {
+            if (!(await warmVignette(sceneBySkill.get(skill.name)))) throw new Error(`计策分镜无法加载：${skill.name}`);
             sounds.length = 0;
             let scene = null;
             const watch = setInterval(() => { scene ||= document.querySelector('.vig')?.dataset.scene ?? null; }, 10);
@@ -201,18 +217,7 @@ for (const [mode, label] of [['&flat', '平面'], ['', '3D']]) test(`专属计�
           await w.playStrategy(me, foe, skill.id, { ok: true, hit: false, name: skill.name, lines: ['失败'], hits: [] });
           return { out, failed: sounds.filter((key) => key !== 'sfx-horn') };
         } finally { STRATS.length = length; audio.sfx = oldSfx; }
-      });
-      const expected = {
-        '八阵奇谋': ['st-magic', 'sfx-tactic-bind'], '赤壁烈谋': ['st-firestorm', 'sfx-tactic-fire'],
-        '公台断谋': ['st-ambush', 'sfx-clash'], '胡笳扰阵': ['st-ruse', 'sfx-tactic-bind'],
-        '冀城九策': ['st-bow', 'sfx-tactic-xbow'], '奉孝奇谋': ['st-ambush', 'sfx-clash'],
-        '鹰视潜谋': ['st-magic', 'sfx-tactic-bind'], '宪英明鉴': ['st-ruse', 'sfx-tactic-bind'],
-        '白马掩袭': ['st-ambush', 'sfx-clash'], '淮南筹粮': ['st-ambush', 'sfx-clash'],
-        '荆襄固阵': ['st-chain', 'sfx-tactic-bind'], '长史守谋': ['st-magic', 'sfx-tactic-bind'],
-        '阎象明策': ['st-ruse', 'sfx-tactic-bind'], '异度定荆': ['st-ruse', 'sfx-tactic-bind'],
-        '新制扰阵': ['st-ruse', 'sfx-tactic-bind'], '新制火攻': ['st-fire', 'sfx-tactic-fire'],
-        '新制伤将': ['st-trap', 'sfx-clash'], ['__proto__']: ['st-ambush', 'sfx-clash'],
-      };
+      }, Object.entries(expected).map(([name, [scene]]) => [name, scene]));
       assert.equal(fallback.out.length, Object.keys(expected).length);
       for (const item of fallback.out) {
         const [scene, sound] = expected[item.name];

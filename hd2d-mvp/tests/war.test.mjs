@@ -818,8 +818,14 @@ test('generals stand 1.3 cells and no wider than a cell, on a ring in their side
 });
 
 test('the castle and village houses keep 0.45 of their picture where they cover a general; trees and plain houses are still cut whole', async () => {
-  const { l, villages, kept } = await (await threeD()).evaluate(() => { const w = window.__game.war; return { l: w.probe().landmarks, villages: w.field.villages.length, kept: w.probe().kept }; });
-  assert.ok(l.some((x) => x.kind === 'castle'), 'the castle is a landmark');
+  const { l, castle, villages, kept } = await (await threeD()).evaluate(() => {
+    const w = window.__game.war, { landmarks: l, kept } = w.probe();
+    // 新城防把中央建筑合并到整个城防组，原版仍有单独的城池地标。
+    const fort = w.field.siege?.style ? w.scene.getObjectByName('siege-fortification') : null;
+    const castle = fort ? l.some((x) => x.kind === fort.userData.landmark) : l.some((x) => x.kind === 'castle');
+    return { l, castle, villages: w.field.villages.length, kept };
+  });
+  assert.ok(castle, 'the castle is a landmark');
   assert.ok(villages > 0, 'this field has villages');
   assert.equal(l.filter((x) => x.kind === 'village').length, villages, 'every village is tagged');
   for (const x of l) assert.equal(x.keep, 0.45);

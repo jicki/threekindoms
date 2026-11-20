@@ -6,13 +6,15 @@ let game, page;
 before(async () => {
   game = await startGame(); page = await game.open('', { clock: true });
   await skipIntro(page);
-  await page.evaluate(() => { window.__timeScale(4); });
   await page.evaluate(() => {
     // 读取场景实际显示的动作帧，而不是从结算参数推断演出结果。
     window.__duelOutcomeTest = async ({ left, right, loser, outcome }) => {
       const { G, debug } = window.__game, { Tactical } = await import('./src/core/tactical.js');
       const g = G.newGame(4, 1, 3);
+      // 素材超时使用真实时钟，只加速已经就绪的单挑演出。
+      window.__timeScale(1);
       await debug.loadOfficerSprites([left, right], g);
+      window.__timeScale(4);
       const battle = new Tactical(g, left, right, 2, G.rng(g), { human: 'a' }); battle.deploy();
       const view = debug.duelView;
       view.setPlace({ month: 2, city: 12, siege: null }); view.setFx(true); debug.show('dview');

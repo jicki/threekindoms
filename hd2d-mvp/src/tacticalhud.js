@@ -6,7 +6,6 @@ import { h, avatar, figure, keyName } from './ui.js';
 import { COMMANDS, TACTICS, FORMATIONS, KINDS } from './core/tactical.js';
 import { officerMainTroop, troopBySprite } from './core/troop-specialties.js';
 import { ORIGINAL, paceSpeed } from './pace.js';
-import { realChance } from './core/origrng.js';
 import { stage as markStage, fresh, GUARD } from './commitguard.js'; // `stage` is runTactical's 单挑 stage below
 import { data } from './core/game.js';
 import { DUEL_VISUALS } from './core/skill-visuals.js';
@@ -313,7 +312,7 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
         dface,
         h('div', { class: 'tq-dinfo' }, h('b', {}, name(X.id)), h('small', {}, `武 ${X.o.war}　智 ${X.o.int}`), h('div', { class: 'tq-dbar' }, chip, bar), h('div', { class: 'tq-dfoot' }, hp, dfx)));
       // 骂倒 on this general: the badge with the actions it still lasts (core/skirmish.js curse), beside his 体力.
-      el.fx = () => { const n = duel.curse?.[s] || 0; dfx.replaceChildren(...(n > 0 ? [h('b', {}, '骂'), `被骂倒 ${n}次`] : [])); dfx.title = n > 0 ? `受骂倒：命中率减 20，被命中时伤害加三成，不能用说得、骂倒；还有 ${n} 次出手` : ''; };
+      el.fx = () => { const n = duel.curse?.[s] || 0; dfx.replaceChildren(...(n > 0 ? [h('b', {}, '骂'), `被骂倒 ${n}次`] : [])); dfx.title = n > 0 ? `受骂倒后还有 ${n} 次出手，命中阈值降低 20，出手命中后伤害加三成，期间不能用说得或骂倒。` : ''; };
       // The card shows the HP the audience has seen so far: the rules settle first, the bar moves on the
       // blow's contact event. The bright bar drops at once; the pale chip follows a beat later.
       let chipT = 0;
@@ -340,12 +339,12 @@ export async function runTactical({ battle, hs, looks, view, duel: stage, audio,
     // 骂倒 adds to it), and the 3/10 more that 骂倒 makes each of them do (D29, 2026-11-09; 舍身 and 牵制 2026-11-14).
     const pct = (s, c) => Math.round(duel.odds(s, c)), rage = (s) => (duel.cursed(s) ? h('em', { class: 'up' }, '伤害 +30%') : null);
     const hitSub = (s, c, calm, tail) => { const t = tail ? `${pct(s, c)}%${tail}` : `命中 ${pct(s, c)}%`; return [duel.cursed(s) ? h('em', { class: 'down' }, t) : calm ?? t, rage(s)]; };
-    const calmPct = (s, c) => Math.round(realChance(c === 'feint' ? 100 : c === 'desperate' ? 30 : duel.hitChance(s)));
+    const calmPct = (s, c) => Math.round(duel.odds(s, c, false));
     const atkTip = (s, c) => (duel.cursed(s) ? `受骂倒：命中由 ${calmPct(s, c)}% 降为 ${pct(s, c)}%，命中后伤害加三成，还有 ${duel.curse[s]} 次出手。` : '');
     const CMDS = [['attack', '攻击', (s) => hitSub(s, 'attack')], ['feint', '牵制', (s) => hitSub(s, 'feint', '必中·1/3伤', '·1/3伤')], ['desperate', '舍身', (s) => hitSub(s, 'desperate', null, '·2倍伤')],
       ['persuade', '说得', () => '劝降对手'], ['taunt', '骂倒', () => '扰乱对手'], ['retreat', '退却', () => '撤出单挑'], ['surrender', '降参', () => '投降被俘']];
-    const TIP = { attack: '按命中率出手，命中造成全额伤害', feint: '必定命中，伤害为三分之一', desperate: '约37%机会造成两倍伤害，落空则自损10–30体力',
-      persuade: '按双方智德、对手忠诚与体力判定：可能退出、收兵或投降（君主不降）；被骂倒期间不能用', taunt: '成功则对手数次出手内命中下降两成、命中后伤害加三成；用过后本场不能再用（被对手骂倒后恢复），被骂倒期间不能用', retreat: '尝试撤出单挑，失败会被追击',
+    const TIP = { attack: '按命中率出手，命中造成全额伤害', feint: '命中伤害为三分之一', desperate: '命中造成两倍伤害，落空则自损10–30体力',
+      persuade: '按双方智德、对手忠诚与体力判定：可能退出、收兵或投降（君主不降）；被骂倒期间不能用', taunt: '成功后，对手接下来数次出手的命中阈值降低 20，命中伤害加三成。每场可用一次，被对手骂倒后恢复次数。受骂倒期间不能用', retreat: '尝试撤出单挑，失败会被追击',
       surrender: '向对手投降，成为俘虏；白兵战随之败北（君主不能投降）' };
     // Why a command is unavailable this action (the original greys out the 计略 submenu while a 骂倒 counter runs).
     const blocked = (c) => (c === 'persuade' || c === 'taunt') && !duel.canScheme(hs) ? '受骂倒' : c === 'taunt' && !duel.canTaunt(hs) ? '已用过' : c === 'surrender' && !duel.canSurrender(hs) ? '君主不降' : c === 'special' && !duel.canSpecial(hs) ? '已用过' : null;

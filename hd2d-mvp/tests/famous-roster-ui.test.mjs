@@ -191,7 +191,10 @@ test('张昭、张纮在手机战场播放各自的计策分镜与特效', { tim
       await page.evaluate(() => window.__game.war.finishDeploy());
       await page.waitForFunction(() => window.__game.war.field.turn === 'att' && !document.querySelector('.panel.msg,.banner'));
       for (const [id, key, color, sfx] of [[262, 'zhangzhao', '#e2aa60', 'sfx-tactic-bind'], [263, 'zhanghong', '#91ccff', 'sfx-strategy-lure']]) {
-        const outcome = await page.evaluate(({ id, key }) => {
+        const outcome = await page.evaluate(async ({ id, key }) => {
+          const { warmVignette } = await import('./src/vignette.js');
+          // 直接调用施计演出会跳过选择计策时的预取，先等当前分镜就绪再检查画面。
+          if (!(await warmVignette(`skill-${key}`))) throw new Error(`计策分镜无法加载：${key}`);
           const { war, audio } = window.__game, f = war.field;
           const u = f.side('att').find(x => x.id === id), target = f.side('def')[0];
           Object.assign(u, { x: 3, y: 3 });

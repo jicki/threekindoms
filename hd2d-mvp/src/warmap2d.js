@@ -19,7 +19,7 @@ const KIND = ['forest', 'sand', 'grass', 'river', 'hill', 'castle'];
 // A phone has no strips (src/phone.css): the board takes the whole height and the HUD floats in the corners over it; the
 // player drags and pinches the board to bring a cell out from under a corner.
 export const FLAT_INSET = PHONE ? { top: 4, get bottom() { return Math.max(4, margins().b - 4); }, get side() { return Math.min(margins().l, margins().r); } }
-  : { top: 46, get bottom() { return innerWidth <= 1200 ? 196 : 128; }, side: 12 };
+  : { top: 46, get bottom() { return innerWidth <= 1200 ? 196 : 152; }, side: 12 }; // 宽屏也要为换行的城门说明留出一行。
 
 // --- The painted map ---
 export function paintFlatMap(G, field, { px = 80 } = {}) {

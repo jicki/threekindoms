@@ -61,7 +61,8 @@ export async function startGame({ width = 1280, height = 800, scenario = null } 
         page.on('requestfailed', interrupted);
         page.on('response', rejected);
         page.errors = errors;
-        phase = '页面导航'; await page.goto(url + query);
+        // 由下方的游戏状态判断能否操作，避免等待仍在加载的图片或字体。
+        phase = '页面导航'; await page.goto(url + query, { waitUntil: 'commit' });
         phase = '游戏初始化';
         const ready = await page.waitForFunction(() => window.__game?.debug ? true : document.querySelector('.boot-error')?.textContent, null, { timeout: 60000 });
         const status = await ready.jsonValue();
@@ -139,11 +140,13 @@ export async function newCampaign(page, ruler = '刘备') {
   try { await page.waitForFunction(() => { const g = window.__game.g; return g.current === g.player && !document.querySelector('.aiturn, .panel.msg'); }, null, { timeout: 90000 }); } finally { stop(); }
 }
 
-// Skips the title's opening with a key, as a player may (src/titlescreen.js): otherwise every click on its menu
-// waits ~7.5 s for the menu to stop moving. The first key can only release the held music, so it presses until done.
+// 等片头绘图区初始化后再发按键。音乐等待有独立的回退时间，菜单自然
+// 显示时也可以继续，即使没有通过按键进入 .done 状态。
 export async function skipIntro(page) {
-  for (let i = 0; i < 50; i++) {
-    if (await page.evaluate(() => !!document.querySelector('.tt.done, .tt.instant'))) return;
+  await page.locator('.tt .tt-canvas[style*="width"]').waitFor({ state: 'attached', timeout: 15000 });
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    if (await page.evaluate(() => !!document.querySelector('.tt.menu-on'))) return;
     await page.keyboard.press('Escape'); await page.waitForTimeout(100);
   }
   throw new Error('the title opening did not end');

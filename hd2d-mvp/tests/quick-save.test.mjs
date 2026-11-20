@@ -334,7 +334,12 @@ test('when the browser cannot coordinate tabs, quick save leaves progress and re
   try {
     await newCampaign(p, '曹操');
     await p.waitForFunction(() => !document.querySelector('.banner, .panel.msg, .shade, #fade.on'), null, { timeout: 30000 });
-    const before = await p.evaluate(() => { Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined }); window.__game.g.freeSave = true; return window.__game.g.books; });
+    const before = await p.evaluate(() => {
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
+      Object.defineProperty(window, 'indexedDB', { configurable: true, value: undefined });
+      window.__game.g.freeSave = true;
+      return window.__game.g.books;
+    });
     await p.keyboard.press('F2');
     await p.getByText(/暂不能快捷存档/).first().waitFor({ timeout: 4000 });
     assert.equal(await p.evaluate(() => localStorage.getItem('haou-hd2d-save:quick')), null);

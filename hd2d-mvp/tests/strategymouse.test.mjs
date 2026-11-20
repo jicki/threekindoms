@@ -46,7 +46,8 @@ const nearestCity = (page, at) => page.evaluate((at) => {
 const screenOf = (page, id) => page.evaluate((id) => window.__game.strategy.screenOfCity(id), id);
 const cameraAtRest = (page, id) => page.waitForFunction((id) => {
   const s = window.__game.strategy, current = s.screenOfCity(id), target = s.screenAtRest(id);
-  return Math.hypot(current.x - target.x, current.y - target.y) < 0.4;
+  // 平面地图会在缓动末尾贴到目标。比较点选前后的坐标前，等这一步完成。
+  return Math.hypot(current.x - target.x, current.y - target.y) < (s.flat ? 1e-6 : 0.4);
 }, id);
 // Whether a city's tag lies over any HUD panel.
 const tagCovered = (page, id) => page.evaluate((id) => {

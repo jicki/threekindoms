@@ -140,7 +140,8 @@ test('the commands in the card cover none of it (flat)', { timeout: 240000 }, as
         if (compare) await p.evaluate(() => { const v = window.__game.war, f = v.field, t = f.alive.find((a) => a.side !== f.human); v.clickCell(t.x, t.y); });
         await p.waitForTimeout(150);
         const r = await p.evaluate(() => {
-          const card = document.querySelector('.unitpanel:not(.compare)'), acts = card.querySelector('.acts'), band = innerHeight - (innerWidth <= 1200 ? 196 : 128);
+          const w = window.__game.war, lastRow = w.screenOf(0, w.field.map.length - 1);
+          const card = document.querySelector('.unitpanel:not(.compare)'), acts = card.querySelector('.acts'), band = lastRow.y + lastRow.ch / 2;
           const box = acts?.getBoundingClientRect(), edge = card.getBoundingClientRect(), lines = (c) => [...c.querySelectorAll('.bar b, dd, .gear span, h3')].map((e) => { const g = document.createRange(); g.selectNodeContents(e); const b = g.getBoundingClientRect(); return { t: e.textContent, l: b.left, r: b.right, top: b.top, bottom: b.bottom }; });
           const under = acts?.childElementCount ? lines(card).filter((b) => b.r > box.left && b.l < box.right && b.bottom > box.top && b.top < box.bottom).map((b) => b.t) : [];
           const out = [...document.querySelectorAll('.unitpanel')].flatMap((c) => { const e = c.getBoundingClientRect(); return lines(c).filter((b) => b.r > e.right + 0.5).map((b) => `${c.className}: ${b.t}`); });

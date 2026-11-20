@@ -133,16 +133,16 @@ export class Duel {
   // it runs, 20 is added to his hit roll and 3/10 to his damage, for 牵制, 攻击 and 舍身 alike (18,432 probe cases).
   cursed(s) { return this.curse[s] > 0; }
   // What the hit roll of s's blow is held under: 100 / the matrix / 30, less the 20 his own 骂倒 adds to the roll.
-  threshold(s, cmd) {
+  threshold(s, cmd, cursed = this.cursed(s)) {
     const me = this.side[s], passive = officerPassive(data(), this.g, me.id);
     const base = cmd === 'feint' ? 100 : cmd === 'desperate' ? 30 : this.hitChance(s) + (cmd === 'special' ? this.special(s)?.hit ?? 0 : 0);
     const first = cmd === 'attack' && passive?.firstDuelHit && !this.actions.some(a => a.by === me.id && a.cmd === 'attack') ? passive.firstDuelHit : 0;
     const bonus = (passive?.duelHit?.[cmd] ?? 0) + (me.hp <= 30 ? passive?.lowHpDuelHit?.[cmd] ?? 0 : 0) + first;
-    return Math.min(100, Math.max(0, base + bonus - (this.cursed(s) ? 20 : 0)));
+    return Math.min(100, Math.max(0, base + bonus - (cursed ? 20 : 0)));
   }
   // The chance in percent that it lands. The roll is the original's table roll (core/origrng.js), which comes under
   // p more often than p in 100: 舍身 lands 36.7% of the time, 14.5% under 骂倒. The menu shows this number.
-  odds(s, cmd) { return realChance(this.threshold(s, cmd)); }
+  odds(s, cmd, cursed) { return realChance(this.threshold(s, cmd, cursed)); }
   next() {
     if (this.result) return null;
     if (this.n >= 100) { const [lo, hi] = this.side.a.hp < this.side.d.hp ? ['a', 'd'] : ['d', 'a']; this.result = { dead: null, retreated: this.side[lo].id, winner: this.side[hi].id }; return null; }
