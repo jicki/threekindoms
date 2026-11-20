@@ -74,7 +74,7 @@ test('手机可取消或确认战役升级，另存并重新读取后保留新�
     assert.deepEqual(await page.evaluate(() => {
       const { G, g } = window.__game;
       return [g.slot, g.famousSkills, g.campaignRevision, g.year, g.month, g.cities[2].gold, g.freeSave, G.name(264), G.slotToken(1)];
-    }), [2, 2, 9, 196, 6, 1789, true, '张绣', old]);
+    }), [2, 2, 11, 196, 6, 1789, true, '张绣', old]);
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });
@@ -233,6 +233,7 @@ test('记录编辑器可切换人物编号重叠的新旧记录', async () => {
       const legacy = structuredClone(current), id = 262;
       delete legacy.famousRoster;
       delete legacy.famousSkills;
+      legacy.campaignRevision = 9;
       legacy.officers.length = id;
       legacy.clones = [id];
       legacy.officers.push({ ...legacy.officers[0], id, status: G.SERVING });

@@ -309,7 +309,8 @@ export class Tactical {
       const a = S.passive, d = T.passive;
       const bonus = a?.troops && (!a.attackKind || a.attackKind === u.kind) && (!a.attackRounds || this.round <= a.attackRounds)
         && (!a.closeCombat || !ranged) && (!a.rangedCombat || ranged) ? a.troops : 0;
-      const guard = d?.guard && (!d.guardKind || d.guardKind === t.kind) && (!d.guardRounds || this.round <= d.guardRounds) ? d.guard : 0;
+      const guard = d?.guard && (!d.guardKind || d.guardKind === t.kind) && (!d.guardRounds || this.round <= d.guardRounds)
+        && (!d.guardOutnumberedCastle || (t.side === 'd' && this.castleDef && T.start < S.start)) ? d.guard : 0;
       D = Math.max(1, Math.floor(D * (100 + (formed ? 4 : 0) + counter + bonus - guard) / 100));
     }
     if (D > 0 && t.kind === 'cav' && T.unique === 'horsebow' && ranged) D = Math.max(1, Math.floor(D * 92 / 100));

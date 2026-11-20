@@ -99,7 +99,7 @@ test('旧版扩展记录的装备驱动手机单挑的拉弓与挥扇，左右�
       const { Tactical } = await import('./src/core/tactical.js');
       const { tableDraws } = await import('./src/core/origrng.js');
       const legacy = G.newGame(4, 1, 7);
-      delete legacy.famousSkills; delete legacy.famousRoster; legacy.officers.length = 262;
+      delete legacy.famousSkills; delete legacy.famousRoster; legacy.officers.length = 262; legacy.campaignRevision = 9;
       const bow = 38, fan = 237;
       G.wearEquip(legacy, bow, 32); G.wearEquip(legacy, fan, 34);
       G.saveQuick(legacy);

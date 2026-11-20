@@ -38,6 +38,7 @@ import { EXPANDED_MAP_ID } from './core/expanded-map.js';
 import { SOVEREIGN_SCENARIO_ID, SOVEREIGN_SCENARIO_NAME, visualUrl } from './core/visuals.js';
 import { abilityDuel, abilityStrategy, abilityStrategyIds, famousLabel, strategySpecs } from './core/famous-skills.js';
 import { describeRulerPassive } from './core/ruler-passives.js';
+import { officerRelationships } from './core/relationships.js';
 import { aiTurn, aiDomestic } from './core/ai.js';
 import { suspend, peekSuspend, suspendToken, futureSuspend, dropSuspend, withSuspendLock } from './core/suspend.js';
 import { warFate } from './warreport.js';
@@ -1388,14 +1389,15 @@ const saveCity = () => (sel != null && mineCity(sel) ? sel : g.factions[g.player
 async function upgradeCampaignRules() {
   if (!mapCalm()) return toast('请在己方战略回合完成当前操作后升级', 3500);
   const campaign = g;
-  const mechanics = g.campaignRevision === 8 ? ''
+  const mechanics = g.campaignRevision >= 8 ? ''
     : g.campaignRevision === 7 ? '新版人物被动'
     : g.campaignRevision === 6 ? '地图情报、新版选城和新版人物被动'
     : g.campaignRevision === 5 ? '普通步兵守城新编队与地图情报'
     : g.campaignRevision === 4 ? '新版兵种配置及守城编队'
     : fullStrategyWeather(g) ? '主辅兵种编队' : advancedBattle(g) ? '计策天气及主辅兵种编队' : '新版战场、计策天气、同盟援军、人物被动及主辅兵种编队';
+  const additions = [mechanics, g.campaignRevision >= 9 ? '' : '新版城防与布阵', g.scenarioId === EXPANDED_MAP_ID ? '新增名将名臣与地方武器' : ''];
   const confirmed = await confirmBox('升级当前战役',
-    `启用${[mechanics, '新版城防与布阵'].filter(Boolean).join('、')}。保留进度、兵力、装备及已有设置。升级后可另存一格，保留原记录。`);
+    `启用${additions.filter(Boolean).join('、')}。保留进度、兵力、装备及已有设置。升级后可另存一格，保留原记录。`);
   if (!confirmed) return;
   if (g !== campaign || !mapCalm()) return toast('当前战役状态已变化，请重新选择升级', 3500);
   if (!G.upgradeCampaign(g)) return toast('当前战役无法安全升级，仍可按原规则继续', 4500);
@@ -2094,7 +2096,7 @@ async function roster({ city = null } = {}) {
     let ids = all.filter((id) => (f.st === 'all' || statusOf(id) === f.st)
       && (f.fac === 'all' || (statusOf(id) === G.SERVING && G.factionOf(g, id) === Number(f.fac)) || (statusOf(id) === G.UNAPPEARED && G.debutInfo(id).faction === Number(f.fac)))
       && (f.city === 'all' || placeOf(id) === f.city || (debutShown(id) && debutCity(id) === f.city))
-      && (!f.q || name(id).includes(f.q) || D.officers[id].jp?.includes(f.q)));
+      && (!f.q || name(id).includes(f.q) || D.officers[id].jp?.includes(f.q) || D.officers[id].courtesy?.includes(f.q)));
     ids = sortBy == null ? ids.sort((a, b) => rank(a) - rank(b) || D.officers[a].year - D.officers[b].year || a - b)
       : ids.sort((a, b) => COLS[sortBy][1](b) - COLS[sortBy][1](a) || a - b);
     const cols = COLS.filter((c) => !c[3] || c[3]());
@@ -2178,6 +2180,7 @@ function officerSheet(id, { live = null, foot = null } = {}) {
   const rulerFaction = g.factions.find((fac) => fac.ruler === id)?.id;
   const passive = rulerFaction == null ? null : G.rulerPassive(g, rulerFaction);
   const personal = officerPassive(D, g, id);
+  const relations = live ? [] : officerRelationships(D, g).filter(r => r.from === id || r.to === id);
   const mainTroop = officerMainTroop(D, g, id), specialty = mainTroop?.current ?? officerSpecialty(D, g, id);
   const troopLabel = officerTroopLabel(D, g, id, mainTroop), targetTroop = SPECIAL_TROOPS[officerTroopType(D, g, id)];
   const nextTroop = targetTroop && targetTroop !== specialty ? `；${targetTroop.level}级可用${targetTroop.name}` : '';
@@ -2198,14 +2201,15 @@ function officerSheet(id, { live = null, foot = null } = {}) {
         h('div', {}, h('span', {}, '武器'), h('b', {}, w ? h('img', { class: 'eqi', src: equipIcon(o.weapon), alt: '' }) : null, `${w?.name ?? '—'}${w?.exclusiveRuler === id ? ' · 专属' : w?.grade ? ` · ${w.grade}级` : ''}`, w ? h('small', {}, ` 攻${w.atk}`) : null)),
         h('div', {}, h('span', {}, '防具'), h('b', {}, a ? h('img', { class: 'eqi', src: equipIcon(24 + o.armor), alt: '' }) : null, `${a?.name ?? '—'}${a?.grade ? ` · ${a.grade}级` : ''}`, a ? h('small', {}, ` 防${a.dfn}`) : null))),
       live ? null : h('p', { class: 'hint' }, d.birthYear != null ? `${d.birthYear}年出生　·　` : '', d.birthCity != null ? `出生于${cityName(d.birthCity)}　·　` : '', `${d.year}年登场`, debutShown(id) ? `　·　${debutText(id)}` : '', o.status === G.UNAPPEARED && talentMode === 'all' ? `　·　${waitText(id)[0]}` : ''),
+      !live && d.bio ? h('p', { class: 'hint' }, d.courtesy ? `字${d.courtesy}。` : '', d.bio) : null,
       strategies.length ? h('p', { class: 'hint' }, `战场计略：${strategies.map(strategyText).join('、')}`) : null,
       duelSkill ? h('p', { class: 'hint' }, `单挑技：${duelSkill.name}（命中阈值${duelSkill.hit >= 0 ? '+' : ''}${duelSkill.hit}；伤害${duelSkill.damage}%；每次单挑1次）`) : null,
       mainTroop ? h('p', { class: 'hint' }, `可编入${specialty.name} · ${specialty.text}${specialty !== mainTroop.basic ? `（精锐最多${officerSquadLimit(D, g, id, specialty)}队）` : ''}${nextTroop}`)
         : specialty ? h('p', { class: 'hint' }, `特色兵队：${specialty.name} · ${specialty.text}（当前最多${officerSquadLimit(D, g, id, specialty)}队）${nextTroop}`) : null,
       passive ? h('p', { class: 'hint' }, `君主被动：${passive.name} · ${passive.text}`) : null,
       personal ? h('p', { class: 'hint' }, `人物被动：${personal.name} · ${personal.text}`) : null,
-      live || ![...(D.relationships ?? []), ...(g?.campaignRules ? D.campaignRelationships ?? [] : [])].some((r) => r.from === id || r.to === id) ? null : h('p', { class: 'hint' }, '人物关系：',
-        [...(D.relationships ?? []), ...(g?.campaignRules ? D.campaignRelationships ?? [] : [])].filter((r) => r.from === id || r.to === id).map((r) => `${r.kind} ${name(r.from === id ? r.to : r.from)}`).join('　·　')),
+      relations.length ? h('p', { class: 'hint' }, '人物关系：',
+        relations.map((r) => `${r.kind} ${name(r.from === id ? r.to : r.from)}`).join('　·　')) : null,
       foot));
 }
 async function loadPreviewMotion(game, id, scene) {
@@ -2831,7 +2835,7 @@ async function command(cid, act) {
       return spend(done ? { ok: true, books: done, msg: `${lines.join('；')}（共${done}次${stop ? `，${stop}` : ''}）` } : res, cid);
     }
     case '买米': case '卖米': {
-      const [sell, buy] = D.cities[cid].rice_rate;
+      const sell = G.riceSellRate(g, cid), [, buy] = D.cities[cid].rice_rate;
       if (!f.market || !(act === '买米' ? buy : sell)) return toast('<em>此城没有米市</em>');
       const max = act === '买米' ? Math.min(Math.ceil((c.gold * buy) / 100), 9999 - c.rice) : c.rice;
       const v = await sliders(act, [{ key: 'q', label: '米', min: 1, max, step: 1, value: Math.min(max, 100) }], { note: act === '买米' ? `100金可买米 ${buy}` : `卖100米得金 ${sell}` }); if (!v) return;
@@ -2902,7 +2906,7 @@ async function command(cid, act) {
       const cols = [['武器', (o) => D.equipment[o.weapon]?.atk ?? 0, (o) => gear(D.equipment[o.weapon], 'atk', '攻')],
         ['防具', (o) => D.equipment[24 + o.armor]?.dfn ?? 0, (o) => gear(D.equipment[24 + o.armor], 'dfn', '防')]];
       const ids = await pickOfficers(g, '为谁购买装备？', c.officers, { cols }); if (!ids?.length) return;
-      const id = ids[0], item = await equipShop(id, D.cities[cid].shop, { gold: c.gold, purse: '城金', block: (e) => G.equipBlock(g, id, e) });
+      const id = ids[0], item = await equipShop(id, G.equipmentStock(g, cid, 'shop'), { gold: c.gold, purse: '城金', block: (e) => G.equipBlock(g, id, e) });
       if (item == null) return;
       const warning = D.equipment[item].kind === 'weapon' && G.boundRulerWeapon(g, id) ? '更换后当前专属武器消失，无法再次获得。' : '';
       if (!(await sure('武器屋', `为${name(id)}购买${D.equipment[item].name}，需要金 ${D.equipment[item].price}。${warning}`))) return;

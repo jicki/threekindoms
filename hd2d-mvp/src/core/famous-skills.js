@@ -2,6 +2,7 @@
 // 身份标记用于说明史料及演义依据，不代表技能名称或效果出自史书。
 import { DUEL_SKILLS } from './duel-skills.js';
 import { advancedBattle } from './battle-rules.js';
+import { recordExtra } from './famous-roster.js';
 
 // 第二套名单按用户指定的名将与名臣维护。名称取材事迹，效果为游戏设定。
 const ROSTER_V2 = {
@@ -47,7 +48,9 @@ const entry = (D,g,id) => {
   const e=FAMOUS[id], o=D?.officers?.[id];
   return g?.famousSkills === true && e && o && !o.clone && o.name===e[0] ? e : null;
 };
-export function famousLabel(D,g,id) { return (g?.famousSkills===2 ? entryV2(D,g,id) : entry(D,g,id))?.[1] ?? null; }
+export function famousLabel(D,g,id) {
+  return recordExtra(g, id)?.title ?? (g?.famousSkills===2 ? entryV2(D,g,id) : entry(D,g,id))?.[1] ?? null;
+}
 export function abilityStrategyIds(D,g,id) {
   if (advancedBattle(g)) return [];
   const skills=D?.officers?.[id]?.skills ?? [];

@@ -1,4 +1,7 @@
 // 素材引用只接受内置目录、既有动作编号或服务端内容哈希，不接受任意 URL。
+import { ADDITIONAL_OFFICERS, REGIONAL_OFFICERS } from './regional-content.js';
+
+const REGIONAL_PORTRAITS = new Set([...REGIONAL_OFFICERS, ...ADDITIONAL_OFFICERS].map(({ key }) => `r-${key}`));
 export const FEMALE_PRESETS = [
   { key: 'sun', name: '孙尚香', hp: 82, war: 85, int: 68, virtue: 75, year: 209, birthYear: null, city: 15, death: 240, army: '平' },
   { key: 'zhen', name: '甄宓', hp: 70, war: 55, int: 87, virtue: 82, year: 200, birthYear: 183, city: 4, death: 221, army: '水' },
@@ -70,6 +73,7 @@ export function validVisualRef(ref, kind, baseCount) {
 }
 export function visualUrl(ref) {
   if (UPLOAD.test(ref ?? '')) return `/api/assets/${ref}`;
+  if (REGIONAL_PORTRAITS.has(ref)) return `assets/regional/${ref.slice(2)}.webp`;
   const built = BUILTIN.exec(ref ?? '');
   return built && builtinAllowed(built) ? `assets/characters/${built[1]}/${built[2]}.${built[2] === 'motion' ? 'png' : 'webp'}` : null;
 }

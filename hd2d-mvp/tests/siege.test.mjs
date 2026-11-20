@@ -12,12 +12,14 @@ import { SOVEREIGN_SCENARIO_ID } from '../src/core/visuals.js';
 import { EXPANDED_MAP_ID, expandMap } from '../src/core/expanded-map.js';
 import { suspend, takeSuspend } from '../src/core/suspend.js';
 import { fight } from '../src/core/warcore.js';
+import { legacyRoster } from './legacy-roster.mjs';
 
 const base=JSON.parse(readFileSync(new URL('../data/game-data.json',import.meta.url)));
 const expanded=expandMap(applyScenario(base,await loadScenario(SOVEREIGN_SCENARIO_ID,base)));
 function game(seed=7, revision=1) {
   G.setData(expanded,EXPANDED_MAP_ID);
-  const g = G.newGame(4,1,seed); g.campaignRevision = revision; return g;
+  const state = G.newGame(4,1,seed);
+  return revision < state.campaignRevision ? legacyRoster(state, revision) : state;
 }
 function war(city=34,from=8) { return {city,from,attacker:0,defender:4,day:1,att:{ids:[40,41,42],gold:100,rice:3000},def:{ids:[43,44,45],gold:100,rice:3000}}; }
 
@@ -121,7 +123,8 @@ test('洛阳与长安采用不同外廓，水岸固定在城市一侧，偏门�
   assert.throws(()=>Field.restore(oldGame,w,record));
   const before = structuredClone(oldGame);
   assert.ok(G.upgradeCampaign(oldGame));
-  assert.deepEqual(oldGame,{...before,campaignRevision:9});
+  assert.equal(oldGame.campaignRevision,11);
+  assert.deepEqual(legacyRoster(structuredClone(oldGame),8),before);
   assert.equal(new Field(oldGame,w,'def').siege.revision,4);
   assert.deepEqual(Field.restore(oldGame,w,old.snapshot()).siege,old.siege);
 });
@@ -262,7 +265,7 @@ test('真实战场中断存取保留城门状态，损坏的城门记录不能�
   const descriptor=Object.getOwnPropertyDescriptor(globalThis,'localStorage'), store=new Map();
   Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v)),removeItem:k=>store.delete(k)}});
   try {
-    for (const revision of [1,8,9]) {
+    for (const revision of [1,8,9,10,11]) {
       const g=game(7,revision), w=war(), f=new Field(g,w,'att'); f.siege.gates[0].open=true;
       assert.equal(suspend(g,w,f,{side:'att',start:{},after:{kind:'att'}}),true);
       const rec=takeSuspend(); assert.ok(rec); assert.deepEqual(Field.restore(rec.g,rec.war,rec.field).siege,f.siege);

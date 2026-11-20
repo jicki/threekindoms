@@ -24,3 +24,4 @@ hd2d-mvp/desktop/build/*.icns
 hd2d-mvp/desktop/build/*.ico
 /ASSETS-README.txt
 /threekindoms-assets-*.zip
+!hd2d-mvp/assets/regional/*.webp

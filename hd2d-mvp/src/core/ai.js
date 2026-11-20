@@ -1,10 +1,10 @@
 // Strategic AI (6.5). Budget = command books × 10 points; the main dispatch draws 0–15 against the
 // faction/difficulty/situation weights (`10:A19C` uses D4AD, so sums above 16 never reach the last
 // branches), then attack/vacant expansion, inner moves + BD7A reinforcement, diplomacy, or domestic work.
-import { data, currentScenario, rng, NONE, SERVING, UNAPPEARED, RONIN, roads, citiesOf, holdingsOf, isPass, troopsOf, recruitLoyalty, books, isRuler, officerCity, searchOrder, maxHp, weaponGroup, equipBlock, wearEquip } from './game.js';
+import { data, currentScenario, rng, NONE, SERVING, UNAPPEARED, RONIN, roads, citiesOf, holdingsOf, isPass, troopsOf, recruitLoyalty, books, isRuler, officerCity, searchOrder, queueHead, maxHp, weaponGroup, equipmentStock, equipBlock, wearEquip, riceSellRate } from './game.js';
 import { setupWar, occupyEmpty, autoBattle, defenseCandidates, joinDefense } from './warcore.js';
 import { advancedBattle, officerPassive } from './battle-rules.js';
-import { developmentBonus } from './officer-passives.js';
+import { charityBonus, developmentBonus, discountedCost } from './officer-passives.js';
 import { phantomWar } from './ahuinan.js';
 import { FEMALE_SCENARIO_ID } from './visuals.js';
 import { recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
@@ -118,7 +118,9 @@ export function housekeeping(g, f, r, spend) {
   const motivate = (o) => { if (tier === 3 && o.loyalty < 95) o.loyalty = Math.min(95, o.loyalty + 10); };
   evade(g, f, spend);
   for (const c of citiesOf(g, f)) {
-    if (r(100) < search && c.officers.length < 10) {
+    const searchRoll = r(100);
+    if (c.officers.length < 10 && (searchRoll < search
+      || (officerPassive(D, g, c.officers[0])?.searchRetry && queueHead(g, searchOrder(g, c.id))?.ready && r(8) === 0 && r(100) < search))) {
       // C5D2: each entry in turn whose year has come, up to the first whose has not, on its own affinity draw, so a
       // later one can come first (诸葛亮 194 before 徐庶 192 in 荆州). The head alone (F23, 2026-10-31) left an entry the
       // ruler does not favour holding back those he does, for years (devblog #98/#102, 2026-11-03). The player's 搜索 keeps
@@ -153,7 +155,7 @@ export function housekeeping(g, f, r, spend) {
       const keep = Math.floor((troopsOf(g, c) * 3) / 25);
       if (c.rice < keep) continue;
       const sale = Math.min(c.rice - keep, 300);
-      c.rice -= sale; c.gold = Math.min(9999, c.gold + Math.floor((sale * D.cities[c.id].rice_rate[0]) / 100));
+      c.rice -= sale; c.gold = Math.min(9999, c.gold + Math.floor((sale * riceSellRate(g, c.id)) / 100));
       spend(2); // charged even when the sale is 0
     }
   }
@@ -575,7 +577,7 @@ function domestic(g, f, c, r, spend) {
       c.gold -= gc; // 旧战役保留扣金后才检查米的顺序。
       if (c.rice < rc) return false;
       c.rice -= rc;
-      c.gov = Math.min(99, c.gov + Math.floor((gc + rc) / [25, 20, 15][g.level]) + (passive?.charity ?? 0));
+      c.gov = Math.min(99, c.gov + Math.floor((gc + rc) / [25, 20, 15][g.level]) + charityBonus(passive, c.gov));
     }
     return spend(5) || true;
   }
@@ -633,7 +635,7 @@ function equipExtended(g, c, stock, spend) {
 export function equip(g, c, r, spend) {
   const D = data();
   if (!D.cities[c.id].facilities.weapons) return false;
-  const stock = D.cities[c.id].ai_shop; // its own table (0x164FE), not the player's shop with 关王刀 and 蛇矛
+  const stock = equipmentStock(g, c.id, 'ai_shop'); // its own table (0x164FE), not the player's shop with 关王刀 and 蛇矛
   if (currentScenario() !== FEMALE_SCENARIO_ID && stock.some((id) => id >= 32)) return equipExtended(g, c, stock, spend);
   for (let bought = false; ;) {
     let best = null, item = null, fallback = null, fallbackItem = null;
@@ -698,7 +700,8 @@ async function ally(g, f, r, io) {
   const fac = g.factions[f], live = g.factions.filter((x) => x.ruler != null).length;
   if (live < 3 || fac.alliance.some((t) => t > 0)) return;
   const mine = citiesOf(g, f), holdings = holdingsOf(g, f), adj = new Set();
-  if (!holdings.some((c) => c.officers.some((id) => id !== fac.ruler))) return; // B619 needs a non-ruler envoy
+  const envoys = holdings.flatMap(c => c.officers.filter(id => id !== fac.ruler));
+  if (!envoys.length) return; // B619 needs a non-ruler envoy
   for (const c of holdings) for (const n of roads(c.id)) { const o = g.cities[n].faction; if (o !== f && o !== NONE) adj.add(o); }
   if (adj.size < 2) return;
   const strength = (o) => citiesOf(g, o).length;
@@ -713,7 +716,8 @@ async function ally(g, f, r, io) {
   }
   const tc = citiesOf(g, target).length;
   if (target === threat && tc <= mine.length + 2) return;
-  const gold = r(100) < 50, amount = (3 * tc + 7) * (gold ? 4 : 6), kind = gold ? 'gold' : 'rice';
+  const D = data(), discount = envoys.reduce((best, id) => Math.max(best, officerPassive(D, g, id)?.allianceDiscount ?? 0), 0);
+  const gold = r(100) < 50, amount = discountedCost((3 * tc + 7) * (gold ? 4 : 6), discount), kind = gold ? 'gold' : 'rice';
   const home = officerCity(g, fac.ruler);
   if (!home || home[kind] < amount) return;
   // 原版保留低字节截断；新版按完整报价支付，避免超过 255 后出现零价同盟。

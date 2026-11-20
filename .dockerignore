@@ -10,6 +10,8 @@
 !hd2d-mvp/assets/
 !hd2d-mvp/assets/**/*.json
 !hd2d-mvp/assets/**/*.md
+!hd2d-mvp/assets/regional/
+!hd2d-mvp/assets/regional/*.webp
 !hd2d-mvp/data/
 !hd2d-mvp/data/**
 !hd2d-mvp/src/

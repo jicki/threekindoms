@@ -11,6 +11,7 @@ import { famousLabel } from '../src/core/famous-skills.js';
 import { Field, FOREST, MOUNT } from '../src/core/field.js';
 import { Duel } from '../src/core/skirmish.js';
 import { Tactical } from '../src/core/tactical.js';
+import { legacyRoster } from './legacy-roster.mjs';
 
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
 const D = expandMap(applyScenario(base, await loadScenario(SOVEREIGN_SCENARIO_ID, base)));
@@ -39,12 +40,13 @@ test('名将名臣的效果彼此有别，普通文武分布多种模板', () =>
 });
 
 test('修订7旧档保留旧被动，手动升级保留个人和城市数据', () => {
-  const g = fresh(); g.campaignRevision = 7;
+  const g = legacyRoster(fresh(), 7);
   const loaded = G.upgrade(structuredClone(g));
   assert.equal(officerPassive(D, loaded, 38).name, '骁勇');
   assert.ok(G.upgradeCampaign(loaded));
   assert.equal(officerPassive(D, loaded, 38).name, '武圣');
-  assert.deepEqual(loaded, { ...g, campaignRevision: 9 });
+  assert.equal(loaded.campaignRevision, 11);
+  assert.deepEqual(legacyRoster(structuredClone(loaded), 7), g);
   G.setData(base);
   assert.equal(officerPassive(base, G.newGame(4, 1, 31), 38), null);
 });

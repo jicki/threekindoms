@@ -7,6 +7,7 @@ import { loadScenario } from '../src/core/scenario-store.js';
 import { EXPANDED_MAP_ID, expandMap } from '../src/core/expanded-map.js';
 import { SOVEREIGN_SCENARIO_ID } from '../src/core/visuals.js';
 import { CASTLE, Field, FOREST, PLAIN, RIVER } from '../src/core/field.js';
+import { legacyRoster } from './legacy-roster.mjs';
 
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
 const expanded = expandMap(applyScenario(base, await loadScenario(SOVEREIGN_SCENARIO_ID, base)));
@@ -16,7 +17,7 @@ const chief = expanded.officers.find(o => o?.name === '诸葛亮').id;
 function encounter(id, weather, { caster = 40, revision, keepSiege = false } = {}) {
   G.setData(expanded, EXPANDED_MAP_ID);
   const g = G.newGame(4, 1, 9);
-  if (revision) g.campaignRevision = revision;
+  if (revision) legacyRoster(g, revision);
   g.month = month[weather]; g.enhancedRulerPassives = false;
   for (const officer of [caster, 41, 42, 43]) Object.assign(g.officers[officer], {
     hp: 90, soldiers: 900, level: officer === caster ? 8 : 4,
@@ -116,6 +117,7 @@ test('修订 2 的既有记录和中断按原天气恢复，升级后才生效',
   assert.equal(prior.hitChance(prior.side('att')[0], prior.side('def')[0], 1), f.hitChance(u, target, 1));
   const g = structuredClone(before);
   assert.ok(G.upgradeCampaign(g));
-  assert.deepEqual(g, { ...before, campaignRevision: 9 });
+  assert.equal(g.campaignRevision, 11);
+  assert.deepEqual(legacyRoster(structuredClone(g), 2), before);
   assert.equal(impact(5, 'rain', { revision: 2 }), impact(5, 'clear', { revision: 2 }));
 });

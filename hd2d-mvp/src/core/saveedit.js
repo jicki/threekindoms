@@ -6,7 +6,7 @@
 // 体力 is the one exception to "as the game keeps it": the original caps healing at the ROM template's hp and never
 // stores a cap on the record. Here editing 体力 sets the officer's 体力上限 (o.maxHp) to the same value, so an edited
 // officer is at full 体力 and the 病院, AI healing and the cards all read the edited cap (game.js maxHp).
-import { DEAD, maxHp, data, upgrade, futureVersion } from './game.js';
+import { DEAD, maxHp, data, upgrade, futureVersion, equipmentAvailable } from './game.js';
 
 // 体力 as the editor shows and compares it: current / cap, so a change to either one counts.
 export const hpText = (o) => `${o.hp}/${maxHp(o)}`;
@@ -30,6 +30,7 @@ export function setOfficer(g, id, key, v) {
   if (!f || !o || !Number.isFinite(Number(v))) return null;
   if (o.status === DEAD && key === 'hp') return null; // a dead officer keeps hp 0
   if (key === 'weapon' && Number(v) !== o.weapon && data()?.equipment[Number(v)]?.exclusiveRuler !== undefined) return null;
+  if (key === 'weapon' && data()?.equipment[Number(v)]?.regional && !equipmentAvailable(g, data().equipment[Number(v)])) return null;
   const weapon = key === 'weapon' && Number.isInteger(Number(v)) && Number(v) >= 32 && data()?.equipment[Number(v)]?.kind === 'weapon';
   const armor = key === 'armor' && Number.isInteger(Number(v)) && Number(v) >= 8 && data()?.equipment[24 + Number(v)]?.kind === 'armor';
   o[key] = weapon || armor ? Number(v) : clamp(v, f[2], f[3]); if (key === 'hp') o.maxHp = o.hp; // 体力 and 体力上限 move together

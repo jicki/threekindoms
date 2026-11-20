@@ -12,10 +12,11 @@ import { relationDisposition, recruitDisposition, recruitThreshold, recruitLoyal
 import { EXPANDED_MAP_ID, EXPANDED_NODES, expandMap, applyExpandedOpening } from './expanded-map.js';
 import { SOVEREIGN_SCENARIO_ID } from './visuals.js';
 import { chooseCampaignEvent, applyCampaignEvent } from './campaign-events.js';
-import { FAMOUS_ROSTER, FAMOUS_ROSTER_START, activateFamousRoster, extraSearchIds, famousRosterTemplate, hasFamousRoster, rosterRecordName, staticRosterSize } from './famous-roster.js';
+import { FAMOUS_ROSTER_START, activateFamousRoster, extraSearchIds, famousRosterTemplate, famousRosterFor, rosterRecordName, staticRosterSize } from './famous-roster.js';
+import { REGIONAL_REVISION, OFFICER_ROSTER_REVISION, addRegionalStock, hasRegionalContent } from './regional-content.js';
 import { readResource } from '../resource.js';
 import { officerPassive, advancedBattle } from './battle-rules.js';
-import { developmentBonus } from './officer-passives.js';
+import { charityBonus, developmentBonus, discountedCost } from './officer-passives.js';
 import { warlikeTier } from './warlike.js';
 import { invalidateCityIntel } from './strategy-intel.js';
 // 原版无主为 7；扩展剧本将无主编号放在实际势力编号之后。
@@ -36,7 +37,10 @@ export async function loadData(url = 'data/game-data.json') {
   if (id === EXPANDED_MAP_ID || scenario.map === 'expanded') next = expandMap(next);
   next.scenarioName = scenario.name; return setData(next, id);
 }
-export function setData(d, id = ORIGINAL_SCENARIO) { D = d; NONE = d?.factions?.length ?? 7; scenarioId = id; return D; }
+export function setData(d, id = ORIGINAL_SCENARIO) {
+  if (id === EXPANDED_MAP_ID && d?.expandedMap && d.campaignRules) addRegionalStock(d);
+  D = d; NONE = d?.factions?.length ?? 7; scenarioId = id; return D;
+}
 // 体力上限: the ROM template's hp, unless the save editor set one on the record (o.maxHp). id for copies of a record.
 export const maxHp = (o, id = o.id) => o.maxHp ?? D.officers[id].hp;
 
@@ -59,7 +63,9 @@ const officerRecord = (o) => ({
 
 // 战役规则修订号独立于存档结构。读取旧记录保留其规则，由玩家在战略回合选择升级。
 const CAMPAIGN_REVISION = 9;
-const FAMOUS_CAMPAIGN_RULES = { battlefields: 2, famousSkills: 2, famousRoster: 1, siegeTactics: true };
+const FAMOUS_ROSTER_RULES = { famousSkills: 2, famousRoster: 3 };
+const FAMOUS_CAMPAIGN_RULES = { ...FAMOUS_ROSTER_RULES, battlefields: 2, siegeTactics: true };
+const latestCampaignRevision = () => scenarioId === EXPANDED_MAP_ID ? OFFICER_ROSTER_REVISION : CAMPAIGN_REVISION;
 const supportsNewBattle = () => D.expandedMap === true && (scenarioId === EXPANDED_MAP_ID || D.newBattleRules === true);
 function campaignDefaults() {
   const defaults = {};
@@ -91,7 +97,7 @@ export function newGame(playerFaction, level, seed = (Date.now() ^ (Math.random(
   Object.assign(g, campaignDefaults());
   if (scenarioId === EXPANDED_MAP_ID && D.expandedMap === true) {
     if (staticRosterSize(D, null) !== FAMOUS_ROSTER_START) throw new Error('内置人物数据与名将名单不匹配');
-    Object.assign(g, FAMOUS_CAMPAIGN_RULES, { campaignRevision: CAMPAIGN_REVISION });
+    Object.assign(g, FAMOUS_CAMPAIGN_RULES, { campaignRevision: latestCampaignRevision() });
   } else if (supportsNewBattle()) {
     Object.assign(g, { campaignRevision: CAMPAIGN_REVISION, campaignRules: true, safeStrategyChance: true, battlefields: 2, siegeTactics: true });
   }
@@ -221,11 +227,12 @@ function enhancedDisaster(g, c, kind, defense, consecutive = false) {
     return consecutive ? Math.floor(loss / 2) : loss;
   };
   const cost = (value, minimum, extra = 0) => Math.min(Math.max(0, value), Math.max(minimum, Math.floor(value * rate / 100)) + extra);
+  const popLoss = discountedCost(fraction(c.pop, 4), officerPassive(D, g, c.officers[0])?.disasterPopulation);
   const losses = {
     gold: cost(c.gold, 50), rice: cost(c.rice, 50, kind === 'flood' ? fraction(c.rice, 2) : 0),
     land: cost(c.land, 5, kind === 'drought' ? fraction(c.land, 4) : 0),
     industry: cost(c.industry, 5, kind === 'flood' ? fraction(c.industry, 4) : 0),
-    pop: fraction(c.pop, 4), soldiers: 0, disaster: defense - c.disaster,
+    pop: popLoss, soldiers: 0, disaster: defense - c.disaster,
   };
   for (const key of ['gold', 'rice', 'land', 'industry', 'pop']) c[key] -= losses[key];
   if (kind === 'drought') for (const id of c.officers) {
@@ -651,7 +658,7 @@ export function charity(g, cid, gold, rice) {
   c.gold -= gold; c.rice -= rice;
   const Vg = g.officers[c.officers[0]].virtue;
   const q = Math.floor(((gold + rice) * Vg) / 2000), d = Math.floor((q * (10 + r(7))) / 10);
-  const before = c.gov; c.gov = Math.min(100, before + d + (d > 0 ? officerPassive(D, g, c.officers[0])?.charity ?? 0 : 0));
+  const before = c.gov; c.gov = Math.min(100, before + d + (d > 0 ? charityBonus(officerPassive(D, g, c.officers[0]), before) : 0));
   return { ok: true, msg: `统治度 +${c.gov - before}` };
 }
 // 武将不能读书 (g.noStudy, an option off by default and absent from older records; not in the ROM): no officer, the
@@ -774,8 +781,13 @@ export function buyRice(g, cid, rice) {
   c.gold = Math.max(0, c.gold - Math.floor((rice * 100) / buy)); c.rice += rice;
   return { ok: true, msg: `买米 ${rice}` };
 }
+export function riceSellRate(g, cid) {
+  const [sell, buy] = D.cities[cid].rice_rate;
+  const bonus = officerPassive(D, g, g.cities[cid].officers[0])?.riceSale ?? 0;
+  return sell > 0 && bonus > 0 ? Math.min(sell + bonus, buy ? Math.floor(10000 / buy) : Infinity) : sell;
+}
 export function sellRice(g, cid, rice) {
-  const c = g.cities[cid], [sell] = D.cities[cid].rice_rate;
+  const c = g.cities[cid], sell = riceSellRate(g, cid);
   if (!sell) return { ok: false, msg: '此城没有米市' };
   rice = Math.min(rice, c.rice); if (rice <= 0) return { ok: false, msg: '没有米' };
   c.rice -= rice; c.gold = Math.min(9999, c.gold + Math.floor((rice * sell) / 100));
@@ -793,9 +805,12 @@ const SPECIAL = { 15: { bit: 0x02, ok: (o) => o.id === 38, need: '关羽专用' 
   22: { bit: 0x08, ok: (o) => o.war >= 91, need: '需武力91' }, 30: { bit: 0x10, ok: (o) => o.virtue >= 91, need: '需人德91' } };
 // The battlefield shop entry (file 0x1274B) compares 武力/人德 with 90 (BCC on #$5A); the city entry uses 91.
 const FIELD_SPECIAL = { 22: { ok: (o) => o.war >= 90, need: '需武力90' }, 30: { ok: (o) => o.virtue >= 90, need: '需人德90' } };
+export const equipmentAvailable = (g, item) => !!item && (!item.regional || hasRegionalContent(g));
+export const equipmentStock = (g, city, key) => (D.cities[city]?.[key] ?? []).filter(id => equipmentAvailable(g, D.equipment[id]));
 export function equipBlock(g, id, eq, { field = false } = {}) {
   const sp = SPECIAL[eq], officer = g.officers[id];
   const item = D.equipment[eq];
+  if (!equipmentAvailable(g, item)) return '本战役未启用此装备';
   if (item?.exclusiveRuler !== undefined) return '君主专属武器不可购买或转移';
   if (sp) {
     if ((g.specialBought || 0) & sp.bit) return '已售出';
@@ -815,6 +830,7 @@ export function equipBlock(g, id, eq, { field = false } = {}) {
 // Put a bought item on (no refund for the old one) and mark a special piece as sold for the rest of the game.
 export function wearEquip(g, id, eq) {
   const e = D.equipment[eq], o = g.officers[id];
+  if (!equipmentAvailable(g, e)) return '本战役未启用此装备';
   if (e?.exclusiveRuler !== undefined) return '君主专属武器不可购买或转移';
   if (SPECIAL[eq]) g.specialBought = (g.specialBought || 0) | SPECIAL[eq].bit;
   if (e.kind === 'weapon') o.weapon = eq; else o.armor = eq - 24;
@@ -822,7 +838,7 @@ export function wearEquip(g, id, eq) {
 }
 export function buyEquip(g, cid, id, eq) {
   const c = g.cities[cid], e = D.equipment[eq];
-  if (!D.cities[cid].facilities.weapons || !D.cities[cid].shop.includes(eq)) return { ok: false, msg: '此城不卖' };
+  if (!D.cities[cid].facilities.weapons || !equipmentStock(g, cid, 'shop').includes(eq)) return { ok: false, msg: '此城不卖' };
   const block = equipBlock(g, id, eq); if (block) return { ok: false, msg: `${e.name}：${block}` };
   if (c.gold < e.price) return { ok: false, msg: '金不足' };
   c.gold -= e.price;
@@ -841,13 +857,15 @@ export function search(g, cid, executor) {
   const n = Math.min(10, c.officers.length);
   const row = D.search_outcomes[`${Math.max(1, n)},${band(o.int)},${band(o.virtue)}`];
   const full = c.officers.length >= 10;
-  const head = g.sangu && !full ? queueHead(g, searchOrder(g, cid)) : null;
-  if (head?.ready) {
+  const retry = officerPassive(D, g, executor)?.searchRetry;
+  const head = (g.sangu || retry) && !full ? queueHead(g, searchOrder(g, cid)) : null;
+  if (g.sangu && head?.ready) {
     const v = g.visits ||= {};
     v[head.id] = (v[head.id] || 0) + 1;
     if (v[head.id] >= SANGU_VISITS) { join(g, cid, head.id); return { ok: true, msg: `${name(head.id)} 感于三顾之诚，愿意出仕`, joined: head.id }; }
   }
   let res = row[r(8)];
+  if (res === 8 && retry && head?.ready && r(8) === 0) res = row[r(8)];
   let cand = null;
   if (!full && (res === 5 || res === 6)) {
     cand = searchCandidate(g, cid);
@@ -904,7 +922,7 @@ const quickKey = () => `${key()}:quick`, quickBak = () => `${quickKey()}:bak`;
 const parse = (s) => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
 const read = (k) => { try { return parse(localStorage.getItem(k)); } catch { return null; } };
 export const futureVersion = (g) => (Number.isInteger(g?.version) && g.version > SAVE_VERSION)
-  || (Number.isInteger(g?.campaignRevision) && g.campaignRevision > CAMPAIGN_REVISION);
+  || (Number.isInteger(g?.campaignRevision) && g.campaignRevision > OFFICER_ROSTER_REVISION);
 const slotStates = new WeakMap();
 export function slotToken(slot) { try { return localStorage.getItem(slotKey(slot)); } catch { return undefined; } }
 export const futureSlot = (slot) => futureVersion(parse(slotToken(slot)));
@@ -950,7 +968,7 @@ function validRoster(g) {
   if (g.factions.some((f) => !f || (f.ruler != null && !validId(f.ruler)))) return false;
   if (g.officers.some((o) => {
     const weapon = D.equipment[o.weapon];
-    return weapon?.exclusiveRuler !== undefined && weapon.exclusiveRuler !== o.id;
+    return (weapon?.regional && !hasRegionalContent(g)) || (weapon?.exclusiveRuler !== undefined && weapon.exclusiveRuler !== o.id);
   })) return false;
   const cityFields = ['gold', 'rice', 'pop', 'land', 'industry', 'disaster', 'gov', 'reserve', 'treasure'];
   return g.cities.every((c, id) => c.id === id && Number.isInteger(c.faction) && (c.faction === NONE || !!g.factions[c.faction])
@@ -961,7 +979,7 @@ export function upgrade(g) {
   if ((g.scenarioId ?? ORIGINAL_SCENARIO) !== scenarioId) return null;
   try { g.version ??= 1; while (g.version < SAVE_VERSION) MIGRATIONS[g.version++](g); } catch { return null; }
   if (g.campaignRevision !== undefined && (!Number.isInteger(g.campaignRevision) || g.campaignRevision < 1
-    || g.campaignRevision > CAMPAIGN_REVISION || !supportsNewBattle()
+    || g.campaignRevision > latestCampaignRevision() || !supportsNewBattle()
     || (g.campaignRevision === 1 && scenarioId !== EXPANDED_MAP_ID))) return null;
   if (g.frontierMap !== undefined && typeof g.frontierMap !== 'boolean') return null;
   if (g.scoutedOwner !== undefined && (!(g.campaignRevision >= 7) || !g.scoutedOwner || typeof g.scoutedOwner !== 'object' || Array.isArray(g.scoutedOwner)
@@ -971,8 +989,10 @@ export function upgrade(g) {
     || Object.entries(g.governorOrders).some(([id, order]) => !/^(0|[1-9]\d*)$/.test(id) || !D.cities[id] || isPass(+id) || !order
       || !['prevent', 'recruit', 'rice'].includes(order.task) || !Number.isInteger(order.reserve) || order.reserve < 0 || order.reserve > 9999))) return null;
   if (g.famousSkills !== undefined && (![true,2].includes(g.famousSkills) || scenarioId !== EXPANDED_MAP_ID || D.expandedMap !== true)) return null;
-  if (g.famousRoster !== undefined && (g.famousRoster !== 1 || g.famousSkills !== 2 || scenarioId !== EXPANDED_MAP_ID || D.expandedMap !== true)) return null;
-  if (g.famousSkills === 2 && (g.famousRoster !== 1 || !Array.isArray(g.officers) || g.officers.length < FAMOUS_ROSTER_START+FAMOUS_ROSTER.length)) return null;
+  if (g.famousRoster !== undefined && (![1, 2, 3].includes(g.famousRoster) || g.famousSkills !== 2 || scenarioId !== EXPANDED_MAP_ID || D.expandedMap !== true)) return null;
+  if ((g.famousRoster === 2) !== (g.campaignRevision === REGIONAL_REVISION)
+    || (g.famousRoster === 3) !== (g.campaignRevision === OFFICER_ROSTER_REVISION)) return null;
+  if (g.famousSkills === 2 && (!Array.isArray(g.officers) || !famousRosterFor(g).length || g.officers.length < staticRosterSize(D, g))) return null;
   if (g.siegeTactics !== undefined && (g.siegeTactics !== true || g.battlefields !== 2 || !supportsNewBattle())) return null;
   if (g.battlefields !== undefined && (![1, 2].includes(g.battlefields) || !supportsNewBattle())) return null;
   // 旧扩展地图记录只补充无主的新据点，已有城市、武将及战斗状态不重置。
@@ -1008,7 +1028,7 @@ function missingCampaignDefaults(g) {
 
 export function campaignUpgradeAvailable(g) {
   if (!D || !supportsNewBattle() || g?.scenarioId !== scenarioId
-    || g.over || g.raidBattle || (g.campaignRevision ?? 0) >= CAMPAIGN_REVISION) return false;
+    || g.over || g.raidBattle || (g.campaignRevision ?? 0) >= latestCampaignRevision()) return false;
   return scenarioId === EXPANDED_MAP_ID || advancedBattle(g);
 }
 
@@ -1016,20 +1036,18 @@ export function upgradeCampaign(g) {
   if (!campaignUpgradeAvailable(g)) return false;
   const next = upgrade(structuredClone(g));
   if (!next) return false;
-  if (advancedBattle(next)) {
-    next.campaignRevision = CAMPAIGN_REVISION;
-    if (!upgrade(next)) return false;
-    Object.assign(g, next);
-    registerClones(g);
-    return true;
-  }
-  if (!hasFamousRoster(next)) {
-    // 原有编号保留。旧记录的分身排在新增名将之后，城市、势力及三顾计数一并迁移。
-    const extras = next.officers.slice(FAMOUS_ROSTER_START), clones = new Set(next.clones);
-    if (next.officers.length < FAMOUS_ROSTER_START || extras.some((o) => !clones.has(o.id))) return false;
-    const remap = (id) => clones.has(id) ? id + FAMOUS_ROSTER.length : id;
-    const recruits = FAMOUS_ROSTER.map((_, i) => officerRecord(famousRosterTemplate(FAMOUS_ROSTER_START + i)));
-    next.officers = [...next.officers.slice(0, FAMOUS_ROSTER_START), ...recruits, ...extras.map((o) => ({ ...o, id: remap(o.id) }))];
+  const modern = advancedBattle(next);
+  if (!modern) Object.assign(next, Object.fromEntries(missingCampaignDefaults(next)));
+  if (scenarioId === EXPANDED_MAP_ID) {
+    // 已有固定角色保留编号。只把旧档分身移到新固定名单之后，同时迁移各处引用。
+    const first = FAMOUS_ROSTER_START + famousRosterFor(next).length, clones = new Set(next.clones);
+    const extras = next.officers.slice(first);
+    if (next.officers.length < first || extras.some((o) => !clones.has(o.id))) return false;
+    Object.assign(next, modern ? FAMOUS_ROSTER_RULES : FAMOUS_CAMPAIGN_RULES);
+    const count = staticRosterSize(D, next) - first;
+    const remap = (id) => clones.has(id) ? id + count : id;
+    const recruits = Array.from({ length: count }, (_, i) => officerRecord(famousRosterTemplate(first + i)));
+    next.officers = [...next.officers.slice(0, first), ...recruits, ...extras.map((o) => ({ ...o, id: remap(o.id) }))];
     if (clones.size) {
       next.clones = next.clones.map(remap);
       for (const city of next.cities) city.officers = city.officers.map(remap);
@@ -1040,7 +1058,7 @@ export function upgradeCampaign(g) {
       if (next.visits) next.visits = Object.fromEntries(Object.entries(next.visits).map(([id, count]) => [remap(Number(id)), count]));
     }
   }
-  Object.assign(next, Object.fromEntries(missingCampaignDefaults(next)), FAMOUS_CAMPAIGN_RULES, { campaignRevision: CAMPAIGN_REVISION });
+  next.campaignRevision = latestCampaignRevision();
   if (!upgrade(next)) return false;
   Object.assign(g, next);
   registerClones(g);
@@ -1178,7 +1196,7 @@ function quickUpgrade(g) {
   const f = g.factions[g.player], ruler = f?.ruler, city = f?.city;
   if (g.clones != null && !Array.isArray(g.clones)) return null;
   const clones = new Set(g.clones ?? []);
-  const known = (id) => Number.isInteger(id) && !!g.officers[id] && !!(D?.officers?.[id] || clones.has(id) || (hasFamousRoster(g) && id>=FAMOUS_ROSTER_START && id<FAMOUS_ROSTER_START+FAMOUS_ROSTER.length));
+  const known = (id) => Number.isInteger(id) && !!g.officers[id] && (id < originalOfficers || clones.has(id));
   if (!known(ruler) || !Number.isInteger(city) || !g.cities[city]) return null;
   // The HUD, turn loop and editor iterate every officer/faction and dereference each city's roster.
   if (g.officers.some((o, i) => !o || o.id !== i || !known(i))) return null;
@@ -1283,7 +1301,8 @@ export function allianceOffer(g, cid, actor, target) {
   if (p & 128) p = 0;
   if (roll100(r) >= p) return { ok: true, msg: `${factionName(g, target)}拒绝了同盟` };
   const c = g.cities[cid], thr = c.gold > c.rice ? 3 : c.gold === c.rice ? 5 : 7;
-  return { ok: true, quote: 4 * (100 - p), kind: r(10) < thr ? 'gold' : 'rice', target, msg: `${factionName(g, target)}愿意结盟` };
+  const quote = discountedCost(4 * (100 - p), officerPassive(D, g, actor)?.allianceDiscount);
+  return { ok: true, quote, kind: r(10) < thr ? 'gold' : 'rice', target, msg: `${factionName(g, target)}愿意结盟` };
 }
 export function payAlliance(g, cid, target, kind, amount) {
   const c = g.cities[cid], me = c.faction;

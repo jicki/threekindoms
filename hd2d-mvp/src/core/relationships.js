@@ -1,15 +1,21 @@
 // 仅对明确含义的内置关系启用效果。自定义名称不推断好恶；双方既有亲近又有敌对关系时抵消。
 import { realChance } from './origrng.js';
+import { rosterRelationships } from './famous-roster.js';
 
 const FRIENDLY = new Set(['亲属', '夫妻', '朋友', '师徒', '父子', '父女', '母子', '母女', '兄弟', '姐妹', '兄妹', '姐弟', '结义', '君臣', '同僚', '姻亲']);
 const HOSTILE = new Set(['对手', '宿敌']);
+
+export function officerRelationships(data, g) {
+  return g?.campaignRules === true
+    ? [...(data.relationships ?? []), ...(data.campaignRelationships ?? []), ...rosterRelationships(g)]
+    : data.relationships ?? [];
+}
 
 // 专属技能可读取关系本身；招募等通用关系效果仍受独立开关控制。
 export function relationshipAffinity(data, g, a, b) {
   if (a == null || b == null || a === b) return 0;
   let friendly = false, hostile = false;
-  const relations = g.campaignRules === true ? [...(data.relationships ?? []), ...(data.campaignRelationships ?? [])] : data.relationships ?? [];
-  for (const rel of relations) {
+  for (const rel of officerRelationships(data, g)) {
     if (!((rel.from === a && rel.to === b) || (rel.from === b && rel.to === a))) continue;
     friendly ||= FRIENDLY.has(rel.kind); hostile ||= HOSTILE.has(rel.kind);
   }

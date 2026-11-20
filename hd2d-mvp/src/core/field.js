@@ -2,7 +2,7 @@
 // Ported: deployment blocks and AI role sub-lists, movement costs (600-troop split), shared daily
 // mobility, rice per day, 30-day limit, castle capture, commander loss, retreat thresholds, field
 // hospital/rice shop, AI roles 0–4 and battlefield strategies.
-import { data, rng, NONE, DEAD, roads, addExp, takeLevelUps, equipBlock, wearEquip, spared, sparedHp, isRuler, isPass, maxHp, rulerPassive, recruitLoyalty } from './game.js';
+import { data, rng, NONE, DEAD, roads, addExp, takeLevelUps, equipmentStock, equipBlock, wearEquip, spared, sparedHp, isRuler, isPass, maxHp, rulerPassive, recruitLoyalty } from './game.js';
 import { Tactical } from './tactical.js';
 import { roll100, realChance } from './origrng.js';
 import { relationshipAffinity, recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
@@ -375,9 +375,9 @@ export class Field {
   }
   // Field weapon shop (村落 slot 1, `$9BA4`): the battle city's own field stock (`$C525`, not the city
   // shop), paid from the side's war gold; 狼牙枪/圣者之衣 need 武力/人德 90 on this path.
-  shopStock() { return (data().cities[this.war.city].field_shop || []).map((e) => data().equipment[e]); }
+  shopStock() { return equipmentStock(this.g, this.war.city, 'field_shop').map((e) => data().equipment[e]); }
   buyEquip(u, eq) {
-    if (this.village(u)?.kind !== '武器店' || !(data().cities[this.war.city].field_shop || []).includes(eq)) return { ok: false, msg: '此处不卖' };
+    if (this.village(u)?.kind !== '武器店' || !equipmentStock(this.g, this.war.city, 'field_shop').includes(eq)) return { ok: false, msg: '此处不卖' };
     const block = equipBlock(this.g, u.id, eq, { field: true }), e = data().equipment[eq], ch = this.chest(u.side);
     if (block) return { ok: false, msg: `${e.name}：${block}` };
     if (ch.gold < e.price) return { ok: false, msg: '军资金不足' };

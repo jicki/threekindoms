@@ -266,7 +266,7 @@ const SLOT_NAMES = '一二三四五六七八九十';
 const slotName = (n) => n === 'quick' ? '快捷存档' : `记录${SLOT_NAMES[n - 1]}`;
 const STATUS = { [G.SERVING]: '仕官', [G.RONIN]: '在野', [G.UNAPPEARED]: '未登场', [G.DEAD]: '已故' };
 const STATUS_ORDER = [G.SERVING, G.RONIN, G.UNAPPEARED, G.DEAD];
-const WEAPONS = D.equipment.filter((e) => e.kind === 'weapon'), ARMORS = D.equipment.filter((e) => e.kind === 'armor');
+const ARMORS = D.equipment.filter((e) => e.kind === 'armor');
 const icon = (id) => equipmentIconUrl(D.equipment[id]?.icon ?? id);
 const STATS = OFFICER_FIELDS.filter(([k]) => k !== 'weapon' && k !== 'armor');
 const color = (f) => (f == null || f === G.NONE ? '#5a5a66' : G.FACTION_COLORS[f]);
@@ -364,10 +364,12 @@ function statRow(label, lo, hi, get, getBase, set, { disabled = false } = {}) {
 }
 function gearPicker(o) {
   const now = h('div', { class: 'se-gear-now' });
+  const weapons = D.equipment.filter(e => e.kind === 'weapon' && G.equipmentAvailable(g, e));
   const line = (k, label, list, off) => {
     const btns = list.map((e) => {
       const locked = k === 'weapon' && e.id !== o.weapon && e.exclusiveRuler !== undefined;
-      const b = h('button', { class: 'eq', disabled: locked, title: `${e.name}  ${e.kind === 'weapon' ? `攻${e.atk}` : `防${e.dfn}`}  重${e.weight}${locked ? ' · 君主专属武器不可获取或转移' : ''}`, 'aria-label': e.name },
+      const shops = e.regional ? ` · 铁铺 ${e.shops.filter(id => g.cities[id]).map(G.cityName).join('、')}` : '';
+      const b = h('button', { class: 'eq', disabled: locked, title: `${e.name}  ${e.kind === 'weapon' ? `攻${e.atk}` : `防${e.dfn}`}  重${e.weight}${shops}${locked ? ' · 君主专属武器不可获取或转移' : ''}`, 'aria-label': e.name },
         h('img', { src: icon(e.id), alt: '' }));
       b.onclick = async () => {
         const previous = o.weapon;
@@ -382,8 +384,10 @@ function gearPicker(o) {
     return { k, btns, el: h('div', { class: 'se-gear-row' }, h('span', { class: 'k' }, label), btns) };
   };
   // Weapons in the original's three groups of eight (wgrp = id / 8: 剑, 刀, 长兵), then armour.
-  const lines = [line('weapon', '剑', WEAPONS.filter((e) => e.cat === '剑'), 0), line('weapon', '刀', WEAPONS.filter((e) => e.cat === '刀'), 0), line('weapon', '长兵', WEAPONS.filter((e) => e.cat === '枪'), 0),
-    ...['扇', '弓'].flatMap((cat) => { const items = WEAPONS.filter((e) => e.cat === cat); return items.length ? [line('weapon', cat, items, 0)] : []; }), line('armor', '防具', ARMORS, 24)];
+  const lines = [['剑', '剑'], ['刀', '刀'], ['长兵', '枪'], ['扇', '扇'], ['弓', '弓']].flatMap(([label, cat]) => {
+    const items = weapons.filter(e => e.cat === cat);
+    return items.length ? [line('weapon', label, items, 0)] : [];
+  }).concat(line('armor', '防具', ARMORS, 24));
   const paint = () => {
     for (const { k, btns } of lines) for (const b of btns) { b.classList.toggle('on', Number(b.dataset.v) === o[k]); b.classList.toggle('was', Number(b.dataset.v) === base.officers[o.id][k] && o[k] !== base.officers[o.id][k]); }
     const w = D.equipment[o.weapon], a = D.equipment[24 + o.armor];

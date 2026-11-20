@@ -15,6 +15,7 @@ import { counterBonus, SPECIAL_TROOPS } from '../src/core/troop-specialties.js';
 import { defenseCandidates, joinDefense, resolveWar, setupWar, validDefenseSupport } from '../src/core/warcore.js';
 import { peekSuspend, suspend, SUSPEND_VERSION } from '../src/core/suspend.js';
 import { aiTurn } from '../src/core/ai.js';
+import { legacyRoster } from './legacy-roster.mjs';
 
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
 const expanded = expandMap(applyScenario(base, await loadScenario(SOVEREIGN_SCENARIO_ID, base)));
@@ -25,7 +26,7 @@ const war = (ids, guards, city = 34, from = 8) => ({ city, from, attacker: 4, de
 
 test('规则版本隔离旧专属技能，显式升级保留进度，为全部有效人物分配一个被动', () => {
   const g = strategic(), lu = byName('吕布'), zhuge = byName('诸葛亮');
-  const old = structuredClone(g); old.campaignRevision = 1;
+  const old = legacyRoster(structuredClone(g), 1);
   old.year = 196; old.cities[12].gold = 789;
   const legacy = new Tactical(old, lu, 40, 2, () => 0);
   assert.ok(new Duel(legacy.side, () => 0, old).special('a'));
@@ -33,7 +34,7 @@ test('规则版本隔离旧专属技能，显式升级保留进度，为全部�
   assert.equal(G.upgrade(structuredClone(old)).campaignRevision, 1);
   const before = structuredClone(old);
   assert.ok(G.upgradeCampaign(old)); assert.equal(old.campaignRevision, g.campaignRevision);
-  assert.deepEqual(old.cities, before.cities); assert.deepEqual(old.officers, before.officers);
+  assert.deepEqual(old.cities, before.cities); assert.deepEqual(old.officers.slice(0, before.officers.length), before.officers);
   for (const o of expanded.officers.filter(o => o && !o.clone)) assert.ok(officerPassive(expanded, g, o.id), o.name);
   const modern = new Tactical(old, lu, 40, 2, () => 0);
   const duel = new Duel(modern.side, () => 0, old), previous = new Duel(legacy.side, () => 0, before);
@@ -232,7 +233,7 @@ test('电脑出阵时，玩家拒援或筹措军粮失败后由可用的电脑�
 test('联军白兵的俘虏与倒戈按实际参战者归属，恢复后仍可正确指挥和结算', () => {
   const info = (fate) => ({ soldiers: 470, hp: 65, fate });
   const { g, holder, march } = alliedBattle();
-  g.campaignRevision = 2;
+  legacyRoster(g, 2);
   holder(30, 4, [40, 41, 49, 50]);
   const w = setupWar(g, { ...march, ids: [40, 41, 49] });
   assert.ok(joinDefense(g, w, defenseCandidates(g, 4, 0, 13)[0]));

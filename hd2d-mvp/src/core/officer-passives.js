@@ -91,6 +91,7 @@ const GENERAL = ['county', 'farm', 'workshops', 'settlement', 'repair', 'goodwil
 export function revisedOfficerPassive(officer, templates) {
   const entry = SPECIALISTS.get(officer.id);
   if (!officer.clone) {
+    if (officer.famousExtra && officer.regionalPassive) return officer.regionalPassive;
     if (officer.name === '诸葛亮' && officer.id === 109) return templates.kongming;
     if (entry?.name === officer.name) return entry.ability;
   }
@@ -100,5 +101,7 @@ export function revisedOfficerPassive(officer, templates) {
 }
 
 export const developmentBonus = (passive, field) => !passive?.developmentField || passive.developmentField === field ? passive?.development ?? 0 : 0;
+export const charityBonus = (passive, governance) => governance < (passive?.charityBelow ?? Infinity) ? passive?.charity ?? 0 : 0;
+export const discountedCost = (price, percent = 0) => price - Math.floor(price * percent / 100);
 export const strategyBonus = (passive, id) => !passive?.strategyIds || passive.strategyIds.includes(id) ? passive?.strategy ?? 0 : 0;
 export const strategyWard = (passive, id) => !passive?.wardIds || passive.wardIds.includes(id) ? passive?.ward ?? 0 : 0;

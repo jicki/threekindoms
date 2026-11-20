@@ -1,4 +1,7 @@
 // 新装备图标使用固定白名单，旧版本仍可按原有编号引用素材。
+import { REGIONAL_WEAPONS } from './regional-content.js';
+
+const REGIONAL_ICONS = new Set(REGIONAL_WEAPONS.map(({ icon }) => icon));
 export const EQUIPMENT_ICONS = [
   { id: 'b-bow', name: '朱雀弓', kind: 'weapon', file: 'bow' },
   { id: 'b-fan', name: '白羽扇', kind: 'weapon', file: 'fan' },
@@ -12,6 +15,7 @@ export function validEquipmentIcon(value, kind) {
 }
 export function equipmentIconUrl(value) {
   if (Number.isSafeInteger(value) && value >= 0 && value < 32) return `assets/ai/icon/equip/${value}.webp`;
+  if (REGIONAL_ICONS.has(value)) return `assets/regional/${value}.webp`;
   const icon = EQUIPMENT_ICONS.find((item) => item.id === value);
   return icon ? `assets/equipment/${icon.file}.webp` : null;
 }

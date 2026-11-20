@@ -14,6 +14,7 @@ import { Duel } from '../src/core/skirmish.js';
 import { autoSkillBonus } from '../src/core/warcore.js';
 import { startRaid, validRaidRecord } from '../src/core/raids.js';
 import { suspend, peekSuspend, takeSuspend, suspendToken, futureSuspend, dropSuspend, SUSPEND_KEY, SUSPEND_VERSION } from '../src/core/suspend.js';
+import { legacyRoster } from './legacy-roster.mjs';
 
 const base=JSON.parse(readFileSync(new URL('../data/game-data.json',import.meta.url)));
 const D=expandMap(applyScenario(base,await loadScenario(SOVEREIGN_SCENARIO_ID,base)));
@@ -23,7 +24,7 @@ const advisers='诸葛亮 庞统 姜维 法正 荀彧 荀攸 郭嘉 贾诩 司�
 const byName=(n)=>D.officers.find(o=>o?.name===n && !o.clone);
 
 test('指定名单全部存在，名将和名臣有各自专属技能；重复人物不重复配置',()=>{
-  const g=game(); g.campaignRevision=1; assert.equal(g.famousSkills,2); assert.equal(g.famousRoster,1); assert.ok(G.upgrade(structuredClone(g)));
+  const g=legacyRoster(game(),1); assert.equal(g.famousSkills,2); assert.equal(g.famousRoster,1); assert.ok(G.upgrade(structuredClone(g)));
   for(const name of generals) { const o=byName(name); assert.ok(o,`${name}不存在`); assert.ok(abilityDuel(D,g,o.id),`${name}缺少单挑技`); assert.ok(famousLabel(D,g,o.id)); }
   for(const name of advisers) { const o=byName(name); assert.ok(o,`${name}不存在`); assert.equal(abilityStrategyIds(D,g,o.id).length,1,`${name}缺少计策`); assert.ok(famousLabel(D,g,o.id)); }
   assert.equal(generals.filter(n=>n==='周瑜').length,1); assert.equal(advisers.filter(n=>n==='贾诩').length,1);
@@ -62,7 +63,7 @@ test('旧分身编号不被新人物覆盖，预览存档不改变正在进行�
   const descriptor=Object.getOwnPropertyDescriptor(globalThis,'localStorage'), store=new Map();
   Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v)),removeItem:k=>store.delete(k)}});
   try {
-    const current=game(), old=structuredClone(current); delete old.famousRoster; old.famousSkills=true; old.officers.length=262;
+    const current=game(), old=legacyRoster(structuredClone(current)); delete old.famousRoster; old.famousSkills=true; old.officers.length=262;
     old.clones=[262]; old.officers.push({...old.officers[0],id:262,status:G.SERVING}); old.cities[2].officers.push(262);
     assert.ok(G.upgrade(old)); G.registerClones(old); assert.equal(G.name(262),'阿会喃'); assert.equal(G.save(old,1),true); assert.equal(G.saveQuick(old),true);
     G.registerClones(current); assert.equal(G.name(262),'张昭');
@@ -70,7 +71,7 @@ test('旧分身编号不被新人物覆盖，预览存档不改变正在进行�
     const loaded=G.load(1); assert.ok(loaded); assert.equal(G.name(262),'阿会喃');
     G.registerClones(current); assert.equal(G.name(262),'张昭'); assert.ok(G.saveQuick(current));
     G.registerClones(old); const preview=G.loadQuick({preview:true}); assert.ok(preview); assert.equal(G.name(262),'阿会喃');
-    const resumed=G.loadQuick(); assert.equal(resumed.famousRoster,1); assert.equal(G.name(262),'张昭');
+    const resumed=G.loadQuick(); assert.equal(resumed.famousRoster,3); assert.equal(G.name(262),'张昭');
   } finally {if(descriptor)Object.defineProperty(globalThis,'localStorage',descriptor);else delete globalThis.localStorage;}
 });
 
@@ -78,7 +79,7 @@ test('旧袭城中断与新人物编号重叠时仍可预览、恢复和识别�
   const descriptor=Object.getOwnPropertyDescriptor(globalThis,'localStorage'), store=new Map();
   Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v)),removeItem:k=>store.delete(k)}});
   try {
-    const current=game(), old=structuredClone(current); delete old.famousRoster; old.famousSkills=true; old.officers.length=262; G.registerClones(old);
+    const current=game(), old=legacyRoster(structuredClone(current)); delete old.famousRoster; old.famousSkills=true; old.officers.length=262; G.registerClones(old);
     const w=startRaid(old,{city:2,faction:4,kind:'bandit',troops:300}); const f=new Field(old,w,'def');
     assert.equal(w.att.ids[0],262); assert.equal(suspend(old,w,f,{side:'def',start:{},after:{kind:'raid'}}),true);
     G.registerClones(current); assert.equal(G.name(262),'张昭');
@@ -117,7 +118,7 @@ test('战役升级保留已有进度和开关，并启用新增人物、计策�
     assert.equal(g[k], before[k], k);
   }
   assert.equal(g.famousSkills, 2);
-  assert.equal(g.famousRoster, 1);
+  assert.equal(g.famousRoster, 3);
   assert.equal(g.battlefields, 2);
   assert.equal(g.siegeTactics, true);
   assert.equal(g.autoBattleSkills, true);
@@ -143,15 +144,15 @@ test('升级时顺延旧档分身，城市名册、君主、衰亡势力及寻�
   g.factions[0].fallen = second;
   g.visits = { [first]: 1, [second]: 2, 38: 1 };
   assert.ok(G.upgradeCampaign(g));
-  assert.deepEqual(g.clones, [265, 266]);
+  assert.deepEqual(g.clones, [284, 285]);
   assert.equal(G.name(262), '张昭');
-  assert.equal(G.name(265), '阿会喃');
-  assert.equal(g.officers[265].soldiers, 325);
-  assert.equal(g.officers[266].status, G.DEAD);
-  assert.equal(G.officerCity(g, 265).id, city.id);
-  assert.equal(g.factions[g.player].ruler, 265);
-  assert.equal(g.factions[0].fallen, 266);
-  assert.deepEqual(g.visits, { 265: 1, 266: 2, 38: 1 });
+  assert.equal(G.name(284), '阿会喃');
+  assert.equal(g.officers[284].soldiers, 325);
+  assert.equal(g.officers[285].status, G.DEAD);
+  assert.equal(G.officerCity(g, 284).id, city.id);
+  assert.equal(g.factions[g.player].ruler, 284);
+  assert.equal(g.factions[0].fallen, 285);
+  assert.deepEqual(g.visits, { 284: 1, 285: 2, 38: 1 });
 });
 
 test('无法确认身份的动态武将会退出升级，原记录和其他版本仍能按原规则读取', () => {

@@ -8,6 +8,7 @@ import { applyScenario, validateScenario } from '../src/core/scenario.js';
 import { loadScenario } from '../src/core/scenario-store.js';
 import { EXPANDED_MAP_ID, expandMap } from '../src/core/expanded-map.js';
 import { FAMOUS_TROOPS, SPECIAL_TROOPS, officerMainTroop, officerSpecialty, officerSquadLimit, officerSquads, officerTroopLabel, officerTroopType } from '../src/core/troop-specialties.js';
+import { legacyRoster } from './legacy-roster.mjs';
 
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
 const scenario = await loadScenario('builtin-sovereigns', base);
@@ -54,7 +55,7 @@ test('主兵种从修订 4 启用，显式升级可保留兵力、等级及已�
   try {
     const game = G.newGame(4, 1, 7);
     Object.assign(game.officers[hero], { level: 6, soldiers: 1000 });
-    const rev4 = { ...structuredClone(game), campaignRevision: 4 }, legacy = { ...structuredClone(game), campaignRevision: 3 };
+    const rev4 = legacyRoster(structuredClone(game), 4), legacy = legacyRoster(structuredClone(game), 3);
     assert.deepEqual(G.upgrade(structuredClone(legacy)), legacy);
     assert.equal(officerMainTroop(scenarioData, legacy, hero), null);
     assert.equal(officerMainTroop(scenarioData, rev4, regular), null);
@@ -77,7 +78,7 @@ test('君主列传为全体在籍人物配置兵种，修订 4 和 5 的旧编�
   G.setData(scenarioData, EXPANDED_MAP_ID);
   try {
     const game = G.newGame(4, 1, 8), regular = id('吕范'), spear = id('苏飞');
-    const previous = { ...structuredClone(game), campaignRevision: 4 };
+    const previous = legacyRoster(structuredClone(game), 4);
     assert.equal(officerTroopLabel(scenarioData, game, regular), '步兵');
     assert.equal(officerTroopType(scenarioData, game, regular), 'infantry');
     assert.equal(officerSpecialty(scenarioData, game, regular).name, '普通步兵');
@@ -90,7 +91,7 @@ test('君主列传为全体在籍人物配置兵种，修订 4 和 5 的旧编�
     assert.ok(officerSquads(scenarioData, previous, regular, false).every(u => !u.primary));
     const squads = officerSquads(scenarioData, game, regular, false);
     assert.equal(squads.filter(u => u.primary && u.special === SPECIAL_TROOPS.infantry.sprite).length, 6);
-    const rev5 = G.upgrade({ ...structuredClone(game), campaignRevision: 5 });
+    const rev5 = G.upgrade(legacyRoster(structuredClone(game), 5));
     assert.equal(officerSquads(scenarioData, rev5, regular, true).filter(u => u.primary).length, 4);
     assert.ok(G.upgradeCampaign(rev5));
     assert.equal(officerSquads(scenarioData, rev5, regular, true).filter(u => u.primary).length, 2);

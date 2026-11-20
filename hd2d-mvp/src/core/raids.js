@@ -1,6 +1,6 @@
 // 特殊守城不创建可占城的势力；临时敌将只存在于战斗和中断记录中。
 import { data, rng, NONE, SERVING, RONIN, DEAD, maxHp, toRonin, isPass } from './game.js';
-import { hasFamousRoster, staticRosterSize } from './famous-roster.js';
+import { recordExtra, staticRosterSize } from './famous-roster.js';
 
 // 以游戏的州郡范围划分近海，河流或洪水名单不能作为海岸判断。
 export const COASTAL_CITIES = Object.freeze([0, 3, 10, 16, 17, 18, 38]);
@@ -48,7 +48,7 @@ export function validRaidRecord(g, war) {
     || (g.clones ?? []).some((id) => ids.includes(id))) return false;
   const D = data(), minimum = staticRosterSize(D,g);
   return raid.first >= minimum && ids.every((id, i) => id === raid.first + i && g.officers[id]?.id === id && g.officers[id]?.raidEnemy === true
-    && (!D.officers[id] || D.officers[id].clone || (D.officers[id].famousExtra && !hasFamousRoster(g))));
+    && (!D.officers[id] || D.officers[id].clone || (D.officers[id].famousExtra && !recordExtra(g, id))));
 }
 
 export function registerRaidTemplates(g, war) {
