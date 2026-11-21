@@ -34,7 +34,7 @@ export function makeInteract(wv) {
   function hud() {
     const mine = human || 'att', foe = mine === 'att' ? 'def' : 'att';
     ui.warHud({
-      day: field.day, max: MAX_DAY, myTurn: field.turn === human, deploying: st.deploying, canUndo: !!st.last, city: cityName(field.war.city),
+      day: field.day, max: MAX_DAY, myTurn: field.turn === human, deploying: st.deploying, deploymentZone, canUndo: !!st.last, city: cityName(field.war.city),
       me: { name: sideLabel(mine), pool: field.pool[mine], rice: field.chest(mine).rice, gold: field.chest(mine).gold, troops: field.troops(mine), role: mine === 'att' ? '攻' : '守' },
       foe: { name: sideLabel(foe), pool: field.pool[foe], rice: field.chest(foe).rice, troops: field.troops(foe) },
     });
@@ -119,18 +119,33 @@ export function makeInteract(wv) {
   const castable = (u, id) => id === 11 ? field.canCast(u, 11, null) : field.side(u.side === 'att' ? 'def' : 'att').some((e) => field.canCast(u, id, e));
 
   const zones = human ? field.deploymentZones(human) : [];
-  const deployCells = zones.flatMap(({ cells, rect: [x0, x1, y0, y1] }) => {
+  let deploymentZone = human === 'att' && field.dep.grouped ? 0 : null;
+  const cellsByZone = zones.map(({ cells, rect: [x0, x1, y0, y1] }) => {
     if (cells) return cells;
     const result = [];
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) result.push([x, y]);
     return result;
   });
-  const deployKeys = new Set(deployCells.map(([x, y]) => `${x},${y}`));
+  const deployCells = () => deploymentZone == null ? cellsByZone.flat() : cellsByZone[deploymentZone];
+  let deployKeys = new Set(deployCells().map(([x, y]) => `${x},${y}`));
   const inRect = (x, y) => deployKeys.has(`${x},${y}`);
   function showDeploy() {
     clearMarks();
-    for (const [x, y] of deployCells) if (field.deployable(x, y) && !field.unitAt(x, y)) mark(x, y, 'deploy');
+    for (const [x, y] of deployCells()) if (field.deployable(x, y) && !field.unitAt(x, y)) mark(x, y, 'deploy');
     ui.warUnit(st.sel ? { u: st.sel, o: field.O(st.sel.id), mine: true, deploying: true, strategies: [] } : null);
+  }
+  function switchDeployment(index) {
+    if (!st.deploying || deploymentZone == null || !zones[index]) return false;
+    if (deploymentZone === index) return true;
+    const units = field.side(human);
+    const cells = cellsByZone[index].filter(([x, y]) => field.deployable(x, y) && !field.unitAt(x, y));
+    if (cells.length < units.length) return false;
+    deploymentZone = index;
+    deployKeys = new Set(deployCells().map(([x, y]) => `${x},${y}`));
+    units.forEach((u, i) => { [u.x, u.y] = cells[i]; wv.place(u); });
+    showDeploy();
+    hud();
+    return true;
   }
   function deployClick(x, y) {
     const u = field.unitAt(x, y);
@@ -350,5 +365,5 @@ export function makeInteract(wv) {
 
   wv.done = undefined;
   const finished = new Promise((res) => (wv.done = res));
-  return { st, hud, sideLabel, syncCompare, compareTarget, showOptions, select, attackTargets, attackRows, strikeInfo, confirmInfo, castTargets, hot, attackable, castable, recastOf, lastCast, inRect, showDeploy, deployClick, finishDeploy, clickCell, openAttacks, askAttack, commitAttack, setCastCount, cancel, openStrategies, chooseStrategy, recast, refuse, askCast, commitCast, undo, retreat, hold, shop, service, finished };
+  return { st, hud, sideLabel, syncCompare, compareTarget, showOptions, select, attackTargets, attackRows, strikeInfo, confirmInfo, castTargets, hot, attackable, castable, recastOf, lastCast, inRect, showDeploy, deployClick, switchDeployment, finishDeploy, clickCell, openAttacks, askAttack, commitAttack, setCastCount, cancel, openStrategies, chooseStrategy, recast, refuse, askCast, commitCast, undo, retreat, hold, shop, service, finished };
 }

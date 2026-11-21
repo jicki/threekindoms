@@ -4,7 +4,7 @@ import { APPROACH_CAMPAIGN_REVISION, APPROACH_SIEGE_REVISION, extendBattleApproa
 import {
   FIRST_REGIONAL_BATTLE_REVISION, FIRST_REGIONAL_LAYOUT_REVISION, EXPANDED_WARDS_BATTLE_REVISION, EXPANDED_WARDS_LAYOUT_REVISION,
   ALIGNED_APPROACH_BATTLE_REVISION, ALIGNED_APPROACH_LAYOUT_REVISION,
-  REGIONAL_BATTLE_REVISION, REGIONAL_LAYOUT_REVISION, regionalBattlefield,
+  CORNER_BATTLE_REVISION, CORNER_LAYOUT_REVISION, REGIONAL_BATTLE_REVISION, REGIONAL_LAYOUT_REVISION, regionalBattlefield,
 } from './regional-battlefields.js';
 
 // 君主列传新开局的战场配置。原版和没有 battlefields 标记的旧记录仍使用导出数据。
@@ -124,6 +124,7 @@ export function battlefieldLayout(data, g, city, from) {
 export function resolveBattlefield(data, g, city, from, revision) {
   const regional = g.battlefields === 2 && g.campaignRevision >= FIRST_REGIONAL_BATTLE_REVISION;
   const regionalRevision = g.campaignRevision >= REGIONAL_BATTLE_REVISION ? REGIONAL_LAYOUT_REVISION
+    : g.campaignRevision >= CORNER_BATTLE_REVISION ? CORNER_LAYOUT_REVISION
     : g.campaignRevision >= ALIGNED_APPROACH_BATTLE_REVISION ? ALIGNED_APPROACH_LAYOUT_REVISION
     : g.campaignRevision >= EXPANDED_WARDS_BATTLE_REVISION ? EXPANDED_WARDS_LAYOUT_REVISION : FIRST_REGIONAL_LAYOUT_REVISION;
   const selectedRegional = revision ?? regionalRevision;

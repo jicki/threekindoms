@@ -28,8 +28,8 @@ import { createWarView } from './warview.js';
 import { createWarNav } from './warnav.js';
 import { loadWarGround } from './warplate.js';
 import { FLAT_INSET } from './warmap2d.js';
-import { PHONE, ANDROID_TABLET, hint } from './phone.js';
-import { REGIONAL_LAYOUT_REVISION } from './core/regional-battlefields.js';
+import { PHONE, ANDROID_TABLET, TOUCH_BATTLE, hint } from './phone.js';
+import { CORNER_LAYOUT_REVISION } from './core/regional-battlefields.js';
 import { unitCard } from './warcard.js';
 import * as G from './core/game.js';
 import { NONE } from './core/game.js';
@@ -608,12 +608,15 @@ function showTip(hit, e) {
 // menu and the unit cards (near the right edge the tip used to squeeze into a column over the 计略 buttons).
 function placeTip(tip, e) {
   const w = tip.offsetWidth, ht = tip.offsetHeight, vw = innerWidth, vh = innerHeight;
-  const keep = [...document.querySelectorAll('.unitacts, .unitpanel')].map((el) => el.getBoundingClientRect());
+  const keep = [...document.querySelectorAll('.unitacts, .unitpanel, .warzoom')].map((el) => el.getBoundingClientRect());
   const spots = [[e.clientX + 16, e.clientY + 12], [e.clientX - 16 - w, e.clientY + 12], [e.clientX + 16, e.clientY - 12 - ht], [e.clientX - 16 - w, e.clientY - 12 - ht]];
   const fits = ([x, y]) => x >= 4 && y >= 4 && x + w <= vw - 4 && y + ht <= vh - 4;
   const clear = ([x, y]) => keep.every((r) => x + w <= r.left || x >= r.right || y + ht <= r.top || y >= r.bottom);
   const [x, y] = spots.find((p) => fits(p) && clear(p)) ?? spots.find(fits) ?? spots[0];
-  tip.style.left = `${Math.max(4, Math.min(x, vw - w - 4))}px`; tip.style.top = `${Math.max(4, Math.min(y, vh - ht - 4))}px`;
+  const left = Math.max(4, Math.min(x, vw - w - 4)), top = Math.max(4, Math.min(y, vh - ht - 4));
+  const zoom = $('.warzoom')?.getBoundingClientRect();
+  if (zoom && left + w > zoom.left && left < zoom.right && top + ht > zoom.top && top < zoom.bottom) { tip.hidden = true; return; }
+  tip.style.left = `${left}px`; tip.style.top = `${top}px`;
 }
 canvas.addEventListener('pointerup', (e) => {
   if (!drag || e.pointerId !== drag.id) return;
@@ -621,7 +624,7 @@ canvas.addEventListener('pointerup', (e) => {
   // A release over a dialog that opened mid-press is not a click on the field beneath it.
   if (drag.b === 0 && drag.moved <= SLOP(drag) && !dialogOpen() && document.elementFromPoint(e.clientX, e.clientY) === canvas) mode?.click?.(ndc(e), e);
   // A right click on the war map backs out (the 攻击 prompt, a 计略 target choice), as Esc does.
-  if (drag.b === 2 && drag.moved <= SLOP(drag) && mode === war && !dialogOpen()) war.cancel?.();
+  if (drag.b === 2 && drag.moved <= SLOP(drag) && mode === war && !dialogOpen() && !war.dismissOverview()) war.cancel?.();
   endDrag();
 });
 // A double click on a general's card brings him to the middle of the picture, at the step it has (第 2 期): the camera only. Not a
@@ -632,12 +635,34 @@ document.addEventListener('dblclick', (e) => {
   const u = card.classList.contains('compare') ? war.st.peek : war.st.sel;
   if (u && !u.gone) war.centreOn?.(u.x, u.y);
 });
+const preciseWheelAt = new WeakMap();
 addEventListener('wheel', (e) => {
   if (!onBoard(e) || dialogOpen()) return;
   e.preventDefault();
   const scale = e.deltaMode === 1 ? 32 : e.deltaMode === 2 ? innerHeight : 1;
+  const at = performance.now();
+  if (war && mode === war && e.deltaY && (e.ctrlKey || (e.deltaMode === 0
+    && (Math.abs(e.deltaY) < 50 || at - (preciseWheelAt.get(war) ?? -Infinity) < 140)))) {
+    if (!e.ctrlKey) preciseWheelAt.set(war, at);
+    war.zoomGesture(e.deltaY * scale * (e.ctrlKey ? 2 : 1), ndc(e));
+    return;
+  }
   mode?.zoom?.(e.deltaY * scale, ndc(e));
 }, { passive: false });
+// Safari 桌面用 GestureEvent 上报触控板捏合。iOS 仍走现有的双指 PointerEvent。
+let trackpadPinch = null;
+addEventListener('gesturestart', (e) => {
+  if (TOUCH_BATTLE || !war || mode !== war || !onBoard(e) || dialogOpen()) return;
+  e.preventDefault(); trackpadPinch = { war, scale: 1 };
+}, { passive: false });
+addEventListener('gesturechange', (e) => {
+  if (!trackpadPinch || trackpadPinch.war !== mode || dialogOpen() || !Number.isFinite(e.scale) || e.scale <= 0) return;
+  e.preventDefault();
+  const at = Number.isFinite(e.clientX) ? ndc(e) : new THREE.Vector2();
+  war.zoomGesture(-Math.log(e.scale / trackpadPinch.scale) / 0.003, at);
+  trackpadPinch.scale = e.scale;
+}, { passive: false });
+for (const event of ['gestureend', 'blur']) addEventListener(event, () => { trackpadPinch = null; });
 // WASD pans while held, scaled by frame time in the loop (key repeat stepped the view in jerks).
 const held = new Set();
 addEventListener('keyup', (e) => held.delete(keyName(e)));
@@ -746,7 +771,10 @@ addEventListener('keydown', (e) => {
     // Enter ends the day on a new press only: not one held through the 白兵's report or the enemy's turn (D32 §9.3, S09).
     else if (freshInput(e) && !e.target.closest?.('.warzoom')) war.endTurn();
   }
-  if (mode === war && k === 'escape') war.cancel?.();
+  if (mode === war && k === 'escape') {
+    if (war.overviewActive()) { if (!e.repeat) war.dismissOverview(); e.preventDefault(); return; }
+    if (!e.repeat) war.cancel?.();
+  }
   // 1–5: a group of the city's commands. Not while a command is being carried out (its map pick and windows have no
   // shade), under any window or the 系统 menu, nor again and again from a held key.
   if (mode === strategy && document.body.dataset.screen === 'strategy' && /^[1-5]$/.test(k) && $('.dock') && !e.repeat && !busy && !layer().lastElementChild && !$('.sysmenu-list:not([hidden])')) commandDock.toggle?.(Object.keys(TABS)[Number(k) - 1], { focus: true });
@@ -1111,6 +1139,7 @@ function mapConfirm() {
     if (cid === sel && !mapPick && $('.citypanel')) { const list = tabOpen && $('.dock .acts'), b = (list && firstIn(list)) || firstIn($('.dock .tabs') ?? $('.citypanel')); /* no dock in another's turn, though the list was open */ if (b) { $('#tip').hidden = true; b.focus(); } return; }
     onCity(cid); return;
   }
+  if (mode === war && war.dismissOverview()) return;
   const c = cur.cell; if (!c || !war) return cursorShow();
   const st = war.st, s = st.sel;
   // A second press on the general in hand goes into his commands (计略, 退却, the village's shop or clinic).
@@ -3050,7 +3079,7 @@ function flatInfo() {
   const pinned = warView.value === 'flat', next3d = !nextWarFlat();
   return modal('平面战场', (close) => [
     h('p', {}, pinned ? '「☰ 系统 → 战场」设为「平面」，战场使用平面画面。' : '画质为「低」且「战场」为「随画质」时使用平面画面。'),
-    war?.field.siege?.revision >= REGIONAL_LAYOUT_REVISION ? h('p', {}, '可拖动地图，用滚轮、双指或「＋ / −」调整远近，也可点「全图」。') : null,
+    war?.field.siege?.revision >= CORNER_LAYOUT_REVISION ? h('p', {}, '可拖动地图，用滚轮、双指或「＋ / −」调整远近。查看全图后，点地图或按 Esc 返回。') : null,
     h('p', { html: next3d ? '<b>下一场战争起</b>为3D战场；本场保持平面，进度不受影响。'
       : '「战场」改为「3D」后，<b>下一场战争起</b>为可旋转、缩放的3D战场，战略地图仍随画质；本场保持平面，进度不受影响。' }),
     h('div', { class: 'foot' },
@@ -3242,15 +3271,22 @@ function equipShop(id, stock, { gold, purse, block, title = '武器屋' }) {
 const TURN_ICON = (dir) => `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" style="display:block${dir > 0 ? ';transform:scaleX(-1)' : ''}"><path d="M5.5 9.5A7.5 7.5 0 1 1 6 16.8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M3 4.5 5.5 10l5.6-1.9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 function warUi(field) {
   const human = field.human;
-  const localOpening = field.siege?.revision >= REGIONAL_LAYOUT_REVISION;
+  const localOpening = field.siege?.revision >= CORNER_LAYOUT_REVISION;
   return {
     log: (x) => { const box = $('.logbox'); if (box) box.prepend(h('p', { html: x })); if (PHONE) toast(x, 2400); },
+    warOverview(on) { $('.warzoom .overview')?.setAttribute('aria-pressed', String(on)); $('#tip').hidden = true; },
     warHud(s) {
       $('.warbar')?.remove();
       $('.war-zones')?.remove();
       const zones = s.deploying && human ? field.deploymentZones(human) : [];
-      if (zones.length > 1) root().append(h('div', { class: 'panel war-zones', role: 'group', 'aria-label': '布阵区' },
-        ...zones.map(zone => h('button', { class: 'btn', onclick: () => war?.centreOn?.(...zone.anchor) }, zone.name))));
+      if (zones.length > 1) root().append(h('div', { class: 'panel war-zones', role: 'group', 'aria-label': s.deploymentZone == null ? '布阵区' : '全军集结地' },
+        ...zones.map((zone, index) => h('button', { class: 'btn', 'data-zone': index,
+          ...(s.deploymentZone == null ? {} : { 'aria-pressed': String(s.deploymentZone === index), title: '全军移至' + zone.name }),
+          onclick: (e) => {
+            war?.dismissOverview();
+            if (s.deploymentZone == null || war?.switchDeployment(index)) war?.centreOn?.(...zone.anchor);
+            if (e.detail === 0) $(`.war-zones [data-zone="${index}"]`)?.focus();
+          } }, zone.name))));
       root().prepend(h('div', { class: 'panel warbar' },
         h('span', { class: 'day', title: `战场：${field.sceneProfile?.label ?? s.city}${field.weather === 'rain' ? ' · 雨天林河行军较慢，削弱火计，增强水计' : field.weather === 'snow' ? ' · 雪天行军较慢，白兵骑兵减少一次行动' : ''}` }, `${s.city}之战　第${s.day}日/${s.max}${field.weather ? ` · ${WEATHER_NAMES[field.weather]}` : ''}`),
         h('span', { class: `turn ${s.deploying ? 'deploy' : s.myTurn ? 'mine' : 'theirs'}` }, s.deploying ? '布阵中' : s.myTurn ? '我军行动' : '敌军行动'),
@@ -3279,8 +3315,8 @@ function warUi(field) {
       if (localOpening) root().append(h('div', { class: 'panel warzoom', role: 'group', 'aria-label': '战场缩放' },
         h('button', { class: 'btn icon', 'aria-label': '缩小战场', title: '缩小战场（−）', onclick: () => war?.zoom(260) }, '−'),
         h('button', { class: 'btn icon', 'aria-label': '放大战场', title: '放大战场（＋）', onclick: () => war?.zoom(-260) }, '＋'),
-        h('button', { class: 'btn', 'aria-label': '战场全图', title: '查看全图，按 C 返回默认视角',
-          onclick: () => war?.tactical ? war.tactical(true) : war?.overview() }, '全图')));
+        h('button', { class: 'btn overview', 'aria-label': '战场全图', 'aria-pressed': String(war?.field === field && war.overviewActive()),
+          title: '查看全图，按 Esc 或点击地图返回原视角', onclick: () => war?.toggleOverview() }, '全图')));
     },
     // two of these make a 计略 when the picture is off: each takes half the original's 3.48 s less the wrap-up
     stratBanner: (n) => banner(n, '#c070ff', paced(ORIGINAL.strategyCast)),

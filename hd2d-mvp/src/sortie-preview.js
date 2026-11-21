@@ -105,8 +105,10 @@ export function sortiePreview(data, g, from, to) {
   } }, '查看战场布阵');
   return h('section', { class: 'sortie-preview', 'aria-label': '出阵预览' }, h('div', { class: 'sortie-head' }, h('strong', {}, route), toggle),
     h('p', { class: 'hint' }, [field.approaches?.geography ?? field.profile?.label,
-      zones[0]?.corner ? [ '城外四角布阵', direction && `主将从${DIRECTIONS[direction]}侧来路入场` ].filter(Boolean).join(' · ')
-        : regional && zones.length > 1 ? '两处登陆' : direction && `从${DIRECTIONS[direction]}面入场`,
+      zones[0]?.corner ? (field.dep.grouped ? `城外四角布阵 · 全军默认在${zones[0].name}会合`
+        : `城外四角布阵${direction ? ' · 主将从' + DIRECTIONS[direction] + '侧来路入场' : ''}`)
+        : regional && zones.length > 1 ? (field.dep.grouped ? '两处登陆点可选 · 全军同处登陆' : '两处登陆')
+          : direction && `从${DIRECTIONS[direction]}面入场`,
       weather, fortress, moat].filter(Boolean).join(' · ')),
     intel ? h('p', { class: 'hint' }, intel) : null, detail);
 }

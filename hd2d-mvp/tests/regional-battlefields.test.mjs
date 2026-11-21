@@ -9,7 +9,7 @@ import { SOVEREIGN_SCENARIO_ID } from '../src/core/visuals.js';
 import { EXPANDED_MAP_ID, expandMap } from '../src/core/expanded-map.js';
 import {
   FIRST_REGIONAL_BATTLE_REVISION, FIRST_REGIONAL_LAYOUT_REVISION, EXPANDED_WARDS_BATTLE_REVISION, EXPANDED_WARDS_LAYOUT_REVISION,
-  ALIGNED_APPROACH_BATTLE_REVISION, ALIGNED_APPROACH_LAYOUT_REVISION,
+  ALIGNED_APPROACH_BATTLE_REVISION, ALIGNED_APPROACH_LAYOUT_REVISION, CORNER_BATTLE_REVISION, CORNER_LAYOUT_REVISION,
   REGIONAL_BATTLE_REVISION, REGIONAL_LAYOUT_REVISION,
 } from '../src/core/regional-battlefields.js';
 import { skirmishMap } from '../src/core/skirmish-maps.js';
@@ -68,16 +68,18 @@ test('39 处地图、146 条来路的布阵和官道均遵守实际通行，设�
         const outer = siege.gates.filter(g => g.ring === siege.outer);
         const extents = [Math.min(...siege.walls.map(w => w.x)), Math.max(...siege.walls.map(w => w.x)),
           Math.min(...siege.walls.map(w => w.y)), Math.max(...siege.walls.map(w => w.y))];
-        assert.ok(z.every(zone => zone.cells.length >= 9 && zone.cells.every(([x,y]) =>
+        assert.ok(z.every(zone => zone.cells.length >= 10 && zone.cells.every(([x,y]) =>
           Math.max(extents[0] - x, x - extents[1], extents[2] - y, y - extents[3]) >= 5
           && outer.every(g => step([x,y],[g.x,g.y]) >= 5))), title);
-        assert.equal(f.side('att').slice(0, 4).filter((o, i) => z[i].cells.some(p => key(...p) === keyOf(o))).length, 4, title);
+        const [dx, dy] = { n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0] }[f.entryDirection];
+        assert.ok((z[0].anchor[0] - siege.cx) * dx + (z[0].anchor[1] - siege.cy) * dy > 0, title);
       } else if (z.length > 1) {
         beaches++;
         assert.equal(z.length, 2, title);
         assert.ok(step(z[0].anchor, z[1].anchor) >= 14, title);
-        assert.ok(z.every(zone => f.side('att').some(o => zone.cells.some(p => key(...p) === keyOf(o)))), title);
+        assert.ok(z.every(zone => zone.cells.length >= 10), title);
       }
+      assert.ok(f.side('att').every(o => z[0].cells.some(p => key(...p) === keyOf(o))), title);
       const entrances = routes.filter(route => route.goal.kind !== 'camp');
       assert.ok(new Set(entrances.map(r => keyOf(r.goal))).size >= (siege.type === 'capital' ? 3 : 2), title);
       if (siege.camp) f.campSecured = true;
@@ -129,7 +131,34 @@ test('39 处地图、146 条来路的布阵和官道均遵守实际通行，设�
   assert.equal(layouts.size, 39);
   assert.equal(entries, 146);
   assert.equal(beaches, 2, '建安和夷洲的双向海路均可分两处登陆');
-  assert.equal(layoutsWithCorners, 134, '有四角旱地的陆路城战均可分角布阵');
+  assert.equal(layoutsWithCorners, 134, '有四角旱地的陆路城战均支持满编整队选角');
+});
+
+test('修订 9 中断战斗保留既有分散站位与通路，战役升级后新战采用整队集结', () => {
+  const g = { ...fresh(), campaignRevision: CORNER_BATTLE_REVISION }, w = war(2, 5);
+  const legacy = new Field(g, w, 'att');
+  assert.equal(legacy.siege.revision, CORNER_LAYOUT_REVISION);
+  assert.ok(legacy.dep.attackerZones.every(zone => legacy.side('att').some(o => zone.cells.some(p => key(...p) === keyOf(o)))));
+  const newest = fresh(), resumed = Field.restore(newest, w, legacy.snapshot());
+  assert.equal(resumed.siege.revision, CORNER_LAYOUT_REVISION);
+  assert.deepEqual(resumed.units, legacy.units);
+  assert.deepEqual(resumed.dep, legacy.dep);
+  assert.deepEqual(resumed.approaches, legacy.approaches);
+  assert.deepEqual(resumed.map, legacy.map);
+  assert.equal(new Field(newest, w, 'att').dep.grouped, true);
+});
+
+test('建业进攻徐州时，优先从进攻一侧能更快抵达外门的角区出发', () => {
+  const city = D.cities.find(c => c.name === '徐州'), from = D.cities.find(c => c.name === '建业');
+  const f = new Field(fresh(), war(city.id, from.id, 1), 'att'), [u] = f.side('att');
+  const [defaultZone, alternative] = f.deploymentZones('att');
+  Object.assign(f.O(u.id), { soldiers: 700, army: '平' });
+  f.side('def')[0].gone = true; f.weather = 'clear';
+  const cost = ([x, y]) => {
+    const { dist } = f.reach({ ...u, x, y }, Infinity);
+    return Math.min(...f.siege.gates.filter(g => g.ring === f.siege.outer).map(g => dist.get(keyOf(g)) ?? Infinity));
+  };
+  assert.ok(cost(defaultZone.anchor) + 10 < cost(alternative.anchor));
 });
 
 test('兖州在城外三个新址可行军到达并使用米店、武器店和医馆', () => {

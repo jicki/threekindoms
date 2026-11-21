@@ -22,17 +22,17 @@ async function deploy(page, city, from, human = 'att', revision = null) {
   } finally { stop(); }
 }
 
-test('手机触控可切换两个登陆区并跨区布阵，深海不可放置或行军', { timeout: 120000 }, async () => {
+test('手机触控可整队改换登陆点，深海不可放置或行军', { timeout: 120000 }, async () => {
   const game = await startGame({ scenario, width: 844, height: 390, touch: true });
   try {
     const page = await game.open('&phone&flat');
     await deploy(page, 38, 17);
     await page.getByRole('button', { name: '战场全图' }).tap();
-    const zones = page.getByRole('group', { name: '布阵区' });
+    const zones = page.getByRole('group', { name: '全军集结地' });
     assert.deepEqual(await zones.getByRole('button').allTextContents(), ['主登陆滩', '侧翼小湾']);
     const points = await page.evaluate(() => {
       const w = window.__game.war, f = w.field, u = w.st.sel;
-      const land = f.deploymentZones('att')[1].cells.find(([x, y]) => !f.unitAt(x, y));
+      const land = f.deploymentZones('att')[1].cells.at(-1);
       const sea = land && [...f.approaches.barriers].filter(([, kind]) => kind === '深海')
         .map(([k]) => k.split(',').map(Number)).sort((a,b) => (Math.abs(a[0] - land[0]) + Math.abs(a[1] - land[1]))
           - (Math.abs(b[0] - land[0]) + Math.abs(b[1] - land[1])))[0];
@@ -50,6 +50,11 @@ test('手机触控可切换两个登陆区并跨区布阵，深海不可放置�
     assert.equal(points.visible, true, '全图取景能看到两个登陆区');
     assert.ok(points.nearWater[1] > points.deepWater[1] + 12, '平面版岸边比外海明亮');
     await zones.getByRole('button', { name: '侧翼小湾' }).tap();
+    assert.equal(await zones.getByRole('button', { name: '侧翼小湾' }).getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.evaluate(() => {
+      const f = window.__game.war.field, z = f.deploymentZones('att')[1];
+      return f.side('att').every(u => z.cells.some(([x,y]) => u.x === x && u.y === y));
+    }), true);
     const tap = async ([x, y]) => {
       const at = await page.evaluate(([x, y]) => window.__game.war.screenOf(x, y), [x, y]);
       assert.ok(at.x > 0 && at.x < 844 && at.y > 0 && at.y < 390);
@@ -59,8 +64,10 @@ test('手机触控可切换两个登陆区并跨区布阵，深海不可放置�
       const u = window.__game.war.field.side('att').find(u => u.id === id);
       return [u.x, u.y];
     }, points.who);
+    const switched = await position();
+    assert.notDeepEqual(switched, points.start);
     await tap(points.sea);
-    assert.deepEqual(await position(), points.start);
+    assert.deepEqual(await position(), switched);
     await tap(points.land);
     assert.deepEqual(await position(), points.land);
     await page.getByRole('button', { name: '布阵完成' }).tap();
@@ -327,13 +334,16 @@ test('桌面夷洲的两个登陆按钮均可点击，避开系统菜单', { tim
         ripple: sea.material.map.image.naturalWidth, sprites: !!w.scene.children.find(mesh => mesh.userData.woods)?.count };
     });
     assert.deepEqual(depthColor, { variation: true, ripple: 384, sprites: true });
-    const zones = page.getByRole('group', { name: '布阵区' }), system = page.locator('.sysmenu-btn');
+    const zones = page.getByRole('group', { name: '全军集结地' }), system = page.locator('.sysmenu-btn');
     for (const [width, height] of [[1366, 850], [960, 600]]) {
       await page.setViewportSize({ width, height });
       const frame = await system.boundingBox(), group = await zones.boundingBox();
       assert.ok(group.y >= frame.y + frame.height && group.y + group.height < height);
-      await zones.getByRole('button', { name: '侧翼小湾' }).click();
-      await zones.getByRole('button', { name: '主登陆滩' }).click();
+      for (const name of ['侧翼小湾', '主登陆滩']) {
+        const zone = zones.getByRole('button', { name });
+        await zone.click();
+        assert.equal(await zone.getAttribute('aria-pressed'), 'true');
+      }
     }
     assert.equal(await page.evaluate(() => window.__game.war.st.deploying), true);
     assert.deepEqual(page.errors, []);
@@ -355,7 +365,7 @@ test('新材质加载失败时，仍可使用既有贴图进入桌面战场并�
   } finally { await game.close(); }
 });
 
-test('三维战场开场及布阵完成后聚焦可控武将，滚轮、键盘和全图可连续切换', { timeout: 120000 }, async () => {
+test('三维战场聚焦可控武将，触摸板连续缩放，Esc 和地图点击安全退出全图', { timeout: 120000 }, async () => {
   const game = await startGame({ scenario, width: 1280, height: 800 });
   try {
     const page = await game.open();
@@ -369,7 +379,7 @@ test('三维战场开场及布阵完成后聚焦可控武将，滚轮、键盘�
     assert.equal(opening.zoom, 'mid');
     assert.ok(opening.unit.x > 425 && opening.unit.x < 990 && opening.unit.y > 150 && opening.unit.y < 615);
     assert.ok(opening.selected != null);
-    assert.equal(await page.getByRole('group', { name: '布阵区' }).getByRole('button').count(), 4);
+    assert.equal(await page.getByRole('group', { name: '全军集结地' }).getByRole('button').count(), 4);
     for (const [width, height] of [[860, 650], [960, 600]]) {
       await page.setViewportSize({ width, height });
       for (const name of ['缩小战场', '放大战场', '战场全图']) {
@@ -385,12 +395,59 @@ test('三维战场开场及布阵完成后聚焦可控武将，滚轮、键盘�
       return pennant?.instanceMatrix.array[13] - probe.top(x,y);
     });
     assert.ok(tower > 1.1, '三维哨楼有高于底座的旗帜');
+    const full = page.getByRole('button', { name: '战场全图' });
+    const deployment = () => page.evaluate(() => {
+      const w = window.__game.war;
+      return { units: w.field.units.map(u => [u.id,u.x,u.y]), sel: w.st.sel?.id, pool: { ...w.field.pool } };
+    });
+    const beforeFull = await deployment();
+    const local = await read();
+    for (const exit of [() => page.keyboard.press('Escape'), () => page.mouse.click(780, 335)]) {
+      await full.click();
+      await warRest(page);
+      assert.equal(await full.getAttribute('aria-pressed'), 'true');
+      await exit();
+      await warRest(page);
+      assert.equal(await full.getAttribute('aria-pressed'), 'false');
+      assert.deepEqual(await deployment(), beforeFull);
+      const restored = await read();
+      assert.ok(Math.abs(restored.dist - local.dist) < 0.04 && Math.abs(restored.unit.x - local.unit.x) < 2
+        && Math.abs(restored.unit.y - local.unit.y) < 2, '退出后恢复原镜头，不触发布阵');
+    }
     await page.getByRole('button', { name: '布阵完成' }).click();
     await warRest(page);
     assert.equal((await read()).zoom, 'mid');
     assert.equal((await read()).selected, null);
 
     await page.mouse.move(780, 335);
+    const wheel = async (d, ctrlKey = false) => page.evaluate(({ d, ctrlKey }) => !document.querySelector('#stage canvas')
+      .dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: 780, clientY: 335, deltaY: d, ctrlKey })), { d, ctrlKey });
+    const beforeGesture = (await read()).dist;
+    assert.equal(await wheel(-8), true);
+    await warRest(page);
+    const precise = await read();
+    assert.equal(precise.zoom, 'mid', '单次小幅滚动无需等到换档');
+    assert.ok(precise.dist < beforeGesture - 0.08);
+    await wheel(8);
+    await warRest(page);
+    assert.ok(Math.abs((await read()).dist - beforeGesture) < 0.05, '小幅反向可抵消前一事件');
+    assert.equal(await wheel(-8, true), true, '浏览器捏合以 Ctrl+滚轮上报时缩放游戏而非页面');
+    await warRest(page);
+    assert.ok((await read()).dist < precise.dist);
+    const beforeWebKit = (await read()).dist;
+    assert.equal(await page.evaluate(() => {
+      const board = document.querySelector('#stage canvas');
+      const gesture = (type, scale) => !board.dispatchEvent(Object.assign(new MouseEvent(type, {
+        bubbles: true, cancelable: true, clientX: 780, clientY: 335,
+      }), { scale }));
+      const down = gesture('gesturestart', 1), change = gesture('gesturechange', 1.12);
+      gesture('gestureend', 1.12);
+      return down && change;
+    }), true);
+    await warRest(page);
+    assert.ok((await read()).dist < beforeWebKit - 0.08);
+    await page.keyboard.press('c');
+    await warRest(page);
     await page.mouse.wheel(0, -120);
     await warRest(page);
     const near = await read();
@@ -399,7 +456,7 @@ test('三维战场开场及布阵完成后聚焦可控武将，滚轮、键盘�
     await page.getByRole('button', { name: '缩小战场' }).click();
     await warRest(page);
     assert.equal((await read()).zoom, 'mid');
-    await page.getByRole('button', { name: '战场全图' }).click();
+    await full.click();
     await warRest(page);
     assert.equal((await read()).tactical, true);
     await page.keyboard.press('=');
@@ -416,12 +473,12 @@ test('三维战场开场及布阵完成后聚焦可控武将，滚轮、键盘�
   } finally { await game.close(); }
 });
 
-test('手机平面战场先看主将，四角可定位，双指和缩放按钮可放大及还原全图', { timeout: 120000 }, async () => {
+test('手机平面战场先看主将，可整队换角，双指缩放和点图退出全图', { timeout: 120000 }, async () => {
   const game = await startGame({ scenario, width: 844, height: 390, touch: true });
   try {
     const page = await game.open('&phone&flat&safe=24,24,6,12');
     await deploy(page, 11, 14);
-    const zones = page.getByRole('group', { name: '布阵区' });
+    const zones = page.getByRole('group', { name: '全军集结地' });
     const zoom = page.getByRole('group', { name: '战场缩放' });
     await page.setViewportSize({ width: 568, height: 320 });
     for (const group of [zones, zoom]) {
@@ -440,6 +497,18 @@ test('手机平面战场先看主将，四角可定位，双指和缩放按钮�
     await zones.getByRole('button').last().tap();
     const [, corner] = await read();
     assert.ok(Math.abs(corner.x - 422) < 28 && Math.abs(corner.y - 175.5) < 28);
+    const state = () => page.evaluate(() => {
+      const w = window.__game.war, z = w.field.deploymentZones('att').at(-1);
+      return { allTogether: w.field.side('att').every(u => z.cells.some(([x,y]) => u.x === x && u.y === y)),
+        units: w.field.units.map(u => [u.id,u.x,u.y]), sel: w.st.sel?.id, pool: { ...w.field.pool } };
+    });
+    const grouped = await state();
+    assert.equal(grouped.allTogether, true);
+    await page.evaluate(() => {
+      const w = window.__game.war, f = w.field, [x,y] = f.deploymentZones('att')[0].anchor;
+      return w.clickCell(x,y);
+    });
+    assert.deepEqual(await state(), grouped, '单点布阵无法把武将调离所选角区');
     const touch = await page.context().newCDPSession(page);
     const drag = async (from, to) => {
       const points = d => [{ x: 422 - d, y: 154, id: 1 }, { x: 422 + d, y: 154, id: 2 }];
@@ -453,9 +522,15 @@ test('手机平面战场先看主将，四角可定位，双指和缩放按钮�
     await drag(54, 30);
     const [smaller] = await read();
     assert.ok(smaller.cw < large.cw * 0.85);
-    await page.getByRole('button', { name: '战场全图' }).tap();
+    const full = page.getByRole('button', { name: '战场全图' });
+    await full.tap();
     const [overview] = await read();
     assert.ok(overview.cw < first.cw * 0.75);
+    await page.touchscreen.tap(422, 150);
+    assert.deepEqual(await state(), grouped);
+    assert.equal(await full.getAttribute('aria-pressed'), 'false');
+    assert.deepEqual((await read())[0], smaller, '手机点图恢复原来的平面镜头');
+    await full.tap();
     await page.getByRole('button', { name: '放大战场' }).tap();
     assert.ok((await read())[0].cw > overview.cw);
     assert.deepEqual(page.errors, []);

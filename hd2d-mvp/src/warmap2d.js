@@ -13,7 +13,7 @@ import { rng } from './pixel.js';
 import { PHONE, TOUCH_BATTLE, margins } from './phone.js';
 import { forestCluster, siegeFrame } from './war/shared.js';
 import { fortressStyle, hasGateWings, rampartProfile } from './fortress-style.js';
-import { ALIGNED_APPROACH_LAYOUT_REVISION, REGIONAL_LAYOUT_REVISION } from './core/regional-battlefields.js';
+import { ALIGNED_APPROACH_LAYOUT_REVISION, CORNER_LAYOUT_REVISION } from './core/regional-battlefields.js';
 import { paintApproaches, paintRoadSurface } from './war/approach-display.js';
 import { luoyangCourt } from './war/scenery-plan.js';
 import { isCoastalBattle, townSurface } from './war/surface.js';
@@ -240,7 +240,7 @@ const GROUND = [['林', '#5fae4a'], ['沙', '#d8b46a'], ['平', '#b8d878'], ['�
 
 // war: the war view's API (src/warview.js); G: its painted materials. Returns the same API with the drawing,
 // the camera and the pointer replaced; the 3D scene is not drawn at all.
-export function flatten(war, G, blankScene) {
+export function flatten(war, G, blankScene, onOverview) {
   const field = war.field;
   const { width: W, height: H } = field;
   // A painted battlefield (tools/gen_warmap_codex.sh) when there is one for this field and month: one picture with
@@ -257,7 +257,7 @@ export function flatten(war, G, blankScene) {
   wrap.append(cv); document.body.append(wrap); document.body.classList.add('flat2d');
   const g = cv.getContext('2d');
   const view = { z: 1, x: 0, y: 0 };
-  const localOpening = field.siege?.revision >= REGIONAL_LAYOUT_REVISION;
+  const localOpening = field.siege?.revision >= CORNER_LAYOUT_REVISION;
   const interactiveView = TOUCH_BATTLE || localOpening;
   let box = null, time = 0, tv = 0, painted = null; // tv: how far the ground view (F04) is shown
   const sky = createSky2d(); let skyT;
@@ -286,9 +286,24 @@ export function flatten(war, G, blankScene) {
   const splitLanding = field.dep.attackerZones?.length > 1 && !field.dep.attackerZones[0].corner;
   const minZoom = localOpening ? 1 : splitLanding ? 0.78 : 1, maxZoom = localOpening ? 4 : 2.4;
   const ward = PHONE && field.siege?.revision >= ALIGNED_APPROACH_LAYOUT_REVISION && field.siege.type !== 'pass' ? field.siege.districts : null;
-  let manualView = false, outsideZoom = null, zoomGoal = null;
+  let manualView = false, outsideZoom = null, zoomGoal = null, preview = null;
   function useManualView() { autoFrame = false; goal = null; manualView = true; outsideZoom = zoomGoal = null; }
-  const slide = (dx, dy) => { useManualView(); view.x += dx; view.y += dy; place(); };
+  const slide = (dx, dy) => { if (preview) return; useManualView(); view.x += dx; view.y += dy; place(); };
+  function overview() { useManualView(); view.z = 1; view.x = view.y = 0; place(); }
+  function dismissOverview(restore = true) {
+    if (!preview) return false;
+    if (restore) {
+      ({ manualView, autoFrame, outsideZoom, zoomGoal, goal } = preview);
+      Object.assign(view, preview.view); place();
+    }
+    preview = null; onOverview?.(false);
+    return true;
+  }
+  function toggleOverview() {
+    if (!interactiveView || dismissOverview()) return;
+    preview = { view: { ...view }, manualView, autoFrame, outsideZoom, zoomGoal, goal };
+    overview(); onOverview?.(true);
+  }
   function zoomAbout(z, px, py) {
     const fx = (px - box.x) / (box.cw * W), fy = (py - box.y) / (box.ch * H);
     view.z = z; place();
@@ -296,6 +311,8 @@ export function flatten(war, G, blankScene) {
   }
   const zoomAt = (deltaY, ndc = { x: 0, y: 0 }) => {
     if (!Number.isFinite(deltaY) || !deltaY) return;
+    if (preview && deltaY > 0) return;
+    dismissOverview(false);
     const z = Math.max(minZoom, Math.min(maxZoom, view.z * Math.exp(-deltaY * 0.001)));
     if (z !== view.z || ward) useManualView();
     if (localOpening && z === minZoom && deltaY > 0) {
@@ -809,19 +826,21 @@ export function flatten(war, G, blankScene) {
     // For the tests: how often the board under the generals was painted (paintBase) against frames drawn.
     flatDebug: () => ({ basePaints, frames, base: [base.width, base.height], canvas: [cv.width, cv.height], country: pic.country }),
     // A hidden window still moves the war on (app.js runs it 30 times a second) but paints nothing, as the 3D views.
-    update(dt) { time += dt; war.update(dt); if (PHONE || localOpening) follow(dt); if (!document.hidden) draw(); },
+    update(dt) { time += dt; war.update(dt); if (!preview && (PHONE || localOpening)) follow(dt); if (!document.hidden) draw(); },
     hover(ndc) { return war.hoverCell(pick(ndc)); },
-    click(ndc, e) { const c = pick(ndc); if (c) war.clickCell(c.x, c.y, e); }, // the event goes on: src/commitguard.js judges the click by it
+    click(ndc, e) { if (!dismissOverview()) { const c = pick(ndc); if (c) war.clickCell(c.x, c.y, e); } },
     // A cell's centre on screen, in CSS px (tools click the map as a player would).
     screenOf: (x, y) => ({ x: box.x + (x + 0.5) * box.cw, y: box.y + (y + 0.5) * box.ch, cw: box.cw, ch: box.ch }),
     screenAxes: () => ({ x: [box.cw, 0], y: [0, box.ch] }), // one grid step on screen (the gamepad's cursor, app.js)
-    orbit() {}, zoom(d, ndc) { if (interactiveView) zoomAt(d, ndc); }, pan() {}, resetView() { if (interactiveView) { autoFrame = PHONE && field.siege?.revision >= 2; resetView(); } }, frame() {}, overview() {
-      if (localOpening) { useManualView(); view.z = 1; view.x = view.y = 0; place(); }
+    orbit() {}, zoom(d, ndc) { if (interactiveView) zoomAt(d, ndc); }, pan() {}, resetView() { if (interactiveView) { dismissOverview(false); autoFrame = PHONE && field.siege?.revision >= 2; resetView(); } }, frame() {}, overview() {
+      if (localOpening) { dismissOverview(false); overview(); }
       else war.overview();
     },
+    toggleOverview, dismissOverview, overviewActive: () => !!preview,
+    zoomGesture(d, ndc) { if (interactiveView) zoomAt(d * 3, ndc); },
     ...(interactiveView ? { slide } : {}),
     ...((TOUCH_BATTLE || field.approaches?.barriers) ? { centreOn } : {}),
-    rotate: undefined, turn: undefined, turnEnd: undefined, tactical: undefined, viewState: undefined, dof: undefined, setTerrainView: undefined, // the flat map has no turn, zoom step or overview of its own
+    rotate: undefined, turn: undefined, turnEnd: undefined, tactical: undefined, viewState: undefined, dof: undefined, setTerrainView: undefined, // the flat map uses its own camera
     setInsets() {},
   });
 }

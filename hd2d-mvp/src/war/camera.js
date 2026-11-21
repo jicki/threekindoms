@@ -5,13 +5,13 @@ import * as THREE from 'three';
 import { blurWeight } from '../post.js';
 import { advancedBattle } from '../core/battle-rules.js';
 import { siegeExtent } from '../core/siege.js';
-import { REGIONAL_LAYOUT_REVISION } from '../core/regional-battlefields.js';
+import { CORNER_LAYOUT_REVISION } from '../core/regional-battlefields.js';
 import { YAWS, PITCH, TOP_PITCH, TURN_MS, EDGE, tween, siegeFrame } from './shared.js';
 
 export function makeCamera(wv) {
   const { field, human, camera, flat, wx, wz, topY, S, showRoundels } = wv;
   const { width: W, height: H } = field;
-  const localOpening = field.siege?.revision >= REGIONAL_LAYOUT_REVISION;
+  const localOpening = field.siege?.revision >= CORNER_LAYOUT_REVISION;
   const fort = wv.fortification?.fort;
   const fortHeight = fort ? new THREE.Box3().setFromObject(fort).max.y : 0;
   const pitchDefault = wv.jiange ? 0.75 : PITCH;
@@ -301,6 +301,7 @@ export function makeCamera(wv) {
   // into the clear) is worked out on this spare camera, never by moving the real one: posed as placeCamera poses the real camera,
   // with its lens (fov, aspect, near, far, zoom) and the same HUD shift, so a sum on it projects as the real camera would there.
   const scratch = new THREE.PerspectiveCamera();
+  const zoomRay = new THREE.Raycaster(), zoomAnchor = new THREE.Vector3(), zoomPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0));
   function poseOn(cam, { yaw, pitch, dist, target }) {
     cam.fov = camera.fov; cam.aspect = camera.aspect; cam.near = camera.near; cam.far = camera.far; cam.zoom = camera.zoom;
     shiftFor(cam);
@@ -340,7 +341,8 @@ export function makeCamera(wv) {
     if (view.distGoal != null) { view.dist += (view.distGoal - view.dist) * ez; if (Math.abs(view.distGoal - view.dist) < 0.01) view.distGoal = null; }
     if (view.pitchGoal != null) { view.pitch += (view.pitchGoal - view.pitch) * ez; if (Math.abs(view.pitchGoal - view.pitch) < 0.0005) view.pitchGoal = null; }
     if (view.panned && !view.tactical && !view.closeup) keepOnBoard(); // only a view the player slid (a focus on a general at the edge stays centred on him)
-    view.target.lerp(view.targetGoal, 1 - Math.exp(-dt * 3));
+    view.target.lerp(view.targetGoal, view.preciseZoom ? ez : 1 - Math.exp(-dt * 3));
+    if (view.distGoal == null) view.preciseZoom = false;
     // A quarter turn eases out over TURN_MS; the distance for this zoom step is refitted each frame so the box stays in view all the way round.
     if (view.dragTurn && !view.closeup) view.dist = stepDist(view.zoom, { yaw: view.yaw }); // held by the mouse: the step's box stays in view at every angle
     else if (view.yawT0 != null) {
@@ -441,6 +443,31 @@ export function makeCamera(wv) {
       }
       tookCamera();
     },
+    zoomGesture(delta, at) {
+      if (view.closeup || view.dragTurn || !Number.isFinite(delta) || !delta) return;
+      if (view.tactical) {
+        if (delta > 0) return;
+        cam.tactical(false);
+        const overview = wholeView();
+        view.targetGoal.copy(overview.target);
+        view.distGoal = overview.dist;
+      }
+      const steps = STEPS.map(step => stepDist(step));
+      const previous = view.distGoal ?? view.dist;
+      const next = Math.max(steps[3], Math.min(steps[0], previous * Math.exp(delta * 0.003)));
+      if (Math.abs(next - previous) < 0.001) return;
+      // 在相机即将到达的平面上取鼠标锚点，连续小事件和反向手势都用同一个坐标系。
+      poseOn(scratch, { yaw: view.yawGoal, pitch: view.pitchGoal ?? view.pitch, dist: previous, target: view.targetGoal });
+      zoomRay.setFromCamera(at, scratch);
+      zoomPlane.constant = -view.targetGoal.y;
+      if (zoomRay.ray.intersectPlane(zoomPlane, zoomAnchor)) view.targetGoal.lerpVectors(zoomAnchor, view.targetGoal, next / previous);
+      castMoved(); tookCamera();
+      let i = 0;
+      while (i < steps.length - 1 && next < Math.sqrt(steps[i] * steps[i + 1])) i++;
+      view.zoom = STEPS[i]; view.distGoal = next; view.preciseZoom = true;
+      view.moved = view.panned = true; view.atFit = view.fit = false;
+      view.turnFit = null; view.zoomAcc = 0;
+    },
     // A quarter turn about the view's centre; another press mid-turn adds to where the turn is heading. The step and the target stay.
     rotate(dir) {
       if (view.tactical || view.closeup || view.dragTurn || !dir) return;
@@ -472,8 +499,14 @@ export function makeCamera(wv) {
         view.pitchGoal = TOP_PITCH; setStep('whole'); showRoundels(true);
       } else {
         const t = view.tactical; view.tactical = null; showRoundels(false);
-        restore(t, { yaw: true }); view.fit = t.fit; // the pan flag stays as the overview left it (off)
+        restore(t, { yaw: true }); view.fit = t.fit; view.panned = t.panned;
       }
+      wv.ui.warOverview?.(on);
+    },
+    dismissOverview() {
+      if (!view.tactical) return false;
+      cam.tactical(false);
+      return true;
     },
     // The blur weight at a world point (0 sharp … 1 full, times its side's weight) under the lens now, as the shader will read it.
     blurAt(x, y, z) {

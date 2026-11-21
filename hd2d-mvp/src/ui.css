@@ -447,6 +447,7 @@ body.phone .slots.scenario-choices .slot { min-height: var(--hit); }
 .war-zones { top: 107px; left: 12px; display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; max-width: calc(100% - 24px); }
 body.flat2d:not(.phone) .war-zones { top: 63px; }
 .war-zones .btn { padding: 4px 10px; }
+.war-zones .btn[aria-pressed=true], .warzoom .btn[aria-pressed=true] { border-color: #ffd890; color: #fff4d8; background: linear-gradient(var(--btn-on), var(--btn-hi-b)); }
 .warbar .side { display: flex; gap: 8px; align-items: baseline; } .warbar .side b { color: #ffe08a; font-size: 18px; }
 .warbar .me { color: var(--atk); } .warbar .foe { color: var(--def); }
 .warbar .turn { padding: 1px 8px; border-radius: 2px; font-size: 14px; } .warbar .turn.mine { background: #2f5fb8; } .warbar .turn.theirs { background: #8a2c1e; } .warbar .turn.deploy { background: #3f7a2a; }

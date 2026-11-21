@@ -7,8 +7,10 @@ export const EXPANDED_WARDS_BATTLE_REVISION = 14;
 export const EXPANDED_WARDS_LAYOUT_REVISION = 7;
 export const ALIGNED_APPROACH_BATTLE_REVISION = 15;
 export const ALIGNED_APPROACH_LAYOUT_REVISION = 8;
-export const REGIONAL_BATTLE_REVISION = 16;
-export const REGIONAL_LAYOUT_REVISION = 9;
+export const CORNER_BATTLE_REVISION = 16;
+export const CORNER_LAYOUT_REVISION = 9;
+export const REGIONAL_BATTLE_REVISION = 17;
+export const REGIONAL_LAYOUT_REVISION = 10;
 
 const FOREST = 0, SAND = 1, PLAIN = 2, RIVER = 3, MOUNT = 4, CASTLE = 5;
 const SIDES = { n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0] };
@@ -76,7 +78,8 @@ function roadSearch(map, barriers, roads, excluded, start, area = null) {
 
 export function regionalBattlefield(id, requestedSide, villages, seaEntry = false, revision = REGIONAL_LAYOUT_REVISION) {
   const expanded = revision >= EXPANDED_WARDS_LAYOUT_REVISION;
-  const outerCamps = revision >= REGIONAL_LAYOUT_REVISION;
+  const outerCamps = revision >= CORNER_LAYOUT_REVISION;
+  const grouped = revision >= REGIONAL_LAYOUT_REVISION;
   const alignedWestBridge = id === 2 && revision >= ALIGNED_APPROACH_LAYOUT_REVISION;
   const [label, type, axis, geography] = BATTLE_REGIONS[id];
   const [w, h] = CITY_SIZE[type] ?? [44, 30], side = requestedSide ?? axis;
@@ -416,22 +419,36 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
         if (bridgeApproach && dx < 0) target[1] = clamp(start[1] + dy * 3, 3, h - 4);
         const seeds = map.flatMap((row, y) => row.flatMap((_, x) => allowed([x, y]) ? [[x, y]] : []))
           .sort((a, b) => dist(a, target) - dist(b, target));
+        const minimum = grouped ? 10 : 9;
         for (const seed of seeds) {
           const area = zone(name + '集结地', seed, [2, 2], allowed);
-          if (area.cells.length < 9) continue;
+          if (area.cells.length < minimum) continue;
           const pending = new Set(area.cells.map(CELL_KEY)), connected = [seed];
           pending.delete(CELL_KEY(seed));
           for (const p of connected) for (const dir of DIRS) {
             const q = add(p, dir);
             if (pending.delete(CELL_KEY(q))) connected.push(q);
           }
-          if (connected.length < 9) continue;
+          if (connected.length < minimum) continue;
           connected.forEach(p => selected.add(CELL_KEY(p)));
           corners.push({ ...area, cells: connected, rect: rectOf(connected), corner: name });
           break;
         }
       }
-      if (corners.length >= 2) deploy = corners;
+      if (corners.length >= 2) {
+        // 同侧优先选实际引道较短的角区，避免隔河看似贴近城门却要绕到另一岸。
+        const [first, second] = corners;
+        const onApproachSide = ({ anchor: [x, y] }) => (x - cx) * ax + (y - cy) * ay > 0;
+        if (grouped && onApproachSide(first) && onApproachSide(second)) {
+          const routeCost = ({ anchor }) => {
+            const search = roadSearch(map, barriers, roads, blockedRoutes, anchor);
+            if (camp) return search.cost(point(camp));
+            return Math.min(...outerGates.map(g => search.cost(add(point(g), SIDES[g.face]))));
+          };
+          if (routeCost(second) + 2 < routeCost(first)) [corners[0], corners[1]] = [second, first];
+        }
+        deploy = corners;
+      }
     }
   }
 
@@ -588,7 +605,7 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
   ] : [{ name: '守军阵地', cells: defenseCells, rect: rectOf(defenseCells), anchor: defender[0] }];
   return { map, villages, siege,
     dep: { attacker, defender, attacker_rect: rectOf(starts), defender_rect: rectOf(defender),
-      attackerZones: deploy, defenderZones },
+      attackerZones: deploy, defenderZones, ...(grouped && deploy.length > 1 ? { grouped: true } : {}) },
     approaches: { routes, roads, barriers, post: { x: px, y: py }, sites, geography },
     entry: approachSide, label,
   };

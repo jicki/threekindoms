@@ -95,8 +95,9 @@ export function createWarView(ctx, field) {
     },
     focusPoint: wv.focusPoint,
     hover(ndc) { const c = wv.pick(ndc); wv.st.hoverCell = c; wv.st.through = c?.through ?? null; wv.syncCompare(); wv.hot(c); wv.cursor.visible = !!c; if (c) wv.cursor.position.set(wv.wx(c.x), wv.topY(c.x, c.y) + 0.03, wv.wz(c.y)); const tip = wv.previewAt(c); return c && { ...c, tip }; },
-    click(ndc, e) { const c = wv.pick(ndc); if (c) wv.clickCell(c.x, c.y, e); },
+    click(ndc, e) { if (!wv.dismissOverview()) { const c = wv.pick(ndc); if (c) wv.clickCell(c.x, c.y, e); } },
     setInsets: wv.setInsets, resetView: wv.resetView, frame: wv.frame, overview: wv.overview, orbit: wv.orbit, zoom: wv.zoom, rotate: wv.rotate, turn: wv.turn, turnEnd: wv.turnEnd, tactical: wv.tactical,
+    toggleOverview: wv.tactical, dismissOverview: wv.dismissOverview, overviewActive: () => !!wv.view.tactical, zoomGesture: wv.zoomGesture,
     // Frees what the battle made: every geometry, material and texture of its scene but the shared textures (ctx.T),
     // and the labels' elements; the view is dropped after it. Without this each war left ~260 geometries and ~15
     // textures (with the sky and the sun's shadow map) on the GPU for the rest of the session.
@@ -121,7 +122,7 @@ export function createWarView(ctx, field) {
     centreOn: wv.centreOn, viewQuad: wv.viewQuad, // the minimap, the edge markers and a double click (src/warnav.js, src/app.js)
     undo: wv.undo, endTurn: wv.endTurn, retreat: wv.retreat, hold: wv.hold, service: wv.service, shop: wv.shop, clickCell: wv.clickCell, chooseStrategy: wv.chooseStrategy,
     openStrategies: wv.openStrategies, commitCast: wv.commitCast, setCastCount: wv.setCastCount, openAttacks: wv.openAttacks, commitAttack: wv.commitAttack, attack: wv.commitAttack, locate: wv.locate,
-    keepInView: wv.keepInView, recast: wv.recast, finishDeploy: wv.finishDeploy, cancel: wv.cancel, st: wv.st,
+    keepInView: wv.keepInView, recast: wv.recast, finishDeploy: wv.finishDeploy, switchDeployment: wv.switchDeployment, cancel: wv.cancel, st: wv.st,
     playStrategy: wv.playStrategy, playAttack: wv.playAttack, // also driven by tests/war.test.mjs and tests/levelup.test.mjs
     faceToward: (u, x, z) => wv.faceToward(wv.views.get(u), new THREE.Vector3(x, 0, z)), // review captures and tests: turn a figure as if he marched that way
     facing: (u) => { const v = wv.views.get(u); return { row: v.frames?.[v.frame] ?? null, flip: v.flip }; },
@@ -140,7 +141,7 @@ export function createWarView(ctx, field) {
   // ctx.flat: the flat painted map (the 2026-10-29 direction) over the same rules, AI and HUD.
   performance.measure('war:build3d', { start: wv.T0 });
   if (!wv.flat) return api;
-  const tf = performance.now(), flatApi = flatten(api, wv.G, new THREE.Scene());
+  const tf = performance.now(), flatApi = flatten(api, wv.G, new THREE.Scene(), wv.ui.warOverview);
   performance.measure('war:flatten', { start: tf });
   return flatApi;
 }

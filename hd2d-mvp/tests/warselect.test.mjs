@@ -174,6 +174,16 @@ for (const [view, query] of [['3D', ''], ['平面', '&flat']]) {
       await p.evaluate(() => window.__game.war.cancel()); await p.keyboard.press(']');
       await p.waitForFunction((id) => window.__game.war.st.sel?.id === id, ids[0]);
 
+      // 选将立即生效，镜头跟随会在后续帧结束。取地格屏幕坐标前先等视角稳定。
+      if (view === '3D') await warRest(p);
+      else await p.waitForFunction(async () => {
+        const w = window.__game.war, u = w.st.sel;
+        const first = w.screenOf(u.x, u.y);
+        for (let i = 0; i < 4; i++) await new Promise(requestAnimationFrame);
+        const next = w.screenOf(u.x, u.y);
+        return first.x === next.x && first.y === next.y;
+      }, null, { timeout: 6000 });
+
       // 选中可见的空地并实际行军。
       const move = await p.evaluate(() => {
         const w = window.__game.war, f = w.field, u = w.st.sel;
