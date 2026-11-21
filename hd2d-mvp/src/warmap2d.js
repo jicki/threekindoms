@@ -5,7 +5,7 @@
 // nothing on the map ever hides them. The rules, the AI and the HUD stay the war view's (src/warview.js):
 // this layer draws its state each frame and turns a pointer into a cell for it.
 // The HUD sits in a strip above and a strip below the map (body.flat2d in ui.css), never over it.
-import { painter, paintWaterSurface, MR } from './warplate.js';
+import { painter, paintWaterSurface, terrainPixelSize, MR } from './warplate.js';
 import { FOREST, RIVER, MOUNT, CASTLE } from './core/field.js';
 import { name, data } from './core/game.js';
 import { createSky2d } from './skyfx2d.js';
@@ -26,7 +26,7 @@ export const FLAT_INSET = PHONE ? { top: 4, get bottom() { return Math.max(4, ma
   : { top: 46, get bottom() { return innerWidth <= 1200 ? 196 : 152; }, side: 12 }; // 宽屏也要为换行的城门说明留出一行。
 
 // --- The painted map ---
-export function paintFlatMap(G, field, { px = field.approaches ? 60 : 80 } = {}) {
+export function paintFlatMap(G, field, { px = field.approaches ? terrainPixelSize({ w: field.width, h: field.height }, 60, PHONE) : 80 } = {}) {
   const { width: W, height: H } = field;
   const map = field.map, clampX = (x) => Math.max(0, Math.min(W - 1, x)), clampY = (y) => Math.max(0, Math.min(H - 1, y));
   const terr = (x, y) => map[clampY(y)][clampX(x)]; // beyond the edge the edge terrain carries on (no seam of grass)

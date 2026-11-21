@@ -225,15 +225,17 @@ function crossesCell(a, b, x, y) {
   return hi > EPS && lo < 1 - EPS;
 }
 
-export function blockedTerrain(barriers, a, b) {
-  if (!barriers || !a || !b) return false;
+export function strategyTerrainObstacle(barriers, a, b) {
+  if (!barriers || !a || !b) return null;
   for (let y = Math.min(a.y,b.y); y <= Math.max(a.y,b.y); y++)
     for (let x = Math.min(a.x,b.x); x <= Math.max(a.x,b.x); x++) {
       const type = barriers.get(key(x,y));
-      if ((type === '断崖' || type === '街区建筑') && crossesCell(a,b,x,y)) return true;
+      if ((type === '断崖' || type === '街区建筑') && crossesCell(a,b,x,y)) return type;
     }
-  return false;
+  return null;
 }
+
+export const blockedTerrain = (barriers, a, b) => strategyTerrainObstacle(barriers, a, b) !== null;
 
 export function blockedStrategy(siege, a, b) {
   if (!siege || !a || !b) return false;

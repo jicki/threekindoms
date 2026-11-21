@@ -9,7 +9,7 @@ import { relationshipAffinity, recruitThreshold, recruitLoyaltyWithRelation } fr
 import { passiveRiceUse } from './ruler-passives.js';
 import { resolveBattlefield } from './battlefields.js';
 import { POST_MOBILITY } from './battle-approaches.js';
-import { siegeRing, wallAt, gateAt, gateDefense, blockedStrategy, blockedTerrain, restoreGates } from './siege.js';
+import { siegeRing, wallAt, gateAt, gateDefense, blockedStrategy, blockedTerrain, strategyTerrainObstacle, restoreGates } from './siege.js';
 import { EXPANDED_WARDS_LAYOUT_REVISION, CORNER_LAYOUT_REVISION, REGIONAL_LAYOUT_REVISION } from './regional-battlefields.js';
 import { abilityStrategy, abilityStrategyIds, strategySpecs } from './famous-skills.js';
 import { advancedBattle, aiBattleBonus, battleWeather, fullStrategyWeather, officerPassive, tacticWeather, WEATHER_NAMES, weatherPenalty } from './battle-rules.js';
@@ -510,6 +510,11 @@ export class Field {
     if (!this.fortifiedDefense || u.side !== 'def' || !GATE_STRATEGIES.includes(id)) return where;
     return `${where}；闭门迎击${id === 9 || id === 13 ? '须站门格，目标紧邻门口' : '须站门格或门后第一格，目标在正前方两格内'}`;
   }
+  strategyObstruction(u, t, tower) {
+    const obstacle = strategyTerrainObstacle(this.approaches?.barriers, u, t);
+    if (obstacle) return `${obstacle}阻隔计略`;
+    return !tower && blockedStrategy(this.siege, u, t) ? '城墙或封闭城门阻隔计略' : null;
+  }
   // Terrain/adjacency gate `$AD80` plus distance <6; target null for 十面埋伏.
   legal(u, id, t) {
     if (id === 8 && (this.war.raid || this.unitFaction(u) !== this.faction(u.side))) return false;
@@ -517,7 +522,7 @@ export class Field {
     if (id === 11) return T(u) === FOREST && this.O(u.id).soldiers >= 100 && !this.ambush?.[u.side];
     if (!t || t.gone || t.side === u.side || this.dist(u, t) >= this.strategyLimit(u, id)) return false;
     const tower = this.defendingFromGate(u, id, t);
-    if (blockedTerrain(this.approaches?.barriers, u, t) || (!tower && blockedStrategy(this.siege, u, t))) return false;
+    if (this.strategyObstruction(u, t, tower)) return false;
     if (advancedBattle(this.g)) {
       if (id === PINCER) return this.adjacentEnemies(t).some(v => v !== u && this.O(v.id).soldiers > 0 && !this.sightBlocked(v, t));
       if (id === DISRUPT) return this.O(t.id).soldiers > 0 && !(t.disruptedUntil >= this.day);
@@ -539,6 +544,17 @@ export class Field {
     }
     return false;
   }
+  // 选目标时说明这名敌将身上的限制，名单仍只展示可选目标。
+  whyNotTarget(u, id, t) {
+    if (!t || t.gone || t.side === u.side || id === 11 || this.legal(u, id, t)) return null;
+    const distance = this.dist(u, t), limit = this.strategyLimit(u, id) - 1;
+    if (distance > limit) return `超出计略范围（距离 ${distance} 格，上限 ${limit} 格）`;
+    const obstacle = this.strategyObstruction(u, t, this.defendingFromGate(u, id, t));
+    if (obstacle) return obstacle;
+    if (advancedBattle(this.g) && id === PINCER) return '夹攻需要另一名有兵友军在目标身旁协同';
+    if (advancedBattle(this.g) && id === DISRUPT) return this.O(t.id).soldiers > 0 ? '目标已被破阵' : '目标当前无兵';
+    return '当前站位或地形不符合计略条件';
+  }
   // Why this unit cannot cast this 计略 now, in words, or null when he can: the mobility, a condition on his own
   // place (十面埋伏, 落石, 连弩), else no foe within reach that meets the 计略's condition.
   whyNot(u, id) {
@@ -553,8 +569,10 @@ export class Field {
     if (id === 9 && T !== MOUNT && T !== CASTLE) return '需自己位于山地或城中';
     if (id === 13 && T !== CASTLE) return '需自己位于城中';
     const near = this.side(u.side === 'att' ? 'def' : 'att').filter(e => this.dist(u,e) < this.strategyLimit(u,id));
-    if (near.some(e => blockedTerrain(this.approaches?.barriers, u, e))) return '断崖或街区建筑阻隔计策，请调整站位';
-    if (near.some(e => blockedStrategy(this.siege,u,e))) return '城墙阻隔计策，需先突破相应城门';
+    for (const e of near) {
+      const obstacle = this.strategyObstruction(u, e, this.defendingFromGate(u, id, e));
+      if (obstacle) return `${obstacle}，请调整站位`;
+    }
     return `${this.strategyLimit(u,id) - 1}格内没有符合条件的敌军（${STRAT_INFO[id].where.replace(/^自己在[^，]*，/, '')}）`;
   }
   hitChance(u, t, id) {
@@ -630,7 +648,8 @@ export class Field {
   }
   cast(u, id, t, ai = false) {
     const S = STRATS[id], r = this.r, a = this.O(u.id), U = (n) => r(n), lines = [], hits = [];
-    if (t && blockedTerrain(this.approaches?.barriers, u, t)) return { ok:false, hit:false, name:S.name, lines:['断崖或街区建筑阻隔计策'], hits };
+    const obstacle = t && strategyTerrainObstacle(this.approaches?.barriers, u, t);
+    if (obstacle) return { ok:false, hit:false, name:S.name, lines:[`${obstacle}阻隔计略`], hits };
     if (t && blockedStrategy(this.siege,u,t) && !(this.defendingFromGate(u, id, t) && this.legal(u, id, t))) return { ok:false, hit:false, name:S.name, lines:['城墙阻隔计策'], hits };
     if (S.custom && S.maxUses && (u.skillUses?.[id] ?? 0) >= S.maxUses) return { ok: false, hit: false, name: S.name, lines: ['本场使用次数已用完'], hits };
     if (!ai && !this.canCast(u, id, t)) return { ok: false, hit: false, name: S.name, lines: [this.pool[u.side] < S.cost ? '机动力不足' : `无法施展${S.name}`], hits };

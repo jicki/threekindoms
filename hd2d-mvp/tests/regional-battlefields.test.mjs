@@ -161,6 +161,41 @@ test('建业进攻徐州时，优先从进攻一侧能更快抵达外门的角�
   assert.ok(cost(defaultZone.anchor) + 10 < cost(alternative.anchor));
 });
 
+test('兖州街坊可隔断同距离敌将的火计，明确提示房舍、距离和城墙', () => {
+  const g = fresh(), w = war(11, 4, 1);
+  const id = name => D.officers.findIndex(o => o.name === name);
+  w.att.ids = [id('刘备')];
+  w.def.ids = [id('夏侯渊'), id('乐进')];
+  const f = new Field(g, w, 'att'), [caster] = f.side('att'), [clear, covered] = f.side('def');
+  Object.assign(caster, { x: 24, y: 9 });
+  Object.assign(clear, { x: 21, y: 12 });
+  Object.assign(covered, { x: 26, y: 12 });
+  Object.assign(f.O(caster.id), { int: 95 });
+  f.O(clear.id).soldiers = f.O(covered.id).soldiers = 700;
+  f.pool.att = 30; f.weather = 'clear'; f.r = () => 0;
+  assert.equal(f.approaches.barriers.get('26,11'), '街区建筑');
+  assert.equal(f.dist(caster, clear), f.dist(caster, covered));
+  assert.equal(f.unitTerrain(clear.x, clear.y), PLAIN);
+  assert.equal(f.unitTerrain(covered.x, covered.y), PLAIN);
+  assert.equal(f.whyNotTarget(caster, 0, clear), null);
+  assert.match(f.whyNotTarget(caster, 0, covered), /街区建筑/);
+  assert.match(f.whyNotTarget(caster, 17, { ...covered, x: 28 }), /距离 4 格，上限 3 格/);
+  assert.equal(f.whyNot(caster, 0), null, '还有合法目标，计略仍可选择');
+  const refused = f.cast(caster, 0, covered);
+  assert.equal(refused.ok, false);
+  assert.match(refused.lines[0], /街区建筑/);
+  assert.equal(f.pool.att, 30);
+  assert.equal(f.O(covered.id).soldiers, 700);
+  assert.equal(f.cast(caster, 0, clear).ok, true);
+  assert.ok(f.O(clear.id).soldiers < 700);
+
+  const south = f.siege.gates.find(gate => gate.face === 's' && gate.ring === f.siege.outer);
+  const from = { ...caster, x: south.x, y: south.y + 1 }, to = { ...covered, x: south.x, y: south.y - 1 };
+  assert.match(f.whyNotTarget(from, 0, to), /封闭城门/);
+  south.open = true;
+  assert.equal(f.whyNotTarget(from, 0, to), null);
+});
+
 test('兖州在城外三个新址可行军到达并使用米店、武器店和医馆', () => {
   const f = new Field(fresh(), war(11,14,1), 'att'), [u] = f.side('att');
   const chest = f.chest('att'), officer = f.O(u.id);

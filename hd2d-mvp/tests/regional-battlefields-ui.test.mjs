@@ -22,6 +22,56 @@ async function deploy(page, city, from, human = 'att', revision = null) {
   } finally { stop(); }
 }
 
+for (const phone of [false, true]) {
+  test(`${phone ? '手机' : '桌面 3D'}计略选目标时可查看街坊遮挡原因`, { timeout: 120000 }, async () => {
+    const game = await startGame({ scenario, ...(phone ? { width: 844, height: 390, touch: true } : {}) });
+    try {
+      const page = await game.open(phone ? '&phone&flat' : '');
+      await deploy(page, 11, 4);
+      await page.getByRole('button', { name: '布阵完成' }).click();
+      await page.waitForFunction(() => !window.__game.war.st.deploying && !document.querySelector('.banner, #fade.on'));
+      const { blocked, clear, name } = await page.evaluate(() => {
+        const { war: w, G } = window.__game, f = w.field, [a] = f.side('att'), [open, covered] = f.side('def');
+        for (const u of f.alive) if (u !== a && u !== open && u !== covered) u.gone = true;
+        for (const [u, x, y] of [[a, 24, 9], [open, 21, 12], [covered, 26, 12]]) {
+          Object.assign(u, { x, y });
+          w.spriteOf(u).position.set(x - (f.width - 1) / 2, w.probe().top(x, y), y - (f.height - 1) / 2);
+        }
+        f.O(a.id).int = 95;
+        f.pool.att = 30;
+        w.clickCell(a.x, a.y);
+        w.chooseStrategy(0);
+        w.centreOn(covered.x, covered.y);
+        return { blocked: covered.id, clear: open.id, name: G.name(covered.id) };
+      });
+      if (!phone) await warRest(page);
+      const at = await page.evaluate(id => {
+        const w = window.__game.war, u = w.field.alive.find(v => v.id === id);
+        const { x, y } = w.screenOf(u.x, u.y);
+        const hit = w.hover({ x: x * 2 / innerWidth - 1, y: 1 - y * 2 / innerHeight });
+        return hit?.x === u.x && hit.y === u.y && document.elementFromPoint(x, y)?.tagName === 'CANVAS' ? { x, y } : null;
+      }, blocked);
+      assert.ok(at, '可以通过地图指向被遮挡的敌将');
+      if (phone) await page.touchscreen.tap(at.x, at.y);
+      else {
+        await page.mouse.move(at.x, at.y);
+        await page.waitForFunction(() => !document.querySelector('#tip').hidden && document.querySelector('#tip').innerText.includes('街区建筑阻隔计略'));
+        await page.mouse.click(at.x, at.y);
+      }
+      const panel = page.locator('.actpanel');
+      const reason = await panel.getByRole('status').innerText();
+      assert.ok(reason.includes(name) && reason.includes('街区建筑阻隔计略'));
+      assert.equal(await panel.locator(`[data-target="${blocked}"]`).count(), 0);
+      assert.equal(await page.evaluate(() => window.__game.war.field.pool.att), 30);
+      await panel.locator(`[data-target="${clear}"]`).click();
+      await page.locator('.actpanel.confirm').waitFor();
+      assert.equal(await page.evaluate(() => window.__game.war.st.confirm.t.id), clear);
+      assert.equal(await panel.getByRole('status').count(), 0);
+      assert.deepEqual(page.errors, []);
+    } finally { await game.close(); }
+  });
+}
+
 test('手机触控可整队改换登陆点，深海不可放置或行军', { timeout: 120000 }, async () => {
   const game = await startGame({ scenario, width: 844, height: 390, touch: true });
   try {
@@ -44,9 +94,11 @@ test('手机触控可整队改换登陆点，深海不可放置或行军', { tim
       const sample = (x, y) => [...ctx.getImageData(Math.floor((x + 0.5) * cell), Math.floor((y + 0.5) * cell), 1, 1).data];
       const y = 7, shore = f.map[y].findIndex(tile => tile !== 3) - 1;
       return { who: u.id, start: [u.x, u.y], land, sea, flat: w.flat, visible,
+        pixels: canvas.width * canvas.height, cell,
         nearWater: sample(shore, y), deepWater: sample(2, y) };
     });
     assert.equal(points.flat, true);
+    assert.ok(points.cell < 60 && points.pixels <= 2 * 1024 * 1024, '手机使用较小的地表贴图');
     assert.equal(points.visible, true, '全图取景能看到两个登陆区');
     assert.ok(points.nearWater[1] > points.deepWater[1] + 12, '平面版岸边比外海明亮');
     await zones.getByRole('button', { name: '侧翼小湾' }).tap();
@@ -323,7 +375,7 @@ test('桌面夷洲的两个登陆按钮均可点击，避开系统菜单', { tim
     const loaded = [];
     page.on('response', res => {
       const pathname = new URL(res.url()).pathname;
-      if (res.ok() && pathname.includes('/battle-textures/')) loaded.push(pathname.split('/').at(-1));
+      if (res.ok() && pathname.includes('/battle-textures/') && !pathname.split('/').at(-1).startsWith('lite-')) loaded.push(pathname.split('/').at(-1));
     });
     await deploy(page, 38, 17);
     assert.deepEqual(loaded.sort(), ['court-stone.webp', 'road-earth.webp', 'water-ripples.webp', 'woods-floor.webp']);
@@ -350,19 +402,25 @@ test('桌面夷洲的两个登陆按钮均可点击，避开系统菜单', { tim
   } finally { await game.close(); }
 });
 
-test('新材质加载失败时，仍可使用既有贴图进入桌面战场并完成布阵', { timeout: 120000 }, async () => {
+test('新材质加载失败或卡住时，仍可使用既有贴图进入桌面战场并完成布阵', { timeout: 120000 }, async () => {
   const game = await startGame({ scenario, width: 1280, height: 800 });
+  let release, stalled = false;
+  const held = new Promise(resolve => { release = resolve; });
   try {
-    const page = await game.open('', { setup: context => context.route('**/battle-textures/*.webp', route => route.abort()) });
+    const page = await game.open('', { setup: context => context.route('**/battle-textures/*.webp', async route => {
+      if (route.request().url().endsWith('/water-ripples.webp')) { stalled = true; await held; }
+      await route.abort().catch(() => {});
+    }) });
     await deploy(page, 30, 13);
+    assert.equal(stalled, true);
     assert.equal(await page.evaluate(() => {
       const w = window.__game.war, sea = w.scene.children.find(mesh => mesh.userData.water);
-      return !w.flat && sea.material.map.image.naturalWidth > 0;
+      return !w.flat && sea.material.map.image.naturalWidth === 512;
     }), true);
     await page.getByRole('button', { name: '布阵完成' }).click();
     await page.waitForFunction(() => !window.__game.war.st.deploying);
     assert.deepEqual(page.errors, []);
-  } finally { await game.close(); }
+  } finally { release(); await game.close(); }
 });
 
 test('三维战场聚焦可控武将，触摸板连续缩放，Esc 和地图点击安全退出全图', { timeout: 120000 }, async () => {

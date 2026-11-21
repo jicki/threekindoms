@@ -110,7 +110,9 @@ export function makeInteract(wv) {
     if (id == null || !u || u.gone || !controls(u) || field.turn !== human || field.over) return null;
     const rows = field.alive.filter((e) => field.legal(u, id, e)).map((e) => ({ u: e, o: field.O(e.id), chance: field.odds(u, id, e), dist: field.dist(u, e), commander: !!e.commander, last: lastCast.get(u)?.t === e }))
       .sort((a, b) => b.chance - a.chance || a.dist - b.dist);
-    return { id, name: STRATS[id].name, cost: STRATS[id].cost, rows, focusId: st.returnTarget ?? null };
+    const reason = field.whyNotTarget(u, id, st.peek);
+    return { id, name: STRATS[id].name, cost: STRATS[id].cost, rows, focusId: st.returnTarget ?? null,
+      blocked: reason ? { u: st.peek, reason } : null };
   }
   // The target under the pointer or the pad's cursor, lit in the panel's list (app.js warHot).
   const hot = (c) => { const e = c && (st.cast != null || st.atkList || st.strike) && st.sel ? field.unitAt(c.x, c.y) : null; ui.warHot?.(e && (st.cast != null ? field.legal(st.sel, st.cast, e) : attackable(st.sel, e)) ? e.id : null); };

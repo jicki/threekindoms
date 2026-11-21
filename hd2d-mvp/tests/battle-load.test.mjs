@@ -6,7 +6,7 @@ let game;
 before(async () => { game = await startGame({ scenario: 'original' }); });
 after(() => game?.close());
 
-async function openField(page) {
+async function enterField(page) {
   await newCampaign(page, '刘备');
   await page.evaluate(() => {
     const { g, debug } = window.__game;
@@ -14,6 +14,11 @@ async function openField(page) {
     const chest = id => ({ ids: [id], gold: 100, rice: 500 });
     debug.fieldWar({ city: 12, from: 8, attacker: 0, defender: 4, day: 1, att: chest(40), def: chest(43) }, 'att');
   });
+  await page.getByRole('button', { name: '布阵完成' }).waitFor();
+}
+
+async function openField(page) {
+  await enterField(page);
   const stop = closeMessages(page);
   try {
     await page.locator('.deploybtn .btn', { hasText: '布阵完成' }).click();
@@ -24,6 +29,26 @@ async function openField(page) {
     Object.assign(a, { x: 2, y: 3 }); Object.assign(d, { x: 3, y: 3 });
     f.map[3][2] = f.map[3][3] = 2; f.pool.att = 100;
     w.clickCell(a.x, a.y);
+  });
+}
+
+for (const flat of [false, true]) {
+  test(`原版${flat ? '平面使用历史手绘地图' : ' 3D 不下载历史手绘地图'}`, { timeout: 60000 }, async () => {
+    const page = await game.open(flat ? '&flat' : '');
+    const requests = [];
+    page.on('request', req => {
+      const path = new URL(req.url()).pathname;
+      if (path.includes('/warground/maps/')) requests.push(path.split('/').at(-1));
+    });
+    try {
+      await enterField(page);
+      assert.equal(await page.evaluate(() => !!window.__game.war.flat), flat);
+      if (flat) {
+        assert.equal(requests[0], '12.json');
+        assert.ok(requests.some(name => /^12-.*\.webp$/.test(name)));
+      } else assert.deepEqual(requests, []);
+      assert.deepEqual(page.errors, []);
+    } finally { await page.context().close(); }
   });
 }
 

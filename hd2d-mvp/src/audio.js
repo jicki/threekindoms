@@ -25,6 +25,7 @@ const store = (k, v) => { try { if (v === undefined) return localStorage.getItem
 export class Audio {
   constructor(files, music = {}) {
     this.files = files; this.music = music; this.ctx = null; this.bgm = null; this.bgmKey = null; this.muted = store('hd2d-muted') === 'true'; this.cache = {}; this.bufs = new Map();
+    this.loadingTracks = new Map();
     this.sets = SETS.filter(([, , re]) => Object.entries(music).some(([key, urls]) => key.startsWith('bgm-') && urls.some((u) => re.test(u)))).map(([id, label]) => ({ id, label }));
     this.set = this.sets.find((t) => t.id === store('hd2d-music'))?.id ?? this.sets[0]?.id;
     this.volume = Math.min(1, Math.max(0, Number(store('hd2d-music-volume') ?? 1)));
@@ -62,6 +63,14 @@ export class Audio {
   url(key) {
     const re = SETS.find(([id]) => id === this.set)?.[2];
     return (re && (this.music[key] || []).find((u) => re.test(u))) || this.files[key];
+  }
+
+  prepareBgm(key) {
+    const url = this.url(key);
+    if (!url || this.muted || !this.volume) return;
+    this.ensureCtx();
+    // 只准备当前曲库，真正切换场景时才播放，失败仍走 playBgm 的候选曲目。
+    this.loopBuffer(url).catch(() => {});
   }
 
   playBgm(key) {
@@ -103,6 +112,13 @@ export class Audio {
   // looping [A+X, B+X]. Files without loop points loop whole, as before. A few decoded tracks are kept.
   async loopBuffer(url) {
     if (this.bufs.has(url)) { const b = this.bufs.get(url); this.bufs.delete(url); this.bufs.set(url, b); return b; }
+    if (!this.loadingTracks.has(url)) {
+      this.loadingTracks.set(url, this.decodeLoop(url).finally(() => this.loadingTracks.delete(url)));
+    }
+    return this.loadingTracks.get(url);
+  }
+
+  async decodeLoop(url) {
     const data = await fetch(url).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); });
     const loops = this.loopData ?? (await Promise.race([this.loops, new Promise((r) => setTimeout(r, LOOPS_WAIT))])) ?? null;
     const x = await this.ctx.decodeAudioData(data), sr = x.sampleRate, L = loops?.[url];

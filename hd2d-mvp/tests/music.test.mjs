@@ -102,6 +102,42 @@ test('每个场景选择本版本曲目，缺少的 PS 曲目回退到对应原�
   await page.context().close();
 });
 
+test('战斗曲在切换画面前开始读取，慢请求不阻塞布阵也不重复下载', { timeout: 60000 }, async () => {
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  const page = await game.open('&flat', { setup: async ctx => {
+    await fixtures()(ctx);
+    await ctx.route('**/ps/bgm-battle.mp3', async route => {
+      if (route.request().method() === 'HEAD') return route.fallback();
+      await held;
+      await route.fulfill({ status: 200, contentType: 'audio/wav', body: wav }).catch(() => {});
+    });
+  } });
+  try {
+    await newCampaign(page);
+    await page.evaluate(() => {
+      const { g, audio, debug } = window.__game;
+      audio.setMuted(false, false);
+      const fetchFile = window.fetch;
+      window.battleMusicStarts = [];
+      window.fetch = (url, ...args) => {
+        if (url === 'assets/audio/ps/bgm-battle.mp3') window.battleMusicStarts.push(audio.bgmKey);
+        return fetchFile(url, ...args);
+      };
+      const chest = id => ({ ids: [id], gold: 100, rice: 500 });
+      for (const id of [40, 43]) g.officers[id].soldiers = 700;
+      void debug.fieldWar({ city: 11, from: 4, attacker: 4, defender: 0, day: 1, att: chest(40), def: chest(43) }, 'att');
+    });
+    await page.getByRole('button', { name: '布阵完成' }).click();
+    await page.waitForFunction(() => !window.__game.war.st.deploying && window.__game.audio.bgmKey === 'bgm-battle');
+    assert.equal(await page.evaluate(() => !!window.__game.audio.bgm?.src), false);
+    release();
+    await playing(page, 'bgm-battle', 'assets/audio/ps/bgm-battle.mp3');
+    assert.deepEqual(await page.evaluate(() => window.battleMusicStarts), ['bgm-strategy']);
+    assert.deepEqual(page.errors, []);
+  } finally { release(); await page.context().close(); }
+});
+
 test('只有标题曲时仍可选 PS；旧 Remix 选择和坏文件回退保持兼容', async () => {
   const requests = [];
   const page = await game.open('', { setup: async (ctx) => {

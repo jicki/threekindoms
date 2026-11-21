@@ -225,7 +225,11 @@ export function makeOverlay(wv) {
   function tipAt(c, key, u, t, mine) {
     const wid = t ? field.O(t.id).weapon : null;   // his weapon's picture closes the line, after 兵 and 体
     const info = t ? `${t.commander ? '★' : ''}${name(t.id)}　兵${field.O(t.id).soldiers}　体${field.O(t.id).hp}${wid != null && data().equipment[wid] ? `　<img class="eqi" src="${equipIcon(wid)}" alt="">` : ''}` : null;
-    if (mine && wv.st.cast != null) return t && field.legal(u, wv.st.cast, t) ? `${STRATS[wv.st.cast].name} → ${name(t.id)}` : info;
+    if (mine && wv.st.cast != null) {
+      if (!t || t.side === human) return info;
+      const reason = field.whyNotTarget(u, wv.st.cast, t);
+      return reason ? `${info}<br><em>${reason}</em>` : `${STRATS[wv.st.cast].name} → ${name(t.id)}`;
+    }
     if (mine && t && t.side !== human && field.adjacentEnemies(u).includes(t))
       return field.pool[human] >= ATTACK_COST ? `${info}<br>点选后可攻击　机动力 −${ATTACK_COST}（余 ${field.pool[human] - ATTACK_COST}）` : `${info}<br><em>机动力不足，无法攻击</em>`;
     if (mine && !t && wv.st.reach?.dist.has(key)) {

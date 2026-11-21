@@ -7,7 +7,7 @@ import { rng } from '../pixel.js';
 import { backdrop, lightShafts } from '../fx.js';
 import { buildTerrain, dressBoard, calmTextures, deepWaterTex, vnoise } from '../diorama.js';
 import { seasonalize } from '../seasons.js';
-import { warGround, bakePlate, paintTerrain, paintedWater, plantWoods, waterSurface } from '../warplate.js';
+import { bakePlate, paintTerrain, paintedWater, plantWoods, terrainPixelSize, waterSurface } from '../warplate.js';
 import { seasonEnv } from '../seasonenv.js';
 import { seeThrough } from '../seethrough.js';
 import { FOREST, SAND, PLAIN, RIVER, MOUNT, CASTLE } from '../core/field.js';
@@ -56,7 +56,7 @@ export function makeBoard(wv) {
   if (refined && field.weather === 'clear') sun.color.lerp(new THREE.Color('#fff7ea'), 0.47);
   // The painted materials (src/warplate.js), loaded by app.js before the battle; without them (a test that
   // builds the view directly) the board falls back to the tile textures and the 3D woods.
-  const G = warGround(field.g.month, field.war.city);
+  const G = ctx.ground;
   // The flat painted map (ctx.flat, src/warmap2d.js) shows none of the 3D scene: it draws the board from its own picture and the
   // generals from their views here (flatState). So its war builds only what that reads and what the rules' play moves: the
   // generals, the range and route cells, the camera (PERF-03, 2026-11-07); not the ground plates, the terrain mesh, the dressing,
@@ -191,7 +191,7 @@ export function makeBoard(wv) {
     // all the plates read besides the materials (bakePlate keeps the picture for the next battle here)
     const plateKey = `${field.war.city}|${field.war.from}|${field.siege?.revision ?? 0}|${Object.keys(G.img).join(',')}|${JSON.stringify(field.map)}|${JSON.stringify(field.villages.map((v) => [v.x, v.y]))}`;
     paintTerrain(tiles, G, {
-      plate: bakePlate(G, { ...PB, px: field.approaches ? 56 : PLATE_PX, kind: kindAt, near, grid: playable, seed, key: plateKey, refined,
+      plate: bakePlate(G, { ...PB, px: field.approaches ? terrainPixelSize(PB, 56) : PLATE_PX, kind: kindAt, near, grid: playable, seed, key: plateKey, refined,
         detail: refined ? P => paintRoadSurface(P, G, field.approaches) : null }),
       far: bakePlate(G, { ...PA, px: 16, kind: kindAt, near, seed, key: plateKey, refined }),
     });

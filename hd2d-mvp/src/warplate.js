@@ -10,47 +10,55 @@ import { groundSeason, seasonKey } from './warseason.js';
 import { siteOfCity } from './china.js';
 import { vnoise } from './diorama.js';
 import { waterColor, waterDepth } from './war/surface.js';
+import { readImage, readResource } from './resource.js';
 
 export { groundSeason };
 const DIR = 'assets/ai/warground/';
+const SURFACES = 'assets/battle-textures/';
 const cache = new Map();
-const image = (n, dir = DIR) => {
-  const src = `${dir}${n}.webp`;
-  if (!cache.has(src)) cache.set(src, new Promise((resolve, reject) => {
-    const i = new Image();
-    i.onload = () => resolve(i);
-    i.onerror = error => { cache.delete(src); reject(error); };
-    i.src = src;
-  }));
+const cached = (src, read) => {
+  if (!cache.has(src)) cache.set(src, read().catch(error => { cache.delete(src); throw error; }));
   return cache.get(src);
 };
-const rectsOf = (n) => cache.get(`${n}.json`) ?? cache.set(`${n}.json`, fetch(`${DIR}${n}.json`).then((r) => r.json())).get(`${n}.json`);
+const image = (src, timeout) => cached(src, () => readImage(src, timeout));
+const original = (name) => image(`${DIR}${name}.webp`);
+const material = (name) => image(`${SURFACES}lite-${name}.webp`, 1800).catch(() => original(name));
+const surface = (name) => image(`${SURFACES}${name}.webp`, 1800).then(img => [name, img], () => null);
 
-const MATERIALS = ['dirt', 'sand', 'hilltop', 'forest-floor', 'paving', 'fields', 'bank', 'water', 'cliff', 'cliff-tier', 'snow', 'castle', 'village'];
-const SURFACES = ['road-earth', 'court-stone', 'water-ripples', 'woods-floor'];
-let loaded = null;
+// 旧版整张地图只用于原版平面战场。缺图时可用已并行准备的地表材质合成。
+async function paintedMap(city, month, season) {
+  try {
+    const m = await readResource(`${DIR}maps/${city}.json`, r => r.json(), { timeout: 1500 });
+    const file = m.images[seasonKey(month, season)] ?? Object.values(m.images)[0];
+    return { board: m.board, img: await readImage(`${DIR}maps/${file}`, 2200) };
+  } catch { return null; }
+}
+
 // Before the battle scene is built (app.js): the materials for this battle's month and place.
-export async function loadWarGround(month, city, { refined = false } = {}) {
+export async function loadWarGround(month, city, { flat, siege, refined }) {
   const T0 = performance.now(); // tools/scene_switch_trace.mjs (PERF-05): measures only
   const season = groundSeason(month, siteOfCity(city)?.lat ?? 33);
-  const names = [...new Set([...MATERIALS, season.grass, season.mix?.[0]].filter(Boolean))];
-  const [imgs, atlas, sheet, surfaces] = await Promise.all([
-    Promise.all(names.map(n => image(n))), image(season.trees), rectsOf(season.trees),
-    refined ? Promise.all(SURFACES.map(async n => [n, await image(n, 'assets/battle-textures/').catch(() => null)])) : [],
+  const names = ['dirt', 'sand', 'hilltop', 'fields', 'bank', 'cliff', season.grass, season.mix?.[0],
+    season.snow ? 'snow' : null, !flat ? 'cliff-tier' : null, !flat || !refined ? 'water' : null].filter(Boolean);
+  const entry = async (name, read = material) => [name, await read(name)];
+  const surfaceOr = async (name, fallback) => (refined && await surface(name)) || await entry(fallback);
+  const sheetUrl = `${DIR}${season.trees}.json`;
+  const [materials, atlas, sheet, painted] = await Promise.all([
+    Promise.all([...names.map(n => entry(n)), surfaceOr('woods-floor', 'forest-floor'), surfaceOr('court-stone', 'paving'),
+      ...(refined ? [surface('road-earth'), surface('water-ripples')] : []),
+      ...(flat ? [entry('village', original), ...(!siege ? [entry('castle', original)] : [])] : [])]),
+    original(season.trees), cached(sheetUrl, () => readResource(sheetUrl, r => r.json(), { timeout: 5000 })),
+    flat && !siege ? paintedMap(city, month, season) : null,
   ]);
-  // A painted battlefield (tools/gen_warmap_codex.sh), when one exists for this field: maps/<city>.json lists
-  // the board's rectangle in the picture and a picture per season ('spring', 'summer', 'autumn', 'winter').
-  let painted = null;
-  if (!refined) try {
-    const m = await (await fetch(`${DIR}maps/${city}.json`, { cache: 'no-store' })).json(), file = m.images[seasonKey(month, season)] ?? Object.values(m.images)[0];
-    painted = { board: m.board, img: await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = `${DIR}maps/${file}`; }) };
-  } catch { /* none for this field: the map is composed from the materials */ }
-  loaded = { key: `${month}|${city}`, season, painted,
-    img: Object.fromEntries([...names.map((n, i) => [n, imgs[i]]), ...surfaces.filter(([, img]) => img)]), atlas, sheet };
   performance.measure('war:loadGround(async)', { start: T0 });
-  return loaded;
+  return { season, painted, img: Object.fromEntries(materials.filter(Boolean)), atlas, sheet };
 }
-export const warGround = (month, city) => (loaded?.key === `${month}|${city}` ? loaded : null);
+
+// 大图限制合成贴图的像素量。尺寸参数按地格计算，城墙、桥梁及可行走区域与画布分辨率无关。
+export function terrainPixelSize({ w, h }, preferred, mobile = false) {
+  const area = (mobile ? 2 : 3) * 1024 * 1024, edge = mobile ? 2048 : 3072;
+  return Math.floor(Math.min(preferred, Math.sqrt(area / (w * h)), edge / Math.max(w, h)));
+}
 
 // How many cells one repeat of a swatch spans.
 const SPAN = { grass: 5, 'grass-spring': 5, 'grass-autumn': 5, snow: 5, dirt: 4.5, sand: 5, hilltop: 3.5, 'forest-floor': 4, paving: 3, fields: 6, bank: 3, water: 4.5,
@@ -78,7 +86,14 @@ export function painter(G, { x0, y0, w, h, px, kind, near = () => 0, seed = 1, r
   };
   const mask = (cover, { edge = 0.32, cut = 0.5, alpha = 1 } = {}) => {
     const img = l.createImageData(w, h);
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) img.data[(y * w + x) * 4 + 3] = Math.round(255 * Math.max(0, Math.min(1, cover(x0 + x, y0 + y))));
+    let covered = false;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const a = Math.round(255 * Math.max(0, Math.min(1, cover(x0 + x, y0 + y))));
+      img.data[(y * w + x) * 4 + 3] = a;
+      if (a) covered = true;
+    }
+    // 没有对应地形，且边缘噪声也无法越过透明阈值时，无需放大和扫描遮罩。
+    if (!covered && edge * 0.5 <= cut - 0.025) return null;
     l.putImageData(img, 0, 0);
     const [mid, m] = make(mw, mh, { willReadFrequently: true });
     m.imageSmoothingEnabled = true; m.imageSmoothingQuality = 'high'; m.drawImage(low, 0, 0, mw, mh);

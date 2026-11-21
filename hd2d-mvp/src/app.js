@@ -3047,6 +3047,8 @@ async function expedition(cid) {
     return;
   }
   // The original shows the commander's angry face as the army marches (expression selector 2).
+  loadFieldSprites();
+  audio.prepareBgm('bgm-battle');
   audio.cue('cue-sortie');
   await message('出阵', `${name(cmd)}率${ids.length}将，向${cityName(to)}进军！`, cmd, 'angry');
   const w = setupWar(g, { from: cid, to, ids, commander: cmd, gold: v.gold, rice: v.rice });
@@ -3141,19 +3143,23 @@ const WHY = { castle: '攻占了城池', commander: '总大将失去了战斗能
 // opts.after: what follows once the war is settled, kept for 中断 (suspendWar). opts.field / opts.start: a suspended war
 // taken up again (resumeWar), its field and the soldiers each general opened it with (the result's ledger).
 async function fieldWar(w, humanSide, { after = { kind: humanSide === 'att' ? 'att' : 'def', faction: w.attacker, pts: 0 }, field: snap = null, start: start0 = null, yaw = null, onReady } = {}) {
-  await fade(true);
-  document.body.dataset.screen = 'war'; clear();
   const start = start0 ?? Object.fromEntries([...w.att.ids, ...w.def.ids].map((id) => [id, g.officers[id].soldiers]));
   const field = snap ? Field.restore(g, w, snap) : new Field(g, w, humanSide);
+  warFlat = nextWarFlat();
+  const fading = fade(true);
+  // 素材下载与淡出并行，音乐就绪与否不影响布阵或中断恢复。
+  const resources = Promise.all([
+    loadWarGround(g.month, w.city, { flat: warFlat, siege: !!field.siege, refined: !!field.approaches?.barriers })
+      .catch((e) => { console.warn('战场材质无法读取，使用备用地形', e); return null; }),
+    loadFieldSprites(), loadOfficerMarch(field.alive.map((u) => u.id)),
+  ]);
+  audio.prepareBgm('bgm-battle');
+  const [[ground]] = await Promise.all([resources, fading]);
+  document.body.dataset.screen = 'war'; clear();
   warCtx = { w, side: humanSide, start, after, field };
   strategy.setSeason(g.month, true); // the shared season uniforms on this month before the battle scenes read them
   const ui = warUi(field);
-  await Promise.all([
-    loadFieldSprites(), loadOfficerMarch(field.units.map((u) => u.id)),
-    loadWarGround(g.month, w.city, { refined: !!field.approaches?.barriers }).catch((e) => console.warn('war ground', e)), // painted materials (src/warplate.js)
-  ]);
-  warFlat = nextWarFlat();
-  war = createWarView({ T, audio, ui, sprites, flat: warFlat, yaw, prepareSkirmish: (res) => prepareSkirmish(field, res.pending),
+  war = createWarView({ T, audio, ui, sprites, ground, flat: warFlat, yaw, prepareSkirmish: (res) => prepareSkirmish(field, res.pending),
     onSkirmish: (a, d, res, terrain, ready) => cutIn(field, a, d, res, terrain, ready) }, field);
   warNav?.dispose(); warNav = war.flat ? null : createWarNav(war, document.body); // on <body>: a HUD redraw clears #ui
   await prewarm(war); // under the fade
@@ -3542,7 +3548,8 @@ function actPanel(info, was) {
       weather ? h('p', { class: 'ap-key ap-weather' }, weather) : null,
       h('p', { class: 'hint' }, pad.active ? padText((k) => (t ? `再对${name(t.id)}按 ${k('a')}，或按「施展」` : `按「施展」`)) : t ? `再点${name(t.id)}或按 Enter 施展` : '按 Enter 或「施展」'),
     ] : [h('p', {}, `消耗 ${targets.cost}，全军余 `, h('b', {}, pool - targets.cost), `（还够攻击 ${Math.max(0, Math.floor((pool - targets.cost) / 2))} 次）`),
-      h('p', { class: 'hint' }, pad.active ? padText((k) => `选好目标按 ${k('a')}；推右到地图上选`) : '点紫色格或名单里的武将')];
+      targets.blocked ? h('p', { class: 'ap-warn', role: 'status' }, h('b', {}, name(targets.blocked.u.id)), '　', targets.blocked.reason)
+        : h('p', { class: 'hint' }, pad.active ? padText((k) => `选好目标按 ${k('a')}；推右到地图上选`) : '点紫色格或名单里的武将')];
     // 施展 stands in its place from the start, greyed until a target is picked, so the buttons never move between the steps.
     // Picked, it is held off for a moment (src/commitguard.js): the click or the key that picked the target does not cast.
     const go = h('button', { class: `btn primary ap-go${confirm && fresh ? ' arming' : ''}`, disabled: !!busy || !confirm, title: confirm ? `施展${confirm.name}（Enter）` : '先选一个目标',
@@ -3938,6 +3945,7 @@ const io = {
       return;
     }
     strategy.refresh(g); strategy.select(plan.city); strategy.focusCity(plan.city);
+    audio.prepareBgm('bgm-battle');
     audio.cue('cue-sortie');
     const attack = plan.cause === 'riot' ? `暴乱引来${kind}袭击${cityName(plan.city)}！` : `${kind}袭击${cityName(plan.city)}！`;
     await message(`${kind}来袭`, `${attack}敌军约${plan.troops}人，请率守军迎战。<br>守将受致命伤或被擒后下野；${g.noWarDeath ? '君主受不战死保护' : '君主阵亡则游戏失败'}。`, g.cities[plan.city].officers[0], 'grief');
@@ -3959,6 +3967,7 @@ const io = {
     // the war screen takes over; no 战略中 hold after it. Every plaque goes: the last faction's may still be fading out.
     $$('.aiturn').forEach((p) => p.remove()); aiShown = Infinity;
     strategy.refresh(g); strategy.select(w.city); strategy.focusCity(w.city);
+    audio.prepareBgm('bgm-battle');
     audio.cue('cue-sortie'); // the original plays 出阵's phrase for an AI attack on the player too
     const aid = w.support ? `<br>${factionName(w.support.faction)}自${cityName(w.support.city)}派${w.support.ids.map(name).join('、')}参战。` : '';
     await message('敌军来袭', `${factionName(w.attacker)}军${w.att.ids.length}将由${name(w.att.ids[0])}统率，自${cityName(w.from)}来攻${cityName(w.city)}！<br>${factionName(w.defender)}军由太守${name(w.def.ids[0])}守城。${aid}`, w.att.ids[0], 'angry');
