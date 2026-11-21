@@ -14,6 +14,7 @@ import { SOVEREIGN_SCENARIO_ID } from './visuals.js';
 import { chooseCampaignEvent, applyCampaignEvent } from './campaign-events.js';
 import { FAMOUS_ROSTER_START, activateFamousRoster, extraSearchIds, famousRosterTemplate, famousRosterFor, rosterRecordName, staticRosterSize } from './famous-roster.js';
 import { REGIONAL_REVISION, OFFICER_ROSTER_REVISION, addRegionalStock, hasRegionalContent } from './regional-content.js';
+import { APPROACH_CAMPAIGN_REVISION } from './battle-approaches.js';
 import { readResource } from '../resource.js';
 import { officerPassive, advancedBattle } from './battle-rules.js';
 import { charityBonus, developmentBonus, discountedCost } from './officer-passives.js';
@@ -65,7 +66,7 @@ const officerRecord = (o) => ({
 const CAMPAIGN_REVISION = 9;
 const FAMOUS_ROSTER_RULES = { famousSkills: 2, famousRoster: 3 };
 const FAMOUS_CAMPAIGN_RULES = { ...FAMOUS_ROSTER_RULES, battlefields: 2, siegeTactics: true };
-const latestCampaignRevision = () => scenarioId === EXPANDED_MAP_ID ? OFFICER_ROSTER_REVISION : CAMPAIGN_REVISION;
+const latestCampaignRevision = () => scenarioId === EXPANDED_MAP_ID ? APPROACH_CAMPAIGN_REVISION : CAMPAIGN_REVISION;
 const supportsNewBattle = () => D.expandedMap === true && (scenarioId === EXPANDED_MAP_ID || D.newBattleRules === true);
 function campaignDefaults() {
   const defaults = {};
@@ -194,14 +195,14 @@ export function income(g, kind) {
   const [A, B] = D.rules.income_ab[g.level];
   const out = [];
   for (const c of [...g.cities].reverse()) {
-    if (c.faction === NONE || isPass(c.id)) continue;
+    if (isPass(c.id)) continue;
     const Dv = kind === 'gold' ? c.industry : c.land, N = kind === 'gold' ? 80 : 60;
     const q = Math.floor((c.pop * (Math.floor(Dv / A) + B)) / N);
     let inc = Math.floor((q * GOV_C(c.gov)) / 100);
     const lord = g.factions[c.faction]?.ruler, home = lord == null ? null : officerCity(g, lord);
     const unique = home?.faction === c.faction ? rulerPassive(g, c.faction)?.combat?.unique : null;
     if ((kind === 'gold' && unique === 'tax') || (kind === 'rice' && unique === 'harvest')) inc += Math.min(kind === 'gold' ? 40 : 50, Math.floor(inc / 20));
-    if (c.faction !== g.player && warlikeTier(g) === 3) inc += Math.min(250, Math.floor(inc / 5));
+    if (c.faction !== NONE && c.faction !== g.player && warlikeTier(g) === 3) inc += Math.min(250, Math.floor(inc / 5));
     c[kind] = Math.min(9999, c[kind] + inc);
     out.push([c.id, inc]);
   }
@@ -651,7 +652,7 @@ export function reward(g, cid, target, gold, treasure = false) {
   return { ok: true, msg: `${name(target)} 忠诚 +${o.loyalty - before}` };
 }
 export function charity(g, cid, gold, rice) {
-  if (isPass(cid)) return { ok: false, msg: '关隘不能施舍' };
+  if (isPass(cid)) return { ok: false, msg: '关隘不能赈济' };
   const c = g.cities[cid], r = rng(g);
   if (c.gov >= 100) return { ok: false, msg: '统治度已满' };
   if ((!gold && !rice) || c.gold < gold || c.rice < rice) return { ok: false, msg: '金米不足' };
@@ -677,7 +678,7 @@ export function study(g, cid, id) {
 }
 export function heal(g, cid, id) {
   const c = g.cities[cid], o = g.officers[id], r = rng(g), max = maxHp(o);
-  if (!D.cities[cid].facilities.hospital) return { ok: false, msg: '此城没有病院' };
+  if (!D.cities[cid].facilities.hospital) return { ok: false, msg: '此城没有医馆' };
   if (o.hp >= max) return { ok: false, msg: '体力已满' };
   if (c.gold < 50) return { ok: false, msg: '金不足' };
   c.gold -= 50; const before = o.hp; o.hp = Math.min(max, o.hp + 35 + r(11));
@@ -922,7 +923,7 @@ const quickKey = () => `${key()}:quick`, quickBak = () => `${quickKey()}:bak`;
 const parse = (s) => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
 const read = (k) => { try { return parse(localStorage.getItem(k)); } catch { return null; } };
 export const futureVersion = (g) => (Number.isInteger(g?.version) && g.version > SAVE_VERSION)
-  || (Number.isInteger(g?.campaignRevision) && g.campaignRevision > OFFICER_ROSTER_REVISION);
+  || (Number.isInteger(g?.campaignRevision) && g.campaignRevision > APPROACH_CAMPAIGN_REVISION);
 const slotStates = new WeakMap();
 export function slotToken(slot) { try { return localStorage.getItem(slotKey(slot)); } catch { return undefined; } }
 export const futureSlot = (slot) => futureVersion(parse(slotToken(slot)));
@@ -991,7 +992,7 @@ export function upgrade(g) {
   if (g.famousSkills !== undefined && (![true,2].includes(g.famousSkills) || scenarioId !== EXPANDED_MAP_ID || D.expandedMap !== true)) return null;
   if (g.famousRoster !== undefined && (![1, 2, 3].includes(g.famousRoster) || g.famousSkills !== 2 || scenarioId !== EXPANDED_MAP_ID || D.expandedMap !== true)) return null;
   if ((g.famousRoster === 2) !== (g.campaignRevision === REGIONAL_REVISION)
-    || (g.famousRoster === 3) !== (g.campaignRevision === OFFICER_ROSTER_REVISION)) return null;
+    || (g.famousRoster === 3) !== (g.campaignRevision >= OFFICER_ROSTER_REVISION)) return null;
   if (g.famousSkills === 2 && (!Array.isArray(g.officers) || !famousRosterFor(g).length || g.officers.length < staticRosterSize(D, g))) return null;
   if (g.siegeTactics !== undefined && (g.siegeTactics !== true || g.battlefields !== 2 || !supportsNewBattle())) return null;
   if (g.battlefields !== undefined && (![1, 2].includes(g.battlefields) || !supportsNewBattle())) return null;
@@ -1043,7 +1044,7 @@ export function upgradeCampaign(g) {
     const first = FAMOUS_ROSTER_START + famousRosterFor(next).length, clones = new Set(next.clones);
     const extras = next.officers.slice(first);
     if (next.officers.length < first || extras.some((o) => !clones.has(o.id))) return false;
-    Object.assign(next, modern ? FAMOUS_ROSTER_RULES : FAMOUS_CAMPAIGN_RULES);
+    Object.assign(next, FAMOUS_CAMPAIGN_RULES);
     const count = staticRosterSize(D, next) - first;
     const remap = (id) => clones.has(id) ? id + count : id;
     const recruits = Array.from({ length: count }, (_, i) => officerRecord(famousRosterTemplate(first + i)));

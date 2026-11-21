@@ -123,9 +123,9 @@ test('洛阳与长安采用不同外廓，水岸固定在城市一侧，偏门�
   assert.throws(()=>Field.restore(oldGame,w,record));
   const before = structuredClone(oldGame);
   assert.ok(G.upgradeCampaign(oldGame));
-  assert.equal(oldGame.campaignRevision,11);
+  assert.equal(oldGame.campaignRevision,12);
   assert.deepEqual(legacyRoster(structuredClone(oldGame),8),before);
-  assert.equal(new Field(oldGame,w,'def').siege.revision,4);
+  assert.equal(new Field(oldGame,w,'def').siege.revision,5);
   assert.deepEqual(Field.restore(oldGame,w,old.snapshot()).siege,old.siege);
 });
 
@@ -265,7 +265,7 @@ test('真实战场中断存取保留城门状态，损坏的城门记录不能�
   const descriptor=Object.getOwnPropertyDescriptor(globalThis,'localStorage'), store=new Map();
   Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v)),removeItem:k=>store.delete(k)}});
   try {
-    for (const revision of [1,8,9,10,11]) {
+    for (const revision of [1,8,9,10,11,12]) {
       const g=game(7,revision), w=war(), f=new Field(g,w,'att'); f.siege.gates[0].open=true;
       assert.equal(suspend(g,w,f,{side:'att',start:{},after:{kind:'att'}}),true);
       const rec=takeSuspend(); assert.ok(rec); assert.deepEqual(Field.restore(rec.g,rec.war,rec.field).siege,f.siege);

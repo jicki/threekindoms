@@ -251,7 +251,7 @@ test('外交目标列表包含敌方关隘的驻军', async () => {
     await page.reload(); await waitScenario(page, 'builtin-sovereigns-expanded-map'); await skipIntro(page);
     await page.getByText('继续记录').click();
     await page.waitForFunction(() => document.body.dataset.screen === 'strategy' && window.__game.g?.current === window.__game.g.player);
-    await cmd(page, '外交', '离间');
+    await cmd(page, '谋', '离间');
     const group = page.locator('.otree details.tc').filter({ has: page.locator(`tr[data-id="${guard}"]`) });
     assert.match(await group.locator('summary').innerText(), /虎牢关/);
     if (!(await group.evaluate((el) => el.open))) await group.locator('summary').click();
@@ -277,14 +277,16 @@ test('最后一城只有一名武将时，移动与出阵均提示不能撤空�
     await page.reload(); await waitScenario(page, 'builtin-sovereigns-expanded-map'); await skipIntro(page);
     await page.getByText('继续记录').click();
     await page.waitForFunction(() => document.body.dataset.screen === 'strategy' && window.__game.g?.current === window.__game.g.player);
-    for (const [group, action] of [['城', '移动'], ['军', '出阵']]) {
-      await cmd(page, group, action);
-      await page.locator('.mappick .chips .btn').filter({ hasText: '武关' }).click();
-      await page.locator('.toast').filter({ hasText: '最后一座城市留守' }).last().waitFor();
-      assert.equal(await page.locator('.mappick').count(), 0);
-      assert.equal(await page.evaluate(() => window.__game.g.cities[13].officers.length), 1);
-      assert.equal(await page.evaluate(() => window.__game.g.cities[35].faction), await page.evaluate(() => window.__game.G.NONE));
-    }
+    await cmd(page, '军', '移动');
+    assert.equal(await page.locator('.mappick .chips .btn').filter({ hasText: '武关' }).count(), 0);
+    assert.equal(await page.locator('.ctag.cand').filter({ hasText: '武关' }).count(), 0);
+    await page.locator('.mappick button').filter({ hasText: '取消' }).click();
+    await cmd(page, '军', '出阵');
+    await page.locator('.mappick .chips .btn').filter({ hasText: '武关' }).click();
+    await page.locator('.toast').filter({ hasText: '最后一座城市留守' }).last().waitFor();
+    assert.equal(await page.locator('.mappick').count(), 0);
+    assert.equal(await page.evaluate(() => window.__game.g.cities[13].officers.length), 1);
+    assert.equal(await page.evaluate(() => window.__game.g.cities[35].faction), await page.evaluate(() => window.__game.G.NONE));
     assert.deepEqual(page.errors, []);
   } finally { await page.context().close(); }
 });
@@ -338,7 +340,7 @@ test('玩家诱纳敌方最后一城的守将后，立即结算关隘势力灭�
     await page.getByText('继续记录').click();
     await page.waitForFunction(() => document.body.dataset.screen === 'strategy' && window.__game.g?.current === window.__game.g.player);
     await page.evaluate(() => { window.__game.g.seed = 7; });
-    await cmd(page, '外交', '诱纳');
+    await cmd(page, '谋', '诱纳');
     await page.locator(`.shade tr[data-id="${guard}"]`).first().click({ force: true });
     await page.locator(`.shade tr[data-id="${actor}"]`).first().click({ force: true });
     await page.locator('.shade .btn.primary').last().click();

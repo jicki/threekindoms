@@ -8,6 +8,7 @@ import { roll100, realChance } from './origrng.js';
 import { relationshipAffinity, recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
 import { passiveRiceUse } from './ruler-passives.js';
 import { resolveBattlefield } from './battlefields.js';
+import { POST_MOBILITY } from './battle-approaches.js';
 import { siegeRing, wallAt, gateAt, gateDefense, blockedStrategy, restoreGates } from './siege.js';
 import { abilityStrategy, abilityStrategyIds, strategySpecs } from './famous-skills.js';
 import { advancedBattle, aiBattleBonus, battleWeather, fullStrategyWeather, officerPassive, tacticWeather, WEATHER_NAMES, weatherPenalty } from './battle-rules.js';
@@ -100,8 +101,8 @@ export class Field {
     this.g = g; this.war = war; this.human = humanSide; // 'att' | 'def' | null
     this.weather = battleWeather(g, war.city);
     takeLevelUps(g); // level-ups from fights the player did not see (AI wars, a test 白兵) are not told in this one
-    const { map, dep, villages, siege, profile, entry } = resolveBattlefield(D, g, war.city, war.from);
-    Object.assign(this, { map, dep, villages, siege, sceneProfile: profile, entryDirection: entry });
+    const { map, dep, villages, siege, profile, entry, approaches } = resolveBattlefield(D, g, war.city, war.from);
+    Object.assign(this, { map, dep, villages, siege, sceneProfile: profile, entryDirection: entry, approaches });
     this.r = rng(g);
     this.units = [];
     for (const side of ['def', 'att']) {
@@ -135,8 +136,8 @@ export class Field {
     configureStrategies(g);
     f.g = g; f.war = war; f.human = s.human;
     f.weather = battleWeather(g, war.city);
-    const { map, dep, villages, siege, profile, entry } = resolveBattlefield(D, g, war.city, war.from, s.siegeRevision ?? 1);
-    Object.assign(f, { map, dep, villages, siege, sceneProfile: profile, entryDirection: entry, r: rng(g) });
+    const { map, dep, villages, siege, profile, entry, approaches } = resolveBattlefield(D, g, war.city, war.from, s.siegeRevision ?? 1);
+    Object.assign(f, { map, dep, villages, siege, sceneProfile: profile, entryDirection: entry, approaches, r: rng(g) });
     if (f.siege && !restoreGates(f.siege, s.siegeGates)) throw new Error('无效的城门中断记录');
     Object.assign(f, { units: s.units, pool: s.pool, day: s.day, turn: s.turn, over: s.over, log: s.log ?? [], lastAmbush: null, resumed: true });
     if (s.commanderRetreat) f.commanderRetreat = s.commanderRetreat;
@@ -146,8 +147,10 @@ export class Field {
   O(id) { return this.g.officers[id]; }
   get alive() { return this.units.filter((u) => !u.gone); }
   side(s) { return this.alive.filter((u) => u.side === s); }
+  get width() { return this.map[0].length; }
+  get height() { return this.map.length; }
   terr(x, y) { return this.map[y][x]; }
-  inside(x, y) { return x >= 0 && y >= 0 && x < W && y < H; }
+  inside(x, y) { return x >= 0 && y >= 0 && x < this.width && y < this.height; }
   unitAt(x, y) { return this.alive.find((u) => u.x === x && u.y === y); }
   castle() { return this.dep.defender[0]; }
   faction(s) { return s === 'att' ? this.war.attacker : this.war.defender; }
@@ -191,7 +194,14 @@ export class Field {
   troops(s) { return this.side(s).reduce((a, u) => a + this.O(u.id).soldiers, 0); }
   mobilityBonus(s) {
     const passive = this.combatPassive(s);
-    return (passive?.mobility ?? 0) + (passive?.unique === 'muster' && this.side(s).length >= 4 ? 1 : 0);
+    const post = this.postHolder();
+    return (passive?.mobility ?? 0) + (passive?.unique === 'muster' && this.side(s).length >= 4 ? 1 : 0)
+      + (post?.side === s ? POST_MOBILITY : 0);
+  }
+  postHolder() {
+    const post = this.approaches?.post;
+    const unit = post && this.unitAt(post.x, post.y);
+    return unit && this.O(unit.id).soldiers > 0 ? unit : null;
   }
   recover() {
     const D = data();
@@ -208,7 +218,8 @@ export class Field {
     const gate = gateAt(this.siege, x, y);
     const base = D.rules.move_cost[o.soldiers >= 600 ? 'large' : 'small'][o.army][t], passive = this.passive(u);
     const ground = t === passive?.terrainMarch || (t === PLAIN && passive?.march && o.soldiers >= 600) ? 1 : t === MOUNT ? passive?.mountains ?? 0 : 0;
-    return Math.max(1, base + weatherPenalty(this.weather, t, passive, o.army) - ground) + (u.side === 'att' && gate && !gate.open ? 2 : 0);
+    const road = this.approaches?.roads.has(`${x},${y}`) ? 1 : 0;
+    return Math.max(1, base + weatherPenalty(this.weather, t, passive, o.army) - ground - road) + (u.side === 'att' && gate && !gate.open ? 2 : 0);
   }
   reach(u, budget = this.pool[u.side], allows = () => true) {
     const dist = new Map([[u.x + ',' + u.y, 0]]), prev = new Map(), open = u.stop || u.qimen ? [] : [[0, u.x, u.y]];
@@ -257,7 +268,17 @@ export class Field {
   }
   village(u) { return this.villages.find((v) => v.x === u.x && v.y === u.y); }
   // What a cell is to the player: a village (moved and judged as 平地) or its terrain's name.
-  ground(x, y) { const gate = gateAt(this.siege,x,y); if (gate) return `${gate.ring === this.siege.outer ? '外' : '内'}城门（${gate.open ? '已突破' : '封闭，攻方突破消耗＋2'}）`; if (wallAt(this.siege,x,y)) return '城墙（不可通行）'; const v = this.villages.find((q) => q.x === x && q.y === y); return v ? `村落（${v.kind}）` : TERRAIN_NAME[this.terr(x, y)]; }
+  ground(x, y) {
+    const gate = gateAt(this.siege, x, y);
+    if (gate) return `${gate.ring === this.siege.outer ? '外' : '内'}城门（${gate.open ? '已突破' : '封闭，攻方突破消耗＋2'}）`;
+    if (wallAt(this.siege, x, y)) return '城墙（不可通行）';
+    const village = this.villages.find(v => v.x === x && v.y === y);
+    if (village) return `村落（${village.kind}）`;
+    const post = this.approaches?.post;
+    if (post?.x === x && post.y === y) return `前哨（驻军次日机动力＋${POST_MOBILITY}）`;
+    const road = this.approaches?.roads.get(`${x},${y}`);
+    return road ? `${road.bridge ? '桥道' : '行军道'}（移动消耗减1，最低1）` : TERRAIN_NAME[this.terr(x, y)];
+  }
   deployable(x,y) { return !wallAt(this.siege,x,y); }
   move(u, x, y, spent, path = [[x,y]]) {
     let breached = false;
@@ -839,6 +860,17 @@ export class Field {
       if (cast) return cast;
       if (adj.length && this.pool[s] >= ATTACK_COST) return this.doAttack(u, adj);
       return this.guardCastle(u);
+    }
+    if (s === 'att' && this.approaches && !adj.length && this.day <= 10 && !u.commander
+      && !u.stop && !u.qimen && o.soldiers >= 300) {
+      const allies = this.side(s), { post } = this.approaches, holder = this.postHolder();
+      // 主力继续攻城，有余兵时派一支分队驻哨；有敌靠近时照常作战。
+      if (allies.length >= 4 && holder === u) return null;
+      if (allies.length >= 4 && !this.unitAt(post.x, post.y)) {
+        const guard = allies.filter(v => !v.commander && v.role >= 2 && v.role <= 4 && !v.stop && !v.qimen && this.O(v.id).soldiers >= 300)
+          .sort((a, b) => this.dist(a, post) - this.dist(b, post) || a.id - b.id)[0];
+        if (guard === u) { const move = this.approach(u, post); if (move) return move; }
+      }
     }
     if (u.role === 0) {
       if (s === 'def') return this.aiStrategy(u, false);

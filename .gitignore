@@ -25,3 +25,5 @@ hd2d-mvp/desktop/build/*.ico
 /ASSETS-README.txt
 /threekindoms-assets-*.zip
 !hd2d-mvp/assets/regional/*.webp
+!hd2d-mvp/assets/portrait-refresh/*.webp
+!hd2d-mvp/assets/portrait-refresh/*.png

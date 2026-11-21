@@ -1,4 +1,4 @@
-// 废除同盟 (feedback V01, 2026-10-31): an ally chosen under 外交 → 同盟 is let go for one book, both sides'
+// 废除同盟 (feedback V01, 2026-10-31): an ally chosen under 谋 → 同盟 is let go for one book, both sides'
 // timers cleared and nothing else, as bank 28 $CEAD→$CEC7 does. Rules only, in Node.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

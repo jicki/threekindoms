@@ -3,10 +3,10 @@
 // terrainOn is reassigned by setTerrainView (the entry's api) and read here and by units.js: it is wv.terrainOn, never copied.
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
-import { W, H } from '../core/field.js';
 
 export function makePick(wv) {
   const { field, human, scene, camera, wx, wz, inside, topY, APRON, GW, GH, tiles, views, figureBox } = wv;
+  const { width: W, height: H } = field;
   const ray = new THREE.Raycaster();
   // A unit card is a 1.7-cell-tall quad, so a neighbour standing in front covers the cells behind it
   // (player feedback N08). The pick sees through the card where it is transparent (the material's own

@@ -28,6 +28,7 @@ const redraw = () => page.evaluate(() => window.__game.debug.hud());
 
 test('a city opens with the list closed; a group opens, swaps and closes it', async () => {
   assert.equal(await shown(), false); assert.equal(await tabOn(), null);
+  assert.deepEqual(await page.locator('.dock [data-tab]').allTextContents(), ['城', '军', '仓', '町', '谋']);
   assert.equal(await page.locator('.dock .hint').count(), 0, 'the hint line is gone');
   await tabBtn('町').click(); assert.equal(await tabOn(), '町'); assert.equal(await shown(), true);
   await tabBtn('军').click(); assert.equal(await tabOn(), '军', 'another group takes its place');
@@ -38,18 +39,25 @@ test('each row says what it does, or why it cannot be done', async () => {
   await openCmds(page, '町');
   assert.deepEqual((await rows()).map((r) => [r.name, r.note, r.off]), [
     ['买米', '在米市用金买米', false], ['卖米', '在米市卖米换金', false], ['卖宝', '没有宝物', true],
-    ['病院', '没有负伤的武将', true], ['书馆', '此城没有学问所', true], ['铁铺', '为武将购买武器与防具', false]]);
+    ['医馆', '没有负伤的武将', true], ['书馆', '此城没有学问所', true], ['铁铺', '为武将购买武器与防具', false]]);
   await openCmds(page, '军');
   assert.deepEqual((await rows()).filter((r) => r.free).map((r) => r.name), ['分兵', '任命']);
-  await tabBtn('军').click();
+  assert.ok((await rows()).some(r => r.name === '调遣'));
+  await openCmds(page, '仓');
+  assert.deepEqual((await rows()).map(r => r.name), ['运输', '赏赐', '赈济']);
+  await openCmds(page, '城');
+  assert.ok((await rows()).some(r => r.name === '记录'));
+  await openCmds(page, '谋');
+  assert.deepEqual((await rows()).map(r => r.name), ['同盟', '诱纳', '离间']);
+  await tabBtn('谋').click();
 });
 
 test('no row\'s note is cut short, in any group', async () => {
-  for (const t of ['城', '军', '仓', '町']) {
+  for (const t of ['城', '军', '仓', '町', '谋']) {
     await openCmds(page, t);
     assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.dock .acts .cmd small')].filter((s) => s.scrollWidth > s.clientWidth).map((s) => s.textContent)), [], t);
   }
-  await tabBtn('町').click();
+  await tabBtn('谋').click();
 });
 
 test('Esc and a press outside close it; the dialog of a command does not', async () => {
@@ -117,7 +125,8 @@ test('opened by the mouse, ↑ or ↓ on the group goes into its list', async ()
 
 // A map pick and the 系统 menu are not dialogs with a shade: the group keys must not work under them either (review, 2026-11-14).
 test('1–5 do nothing while a command picks a city on the map, or under the 系统 menu', async () => {
-  await cmd(page, '城', '移动'); await page.waitForSelector('.mappick');
+  await cmd(page, '军', '移动'); await page.waitForSelector('.mappick');
+  assert.equal(await page.locator('.dock .acts').isVisible(), false, '候选城不会被展开的菜单遮挡');
   await page.keyboard.press('2');
   assert.equal(await tabOn(), '军', 'the list stays as it was'); assert.equal(await focus(), null, 'and the keys stay with the picker');
   await page.keyboard.press('Escape'); await page.waitForFunction(() => !document.querySelector('.mappick'));
@@ -125,6 +134,36 @@ test('1–5 do nothing while a command picks a city on the map, or under the 系
   await page.getByRole('button', { name: '☰ 系统', exact: true }).click(); // (a press elsewhere: the list closes)
   await page.keyboard.press('1'); assert.equal(await shown(), false, 'no group opens under the 系统 menu');
   await page.getByRole('button', { name: '☰ 系统', exact: true }).click();
+});
+
+test('调遣跳过满员城市，并在选将时显示目标余位', async () => {
+  const change = await page.evaluate(() => {
+    const { G, g, strategy, debug } = window.__game, home = g.factions[g.player].city;
+    const [full, available] = G.roads(home);
+    const saved = [full, available].map(id => [id, structuredClone(g.cities[id])]);
+    Object.assign(g.cities[full], { faction: g.player, officers: Array.from({ length: 10 }, (_, i) => 90 + i) });
+    Object.assign(g.cities[available], { faction: g.player, officers: [110] });
+    strategy.refresh(g); debug.hud();
+    return { full: G.cityName(full), available: G.cityName(available), saved };
+  });
+  try {
+    await cmd(page, '军', '移动');
+    const dialog = page.getByRole('dialog', { name: '调遣到哪座城？' });
+    await dialog.waitFor();
+    assert.equal(await dialog.getByRole('button', { name: new RegExp(change.full) }).count(), 0);
+    assert.equal(await page.locator('.ctag.cand').filter({ hasText: change.full }).count(), 0);
+    assert.equal(await page.locator('.ctag.cand').filter({ hasText: change.available }).count(), 1);
+    await page.locator('.ctag.cand').filter({ hasText: change.available }).click();
+    await page.getByText(new RegExp(`${change.available}还可进 9 人`)).waitFor();
+    await page.keyboard.press('Escape');
+  } finally {
+    if (await page.locator('.mappick, .shade').count()) await page.keyboard.press('Escape');
+    await page.evaluate(saved => {
+      const { g, strategy, debug } = window.__game;
+      for (const [id, city] of saved) Object.assign(g.cities[id], city);
+      strategy.refresh(g); debug.hud();
+    }, change.saved);
+  }
 });
 
 // A command whose result is told in a window draws the HUD again under that window: the focus goes back to the row once

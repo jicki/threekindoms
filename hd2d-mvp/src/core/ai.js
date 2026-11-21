@@ -9,6 +9,7 @@ import { phantomWar } from './ahuinan.js';
 import { FEMALE_SCENARIO_ID } from './visuals.js';
 import { recruitThreshold, recruitLoyaltyWithRelation } from './relationships.js';
 import { warlikeTier } from './warlike.js';
+import { roll100, tableDraws } from './origrng.js';
 
 const KEEP = [[30, 60, 90], [20, 50, 80], [10, 40, 70]]; // cumulative cut-offs for keeping 4/3/2 (else 1)
 const REAR = [2, 3, 3, 2, 3, 3, 2], FRONT = [4, 5, 4, 3, 4, 5, 4]; // A303 thresholds by faction
@@ -34,7 +35,7 @@ export async function aiTurn(g, f, io) {
   if (pts <= 0 || g.over) return;
   // A19C dispatches once. Every path enters BEC7, which stays in domestic work; a war gets there through
   // A8D7/CA19 once settled. D4AD masks to 0–15 even when the nominal weight sum exceeds 16.
-  const x = r(Math.min(16, w[0] + w[1] + w[2]));
+  const x = tableDraws(r)(w[0] + w[1] + w[2], 15);
   if (x < w[0]) {
     await attackBranch(g, f, r, io, spend);
   } else if (x < w[0] + w[1]) {
@@ -310,7 +311,7 @@ function refillAtPass(g, f, gate, officer, limit = 1000) {
 }
 
 async function attackBranch(g, f, r, io, spend) {
-  if (r(100) < (g.level === 2 ? 30 : 20)) return vacant(g, f, r, spend);
+  if (roll100(r) < (g.level === 2 ? 30 : 20)) return vacant(g, f, r, spend);
   const open = g.level === 2 || g.year >= 190 || (g.level === 1 && g.month >= 6);
   if (!open) return false;
   // A240: target with the fewest officers among non-allied enemy neighbours.
@@ -401,6 +402,27 @@ function frontierScore(g, source, target) {
   return Math.min(32, Math.floor(relief / 100)) + pressure * 18 - (leader ? 12 : 0);
 }
 
+function claimVacantTown(g, f, spend) {
+  // 有余力的边城可以派一名武将接管空城。只从出发地补足目标已有库藏的差额。
+  let best = null;
+  for (const c of holdingsOf(g, f)) {
+    const spare = c.officers.length - openingGarrison(g, f, c);
+    const id = c.officers.slice(1).filter((id) => id !== g.factions[f].ruler)
+      .reduce((loyal, id) => loyal == null || g.officers[id].loyalty > g.officers[loyal].loyalty ? id : loyal, null);
+    if (spare < 1 || id == null) continue;
+    for (const to of roads(c.id)) {
+      const t = g.cities[to];
+      if (t.faction !== NONE || t.officers.length || isPass(to)) continue;
+      const gold = Math.max(0, 100 - t.gold), rice = Math.max(0, 120 - t.rice);
+      if (c.gold < gold || c.rice < rice) continue;
+      const score = spare * 200 - gold - rice;
+      if (!best || score > best.score) best = { from: c.id, to, ids: [id], gold, rice, score };
+    }
+  }
+  if (!best) return false;
+  occupyEmpty(g, best); spend(4); return true;
+}
+
 function vacant(g, f, r, spend) {
   // 关隘不计城数；有两名武将时允许留一人守城、派一人先占领无主关隘。
   if (data().expandedMap) for (const c of holdingsOf(g, f)) {
@@ -432,7 +454,7 @@ function vacant(g, f, r, spend) {
   const mine = citiesOf(g, f), front = mine.filter((c) => isFront(g, f, c));
   const base = front.length ? front : mine, avg = Math.floor(base.reduce((a, c) => a + c.officers.length, 0) / Math.max(1, base.length));
   if (avg < 2) return abandon(g, f, spend);
-  if (avg < 4) return false;
+  if (avg < 4) return advancedBattle(g) && claimVacantTown(g, f, spend);
   // B180: last different empty neutral target wins; same target keeps the source with more officers (later on ties).
   let target = null, source = null;
   for (const c of holdingsOf(g, f)) for (const n of roads(c.id)) {
@@ -442,9 +464,10 @@ function vacant(g, f, r, spend) {
   if (target == null) return false;
   const src = g.cities[source], need = Math.min(avg, 10);
   if (src.officers.length < need) { const ok = gather(g, f, src, need, 1, spend); if (ok !== true) return ok === null; }
-  // B1FD: supplies for `need` officers; both needs subtract the target's gold (original quirk); short → A55C/A60C or domestic.
-  const tg = g.cities[target].gold;
-  const gold = Math.max(0, need * 100 + (r(256) >= 128 ? 1 : -1) * r(100) - tg), rice = Math.max(0, need * 120 - tg);
+  // B1FD: supplies for `need` officers; the original subtracts the target's gold from both needs.
+  const dst = g.cities[target];
+  const gold = Math.max(0, need * 100 + (r(256) >= 128 ? 1 : -1) * r(100) - dst.gold);
+  const rice = Math.max(0, need * 120 - (advancedBattle(g) ? dst.rice : dst.gold));
   for (const [k, amt] of [['gold', gold], ['rice', rice]]) { const t = cover(g, f, src, k, amt, spend); if (t !== true) return t === null; }
   // B287: need-2 officers, highest loyalty after the governor slot, later slot on ties.
   const ids = [], left = src.officers.slice(1);

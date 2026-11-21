@@ -150,7 +150,7 @@ test('手柄记录快捷键可配置，选目标时保护当前命令，记录�
     await tapFakePad(page, 4, 220);
     assert.equal(await page.evaluate(() => !!window.__game.G.loadQuick({ preview: true })), false);
     await picker.getByRole('button', { name: /取消/ }).click();
-    await cmd(page, '外交', '离间');
+    await cmd(page, '谋', '离间');
     const diplomacy = page.getByRole('dialog', { name: '离间：选择对象' });
     const faction = diplomacy.locator('.otree .tf').first();
     const summary = faction.locator(':scope > summary');

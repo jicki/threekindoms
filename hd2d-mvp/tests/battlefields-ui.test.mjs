@@ -94,10 +94,15 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
           if (o.name === 'siege-door') doors.push(o.scale.y);
           if (o.isMesh && o.parent === fort) masonry.push(o.geometry.attributes.position.count);
         });
-        return { profile: w.field.sceneProfile, castle: w.field.castle(), start: [w.field.side('att')[0].x, w.field.side('att')[0].y],
-          flat: !!w.flat, style: fort?.userData.style, doors, masonry, siegeGates: w.field.siege.gates.length, dayTitle: document.querySelector('.warbar .day')?.title };
+        const f = w.field, { post } = f.approaches, mini = document.querySelector('.warmini canvas');
+        return { profile: f.sceneProfile, castle: f.castle(), start: [f.side('att')[0].x, f.side('att')[0].y],
+          size: [f.width, f.height], post: f.ground(post.x, post.y), flat: !!w.flat, style: fort?.userData.style, doors, masonry,
+          routesDrawn: w.flat ? w.flatState().villages.some(v => v.x === post.x && v.y === post.y && v.icon === '哨')
+            : !!w.scene.getObjectByName('battle-approaches'), mini: [mini?.width, mini?.height],
+          siegeGates: f.siege.gates.length, dayTitle: document.querySelector('.warbar .day')?.title };
       });
-      assert.equal(state.profile.label, '函谷关道'); assert.deepEqual(state.castle, [15, 9]); assert.deepEqual(state.start, [1, 8]);
+      assert.equal(state.profile.label, '函谷关道'); assert.deepEqual(state.castle, [19, 13]); assert.deepEqual(state.start, [3, 12]);
+      assert.deepEqual(state.size, [40, 27]); assert.match(state.post, /机动力＋2/); assert.equal(state.routesDrawn, true);
       assert.match(state.dayTitle, /函谷关道/);
       assert.match(state.dayTitle, /雪天/);
       assert.match(await p.locator('.warbar .day').textContent(), /雪/);
@@ -105,12 +110,27 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
       if (mode === 'phone') { assert.equal(state.flat, true); assert.equal(await p.locator('.flatwar canvas').isVisible(), true); }
       else {
         assert.equal(state.flat, false); assert.equal(state.style, 'pass');
+        assert.deepEqual(state.mini, [400, 270]);
         assert.deepEqual(state.doors, Array(4).fill(1));
         assert.ok(state.masonry.length <= 8 && state.masonry.reduce((sum, n) => sum + n, 0) > 3000);
       }
       await p.locator('.deploybtn .btn', { hasText: '布阵完成' }).click();
       await p.waitForFunction(() => !window.__game.war.st.deploying);
       await p.waitForFunction(() => window.__game.war.myTurn && !window.__game.war.st.busy && !document.querySelector('.banner,.panel.msg,.shade'));
+      const edge = { x: 37, y: 24 };
+      if (mode === '3d') {
+        const mini = p.locator('.warmini canvas');
+        if (!await mini.isVisible()) await p.locator('.warmini-toggle').click();
+        const bounds = await mini.boundingBox();
+        await mini.click({ position: { x: (edge.x + 0.5) * bounds.width / 40, y: (edge.y + 0.5) * bounds.height / 27 } });
+        await p.waitForFunction(() => window.__game.war.viewState().still);
+      } else await p.evaluate(({ x, y }) => window.__game.war.centreOn(x, y), edge);
+      const pointed = await p.evaluate(({ x, y }) => {
+        const w = window.__game.war, screen = w.screenOf(x, y);
+        const hit = w.hover({ x: 2 * screen.x / innerWidth - 1, y: 1 - 2 * screen.y / innerHeight });
+        return hit && { x: hit.x, y: hit.y };
+      }, edge);
+      assert.deepEqual(pointed, edge, '战场扩展格可经小地图或手机平移后准确选中');
       const labels = await p.evaluate(() => {
         const w = window.__game.war, f = w.field, u = f.side('att')[0], saved = { x: u.x, y: u.y };
         const rows = [f.siege.outer, f.siege.inner].map(ring => {

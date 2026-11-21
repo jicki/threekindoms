@@ -53,7 +53,8 @@ body.phone .topbar .tbtns { gap: 4px; column-gap: 4px; }
 body.phone .topbar .tbtns .btn { min-height: 28px; padding: 0 8px; font-size: 13px; }
 body.phone .rightcol { display: none; }
 
-body.phone .citypanel { top: auto; bottom: var(--gb); left: var(--g); width: 250px; max-height: 118px; overflow: hidden; }
+body.phone .citypanel { top: auto; bottom: var(--gb); left: var(--g); width: 250px; overflow: hidden; }
+body.phone:not(.city-open) .citypanel > :not(header, .stats, .city-intel) { display: none; }
 body.phone .citypanel header { padding: 4px 10px 2px; gap: 8px; }
 body.phone .citypanel header h2 { font-size: 21px; letter-spacing: 1px; }
 body.phone .citypanel header::after { content: '详情 ▴'; margin-left: auto; font-size: 12px; color: var(--dim); }

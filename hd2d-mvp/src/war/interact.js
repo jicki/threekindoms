@@ -281,9 +281,10 @@ export function makeInteract(wv) {
   }
   // The cast, on the panel's 确认, Enter, the pad's confirm or a second click on the same target. It goes ahead only on a new
   // input (src/commitguard.js) and if the 计略 can still be cast on that same target; otherwise nothing is spent.
-  function commitCast(e) {
+  function commitCast(e, { fromCount = false } = {}) {
     const c = st.confirm; if (!c || st.busy || field.over || field.turn !== human) return false;
-    if (!fresh(e)) return false;
+    // 已另行调整次数时，次数控件上的新回车可以直接提交；先前按住的回车仍会被拒绝。
+    if (!fresh(e, { pick: fromCount && c.countAdjusted === true })) return false;
     st.confirm = null; st.ask = null; st.cast = null;
     if (c.u.gone || !field.canCast(c.u, c.id, c.t)) { refuse(c.u, c.id); return false; }
     wv.castOn(c.u, c.id, c.t, c.count ?? 1);
@@ -292,7 +293,9 @@ export function makeInteract(wv) {
   function setCastCount(count) {
     if (!st.confirm || st.busy) return;
     const max = confirmInfo().maxCount;
-    st.confirm.count = Math.max(1, Math.min(max, Math.floor(count) || 1));
+    const next = Math.max(1, Math.min(max, Math.floor(count) || 1));
+    if (next !== (st.confirm.count ?? 1)) st.confirm.countAdjusted = true;
+    st.confirm.count = next;
     showOptions();
   }
   // Undo rides back along the same route, a little quicker than the way out.

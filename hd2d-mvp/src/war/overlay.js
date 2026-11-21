@@ -4,13 +4,14 @@
 import * as THREE from 'three';
 import { canvasTex } from '../pixel.js';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
-import { W, H, MOUNT, CASTLE, ATTACK_COST, STRATS } from '../core/field.js';
+import { MOUNT, CASTLE, ATTACK_COST, STRATS } from '../core/field.js';
 import { name, data } from '../core/game.js';
 import { equipIcon } from '../assets.js';
 import { FIGURE_STENCIL } from './shared.js';
 
 export function makeOverlay(wv) {
   const { field, human, scene, flat, wx, wz, terr, topY, APRON, GW, grid, where } = wv;
+  const { width: W, height: H } = field;
   // --- Overlays ---
   // What is marked, as data: the range layer (reach, castle, attack, 计略 and deployment cells, and a route being walked) and the
   // hovered route. The flat painted map draws from this (flatState); the 3D view draws it as below.

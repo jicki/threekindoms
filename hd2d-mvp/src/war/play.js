@@ -3,7 +3,7 @@
 // fx2d and endHuman are reassigned here (the flat map's effects list, the human turn's resolver): they are wv.fx2d and
 // wv.endHuman, never copied; done is interact.js's, read and written as wv.done.
 import * as THREE from 'three';
-import { W, H, STRATS, stratCount } from '../core/field.js';
+import { STRATS, stratCount } from '../core/field.js';
 import { slash, sparkBurst, dustPuff, STRATEGY_FX, levelUp } from '../fx.js';
 import { name, cityName, takeLevelUps, DEAD } from '../core/game.js';
 import { playVignette, warmVignette } from '../vignette.js';
@@ -39,6 +39,7 @@ function warmStrategy(id) {
 }
 
 export function makePlay(wv) {
+  const { width: W, height: H } = wv.field;
   const { ctx, field, audio, ui, human, scene, wx, wz, topY, terr, views, place, removeGone, drop, addUnit, FIGURE, clearMarks, view, focusOn, followPoint,
     st, hud, sideLabel, showOptions, select, lastCast, showDeploy, refuse } = wv;
   // While the field plays something out, the unit panel's commands are greyed: a menu opened then would act on

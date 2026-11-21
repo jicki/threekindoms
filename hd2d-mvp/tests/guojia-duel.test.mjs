@@ -12,7 +12,11 @@ for (const { side, phone, missing } of [
   { side: 'a', phone: false, missing: true },
 ]) {
   test(`郭嘉单挑 ${side} 方${phone ? '手机' : '桌面'}${missing ? '缺图回退' : '重制动作及攻击近景'}`, { timeout: 90000 }, async () => {
-    const setup = missing ? ctx => ctx.route('**/duel/guojia-v2.png', route => route.fulfill({ status: 404, body: '' })) : undefined;
+    const setup = missing ? async ctx => {
+      for (const pattern of ['**/portrait-refresh/guojia-motion.png', '**/duel/guojia-v2.png']) {
+        await ctx.route(pattern, route => route.fulfill({ status: 404, body: '' }));
+      }
+    } : undefined;
     const page = await game.open(phone ? '&phone&flat' : '&flat', { setup });
     try {
       if (phone) await page.setViewportSize({ width: 844, height: 390 });
@@ -47,7 +51,7 @@ for (const { side, phone, missing } of [
         const initial = { x: pose.x, foe: foe.x, face: Math.sign(rider.scale.x), width: image.width, height: image.height };
         if (missing) return { initial };
         view.pose(24, 'idle_a');
-        const row = document.createElement('canvas'); row.width = 176; row.height = 128;
+        const row = document.createElement('canvas'); row.width = 128; row.height = 128;
         const ctx = row.getContext('2d');
         ctx.drawImage(image, 0, 0);
         const pixels = ctx.getImageData(0, 0, row.width, row.height).data;
@@ -76,19 +80,20 @@ for (const { side, phone, missing } of [
           buttonsFit: controls.left >= 0 && controls.right <= innerWidth + 1 && controls.bottom <= innerHeight + 1 };
       }, { missing });
       const has = suffix => [...loaded].some(path => path.endsWith(suffix));
-      assert.ok(has('/characters/guojia/motion.png') && has('/duel/111.png'));
+      assert.ok(has('/duel/111.png'));
+      assert.equal(has('/portrait-refresh/guojia-motion.png'), !missing);
       assert.equal(has('/duel/24.png'), missing);
-      assert.equal(has('/duel/guojia-v2.png'), !missing);
+      assert.equal(has('/duel/guojia-v2.png'), false);
       assert.equal(Math.sign(result.initial.x), side === 'a' ? -1 : 1);
       assert.equal(Math.sign(result.initial.foe), -Math.sign(result.initial.x));
       assert.equal(result.initial.face, -Math.sign(result.initial.x));
       if (missing) {
-        assert.notEqual(result.initial.width, 1408);
+        assert.notDeepEqual([result.initial.width, result.initial.height], [2048, 256]);
         assert.ok(has('/duel/24-turn.png') && has('/duel/24-wheel.png'));
       } else {
-        assert.deepEqual([result.initial.width, result.initial.height], [1408, 512]);
+        assert.deepEqual([result.initial.width, result.initial.height], [2048, 256]);
         assert.equal(result.bottom, 127, '待机帧的马蹄落在共同基线');
-        assert.ok(result.bodyHeight >= 1.76 && result.bodyHeight <= 1.85, JSON.stringify(result));
+        assert.ok(result.bodyHeight >= 1.9 && result.bodyHeight <= 2.2, JSON.stringify(result));
         assert.deepEqual(result.hits, [[111, 12], [111, 18]]);
         assert.ok(result.frames.includes('strike') && result.frames.includes('follow'), JSON.stringify(result.frames));
         assert.ok(result.closer > 2 && result.home === result.initial.x, JSON.stringify(result));

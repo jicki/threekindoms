@@ -183,7 +183,7 @@ export async function castGo(page) {
   await go.click();
 }
 
-// The strategy command menu (src/app.js commandDock): a group (城 / 军 / 仓 / 町 / 外交) opens its list above the dock.
+// The strategy command menu (src/app.js commandDock): a group (城 / 军 / 仓 / 町 / 谋) opens its list above the dock.
 // openCmds opens `tab` unless it is open already; cmdRow is a row of the open list; cmd opens the group and clicks the row.
 export async function openCmds(page, tab) {
   if (await page.evaluate(() => document.querySelector('.dock .tabs .btn.on')?.textContent ?? null) !== tab) await page.locator('.dock .tabs .btn', { hasText: tab }).click();
@@ -191,11 +191,5 @@ export async function openCmds(page, tab) {
 }
 export const cmdRow = (page, act) => page.locator(`.dock .acts .cmd[data-act="${act}"]`);
 export async function cmd(page, tab, act) {
-  if (act === '记录') return page.locator('.dock .tabs [data-tab="录"]').click();
-  if (act === '移动') tab = '军';
-  if (tab === '外交') {
-    await openCmds(page, '城'); await cmdRow(page, '外交').click();
-    return page.locator('.shade .cities .btn', { hasText: act }).click();
-  }
   await openCmds(page, tab); await cmdRow(page, act).click();
 }

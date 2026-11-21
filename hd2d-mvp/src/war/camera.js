@@ -3,13 +3,13 @@
 // camera methods of the view's api. focusMode is reassigned by the entry's focus point each frame: it is wv.focusMode, never copied.
 import * as THREE from 'three';
 import { blurWeight } from '../post.js';
-import { W, H } from '../core/field.js';
 import { advancedBattle } from '../core/battle-rules.js';
 import { siegeExtent } from '../core/siege.js';
 import { YAWS, PITCH, TOP_PITCH, TURN_MS, EDGE, tween, siegeFrame } from './shared.js';
 
 export function makeCamera(wv) {
   const { field, human, camera, flat, wx, wz, topY, S, showRoundels } = wv;
+  const { width: W, height: H } = field;
   const fort = wv.fortification?.fort;
   const fortHeight = fort ? new THREE.Box3().setFromObject(fort).max.y : 0;
   // --- Camera ---
@@ -32,7 +32,8 @@ export function makeCamera(wv) {
       const x = a * wCells / 2, z = b * hCells / 2;
       pts.push(world ? new THREE.Vector3(at.x + x, y, at.z + z) : new THREE.Vector3(target.x + x * cs + z * sn, y, target.z - x * sn + z * cs));
     }
-    return Math.min(fitPoints(pts, { yaw, pitch, target, side }), 70);
+    const max = field.approaches ? 115 : 70;
+    return fitPoints(pts, { yaw, pitch, target, side, max });
   }
   function fitPoints(pts, { yaw, pitch, target, side = 0.96, max = 90, compact = false }) {
     const p = new THREE.Vector3();
@@ -94,6 +95,10 @@ export function makeCamera(wv) {
       for (const u of field.alive) for (const dx of [-0.65, 0.65]) {
         points.push(new THREE.Vector3(wx(u.x + dx), topY(u.x, u.y) + 2.6, wz(u.y - 0.5)));
         points.push(new THREE.Vector3(wx(u.x + dx), topY(u.x, u.y), wz(u.y + 0.5)));
+      }
+      if (field.approaches) {
+        const { x, y } = field.approaches.post;
+        points.push(new THREE.Vector3(wx(x), topY(x, y) + 0.9, wz(y)));
       }
       wholeAt.set(wx((siege.x0 + siege.x1) / 2), CENTRE.y, wz((siege.y0 + siege.y1) / 2));
       const minimum = margin * farDist(yaw, pitch);

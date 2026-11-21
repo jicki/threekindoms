@@ -10,13 +10,15 @@ import { seasonalize } from '../seasons.js';
 import { warGround, bakePlate, paintTerrain, paintedWater, plantWoods } from '../warplate.js';
 import { seasonEnv } from '../seasonenv.js';
 import { seeThrough } from '../seethrough.js';
-import { W, H, FOREST, SAND, PLAIN, RIVER, MOUNT, CASTLE } from '../core/field.js';
+import { FOREST, SAND, PLAIN, RIVER, MOUNT, CASTLE } from '../core/field.js';
 import { FACTION_COLORS } from '../core/game.js';
 import { WATER_Y, PITCH, KIND, PLATE_M, PLATE_PX, DIRS, woodsOf, keySun, phase, WAR_RAIN } from './shared.js';
 import { buildFortification } from '../fortification.js';
+import { addApproachScenery } from './approach-display.js';
 
 export function makeBoard(wv) {
   const { ctx, field, T0 } = wv; let tp = T0;
+  const { width: W, height: H } = field;
   const { audio, ui, sprites } = ctx;
   const map = field.map, human = field.human;
   const scene = new THREE.Scene();
@@ -28,6 +30,7 @@ export function makeBoard(wv) {
   const sun = new THREE.DirectionalLight('#ffc884', 3.4);
   sun.position.set(-20, 13, 9); sun.castShadow = true; sun.shadow.mapSize.set(4096, 4096);
   Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 16, bottom: -16, near: 1, far: 70 });
+  if (field.approaches) Object.assign(sun.shadow.camera, { left: -26, right: 26, top: 23, bottom: -23 });
   sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
   const back = new THREE.DirectionalLight('#8fb0e0', 0.45); back.position.set(14, 9, -16);
   const hemi = new THREE.HemisphereLight('#90a8c8', '#3a2c1e', 0.5);
@@ -143,7 +146,7 @@ export function makeBoard(wv) {
     // all the plates read besides the materials (bakePlate keeps the picture for the next battle here)
     const plateKey = `${field.war.city}|${JSON.stringify(field.map)}|${JSON.stringify(field.villages.map((v) => [v.x, v.y]))}`;
     paintTerrain(tiles, G, {
-      plate: bakePlate(G, { ...PB, px: PLATE_PX, kind: kindAt, near, grid: playable, seed, key: plateKey }),
+      plate: bakePlate(G, { ...PB, px: field.approaches ? 56 : PLATE_PX, kind: kindAt, near, grid: playable, seed, key: plateKey }),
       far: bakePlate(G, { ...PA, px: 16, kind: kindAt, near, seed, key: plateKey }),
     });
   }
@@ -188,10 +191,11 @@ export function makeBoard(wv) {
   const before = new Set(scene.children);
   const fortification = field.siege && !flat ? buildFortification(field.siege, { wx, wz, topY }) : null;
   if (fortification) scene.add(fortification.fort);
+  if (!flat && field.approaches) addApproachScenery(scene, field.approaches, { wx, wz, topY });
   // 新版城防组包含中央建筑，保留 S.castle 供取景和植被使用。
   const decor = field.siege?.style ? { ...S, castle: null } : S;
   const dressing = flat ? { billboards: [], lights: [], labels: [], update() {} } : dressBoard(scene, decor, field.war.city * 31 + 5, { calm: true, painted: !!G });
-  const woods = G && !flat && plantWoods(scene, G, woodsOf(S, rng(field.war.city * 53 + 1)), PITCH, field.war.city);
+  const woods = G && !flat && plantWoods(scene, G, woodsOf(S, rng(field.war.city * 53 + 1), W, H), PITCH, field.war.city);
   // Everything the dressing stood up (castle, villages, cottages, trees, rocks, grass) thins out in front of a general (src/seethrough.js):
   // cleared over him with a soft blended rim; the castle and the village houses only thin to 0.45 of their picture, so a keep still reads as a keep.
   const dressed = scene.children.filter((o) => !before.has(o)), LANDMARK_KEEP = 0.45, DRESS_KEEP = 0;
@@ -223,6 +227,13 @@ export function makeBoard(wv) {
     const lab = new CSS2DObject(el); lab.position.set(dressing.labels[i].x, topY(v.x, v.y) + 0.85, dressing.labels[i].z); scene.add(lab);
     vsigns.push({ el, lab, cell: new THREE.Vector3(wx(v.x), topY(v.x, v.y), wz(v.y)), w: 0, h: 0 });
   });
+  if (!flat && field.approaches) {
+    const { x, y } = field.approaches.post;
+    const el = document.createElement('div'); el.className = 'vtag'; el.textContent = '哨'; el.title = field.ground(x, y);
+    const lab = new CSS2DObject(el), cell = new THREE.Vector3(wx(x), topY(x, y), wz(y));
+    lab.position.copy(cell).add(new THREE.Vector3(0, 0.65, 0)); scene.add(lab);
+    vsigns.push({ el, lab, cell, w: 0, h: 0 });
+  }
   // dispose()'s walk of the scene (the entry's, after the units' and before release()): the labels' elements and the lights' shadow maps, and the sky.
   function disposeBoard() {
     scene.traverse((o) => { if (o.isCSS2DObject) o.element.remove(); o.shadow?.dispose(); }); // a light's shadow map is a render target of its own

@@ -6,13 +6,14 @@
 // this layer draws its state each frame and turns a pointer into a cell for it.
 // The HUD sits in a strip above and a strip below the map (body.flat2d in ui.css), never over it.
 import { painter, MR } from './warplate.js';
-import { W, H, FOREST, RIVER, MOUNT, CASTLE } from './core/field.js';
+import { FOREST, RIVER, MOUNT, CASTLE } from './core/field.js';
 import { name, data } from './core/game.js';
 import { createSky2d } from './skyfx2d.js';
 import { rng } from './pixel.js';
-import { PHONE, margins } from './phone.js';
+import { PHONE, TOUCH_BATTLE, margins } from './phone.js';
 import { siegeFrame } from './war/shared.js';
 import { fortressStyle } from './fortress-style.js';
+import { paintApproaches } from './war/approach-display.js';
 
 const KIND = ['forest', 'sand', 'grass', 'river', 'hill', 'castle'];
 // px kept for the HUD strips (ui.css body.flat2d). Under 1200 px the foe's card stacks as a strip above ours (ui.css .unitpanel.compare), so the bottom strip is that much taller.
@@ -22,7 +23,8 @@ export const FLAT_INSET = PHONE ? { top: 4, get bottom() { return Math.max(4, ma
   : { top: 46, get bottom() { return innerWidth <= 1200 ? 196 : 152; }, side: 12 }; // 宽屏也要为换行的城门说明留出一行。
 
 // --- The painted map ---
-export function paintFlatMap(G, field, { px = 80 } = {}) {
+export function paintFlatMap(G, field, { px = field.approaches ? 60 : 80 } = {}) {
+  const { width: W, height: H } = field;
   const map = field.map, clampX = (x) => Math.max(0, Math.min(W - 1, x)), clampY = (y) => Math.max(0, Math.min(H - 1, y));
   const terr = (x, y) => map[clampY(y)][clampX(x)]; // beyond the edge the edge terrain carries on (no seam of grass)
   const kind = (x, y) => KIND[terr(x, y)];
@@ -53,6 +55,7 @@ export function paintFlatMap(G, field, { px = 80 } = {}) {
     P.layMask('rgba(220, 236, 230, 0.3)', band(water, 0, -0.05));
   }
   P.grid((x, y) => x >= 0 && y >= 0 && x < W && y < H && terr(x, y) !== RIVER, { dark: 0.3, lit: 0.08 });
+  paintApproaches(g, field.approaches, px);
 
   // Rock mesas: every range stands up as one, and its heart (two cells in) as a second tier; each tier's lower
   // edge is a cliff face painted column by column from the cliff band (its grassy lip on top), with a shadow
@@ -194,6 +197,7 @@ const GROUND = [['林', '#5fae4a'], ['沙', '#d8b46a'], ['平', '#b8d878'], ['�
 // the camera and the pointer replaced; the 3D scene is not drawn at all.
 export function flatten(war, G, blankScene) {
   const field = war.field;
+  const { width: W, height: H } = field;
   // A painted battlefield (tools/gen_warmap_codex.sh) when there is one for this field and month: one picture with
   // its countryside round the board, cells a little shorter than wide (seen from about 50°). Otherwise the
   // composed map, square cells, nothing round it.
@@ -709,8 +713,8 @@ export function flatten(war, G, blankScene) {
     // A cell's centre on screen, in CSS px (tools click the map as a player would).
     screenOf: (x, y) => ({ x: box.x + (x + 0.5) * box.cw, y: box.y + (y + 0.5) * box.ch, cw: box.cw, ch: box.ch }),
     screenAxes: () => ({ x: [box.cw, 0], y: [0, box.ch] }), // one grid step on screen (the gamepad's cursor, app.js)
-    orbit() {}, zoom(d, ndc) { if (PHONE) zoomAt(d, ndc); }, pan() {}, resetView() { if (PHONE) { autoFrame = field.siege?.revision >= 2; resetView(); } }, frame() {}, overview() { war.overview(); },
-    ...(PHONE ? { slide, centreOn } : {}),
+    orbit() {}, zoom(d, ndc) { if (TOUCH_BATTLE) zoomAt(d, ndc); }, pan() {}, resetView() { if (TOUCH_BATTLE) { autoFrame = PHONE && field.siege?.revision >= 2; resetView(); } }, frame() {}, overview() { war.overview(); },
+    ...(TOUCH_BATTLE ? { slide, centreOn } : {}),
     rotate: undefined, turn: undefined, turnEnd: undefined, tactical: undefined, viewState: undefined, dof: undefined, setTerrainView: undefined, // the flat map has no turn, zoom step or overview of its own
     setInsets() {},
   });

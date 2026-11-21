@@ -22,6 +22,7 @@
 [hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: #0c0907; color: var(--ink); font: 16px/1.55 var(--serif); }
 #stage canvas { display: block; }
+body.android-tablet #stage canvas, body.android-tablet .ctag { touch-action: none; }
 .labels { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
 body[data-screen=title] .labels, body[data-screen=setup] .labels { display: none; }
 #ui, #ui-top { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
@@ -305,6 +306,7 @@ body.handoff .dock, body.handoff .endturn { pointer-events: none; opacity: .45; 
 .mappick .chips .btn small { margin-left: 6px; color: var(--dim); letter-spacing: 0; }
 /* While a city is picked on the map the rest of the HUD waits (endTurn() also refuses). */
 body.picking #ui > :is(.endturn, .dock, .sysbtns, .citypanel) { opacity: .45; filter: grayscale(.5); }
+body.picking #ui > .dock .acts { visibility: hidden; }
 .btn.ghost { background: transparent; border-color: #8a6a3470; color: var(--dim); }
 /* Officer lists: the original's one-line table, numbers in aligned columns. */
 .otable-wrap { max-height: min(62vh, 640px); overflow: auto; }

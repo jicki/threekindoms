@@ -48,6 +48,7 @@ test('出阵地图与洛阳实战外门一致，援军信息随侦察开放，�
     assert.match(await panel.innerText(), /尚未侦察目标/);
     assert.doesNotMatch(await panel.innerText(), /守军 \d|冀州|援军 \d/);
     await panel.getByRole('button', { name: '查看战场布阵' }).tap();
+    assert.match(await panel.innerText(), /土黄色主道.*浅灰色侧道.*前哨/s);
     const canvas = panel.getByRole('img');
     const scheme = await canvas.evaluate(async el => {
       const { g, G } = window.__game;
@@ -56,10 +57,12 @@ test('出阵地图与洛阳实战外门一致，援军信息随侦察开放，�
       const ctx = el.getContext('2d');
       return {
         doors: siege.gates.map(({ x, y }) => [...ctx.getImageData(x * 8 + 4, y * 8 + 4, 1, 1).data]),
+        size: [el.width, el.height],
         fits: el.getBoundingClientRect().right <= innerWidth,
       };
     });
     assert.ok(scheme.fits);
+    assert.deepEqual(scheme.size, [320, 216]);
     assert.ok(scheme.doors.length > 0 && scheme.doors.every(rgb => rgb.join() === '255,227,137,255'));
     await page.keyboard.press('Escape');
     await panel.waitFor({ state: 'hidden' });

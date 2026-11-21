@@ -12,6 +12,9 @@
 !hd2d-mvp/assets/**/*.md
 !hd2d-mvp/assets/regional/
 !hd2d-mvp/assets/regional/*.webp
+!hd2d-mvp/assets/portrait-refresh/
+!hd2d-mvp/assets/portrait-refresh/*.webp
+!hd2d-mvp/assets/portrait-refresh/*.png
 !hd2d-mvp/data/
 !hd2d-mvp/data/**
 !hd2d-mvp/src/

@@ -33,6 +33,12 @@ export function createWarView(ctx, field) {
   Object.assign(wv, makeInteract(wv));
   Object.assign(wv, makePlay(wv));
   Object.assign(wv, makeProbe(wv));
+  const commanders = Object.fromEntries(field.units.filter((u) => u.commander).map((u) => [u.side, u]));
+  function faceEnemy(v, u) {
+    const foe = commanders[u.side === 'att' ? 'def' : 'att'];
+    if (foe && !foe.gone) v.heading.set(foe.x - u.x, 0, foe.y - u.y).normalize();
+  }
+  for (const [u, v] of wv.views) faceEnemy(v, u);
   wv.view.yaw = wv.view.yawGoal = wv.view.yawFrom = Number.isFinite(ctx.yaw) ? ctx.yaw : wv.pickYaw(); wv.placeCamera(); wv.hud(); // ctx.yaw: a resumed war faces as it was left
   setTimeout(wv.loop, 400);
 
@@ -49,7 +55,8 @@ export function createWarView(ctx, field) {
       // isn't squashed flat; idle is a slow breath with the feet planted, not a hover. The shadow caster
       // mirrors the figure's facing, height and bounce.
       updateSpriteLight(wv.sun, wv.camera);
-      for (const v of wv.views.values()) {
+      for (const [u, v] of wv.views) {
+        if (wv.st.deploying && !v.moving) faceEnemy(v, u);
         v.bill.rotation.y = wv.view.yaw; v.bill.rotation.x = -wv.view.pitch * 0.5;
         if (v.rnd?.visible) v.rnd.rotation.y = wv.view.yaw;
         if (!v.moving) { v.bill.position.y = 0; v.body.scale.y = 1 + 0.014 * Math.sin(time * 2.2 + v.bob); }

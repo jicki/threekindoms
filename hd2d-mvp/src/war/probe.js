@@ -2,10 +2,10 @@
 // measures tools/war_look_check.mjs and the tests take, and flatState(), what the flat painted map draws each frame. lastFigs (reassigned
 // by units.js's declutter), cells and fx2d are read as wv.lastFigs, wv.cells and wv.fx2d at the moment they are asked for.
 import { cutEllipse, CUT_CORE } from '../seethrough.js';
-import { W, H } from '../core/field.js';
 import { YAWS } from './shared.js';
 
 export function makeProbe(wv) {
+  const { width: W, height: H } = wv.field;
   const { field, camera, where, topY, dressed, LANDMARK_KEEP, cutout, VICON, views, look, qimenNote, holdNote, FIGURE, BASE_GEO, markCol, rangeCells, view,
     footprint, stepDist, coveringUnits, gtags, st } = wv;
   // The flat painted map (src/warmap2d.js) draws from this each frame (read-only): range and route cells,
@@ -22,12 +22,14 @@ export function makeProbe(wv) {
         qimen: u.qimen > 0 ? { chip: qimenNote(u), spin: field.kongmingOn() } : null, hold: holdNote(u) };
     }),
     sel: st.sel && !st.sel.gone ? st.sel : null, hover: st.hoverCell,
-    fx: wv.fx2d, weather: where.weather, month: field.g.month, villages: field.villages.map((v) => ({ x: v.x, y: v.y, icon: VICON[v.kind] || '村' })),
+    fx: wv.fx2d, weather: where.weather, month: field.g.month,
+    villages: [...field.villages.map(v => ({ x: v.x, y: v.y, icon: VICON[v.kind] || '村' })),
+      ...(field.approaches ? [{ ...field.approaches.post, icon: '哨' }] : [])],
   });
   // What tools/war_look_check.mjs measures that the pixels alone do not tell (read-only).
   const probe = () => ({
     figure: FIGURE, view: { over: (() => { const f = footprint(view.yaw, view.pitch, view.dist); return f ? Math.max(...f.map(([x, z]) => Math.max(Math.abs(x + view.target.x) - W / 2, Math.abs(z + view.target.z) - H / 2))) : null; })(), atFit: !!view.atFit, moved: !!view.moved, dist: view.dist, yaw: view.yaw, yawGoal: view.yawGoal, pitch: view.pitch, zoom: view.zoom, tactical: !!view.tactical, yaws: YAWS, target: view.targetGoal.toArray(), now: view.target.toArray() },
-    units: [...views].map(([u, v]) => ({ id: u.id, ...v.size })),
+    units: [...views].map(([u, v]) => ({ id: u.id, ...v.size, heading: v.heading.toArray(), flip: v.flip, frame: v.frames?.[v.frame] ?? null })),
     roundels: [...views.values()].filter((v) => v.rnd?.visible).length, tags: [...views.values()].filter((v) => v.label.visible).length,
     // The share of its picture each dressing mesh keeps where it covers a general (read off the see-through material), by landmark or not.
     kept: (() => { const out = { landmark: new Set(), other: new Set(), blend: new Set(), dither: new Set(), types: new Set() }; const walk = (n, inLm) => { inLm ||= !!n.userData.landmark; if (n.isMesh) for (const m of [n.material].flat()) { const k = m.userData.cutKeep; out.types.add(`${m.type}${k == null ? ' (uncut)' : ''}`); if (k != null) { out[inLm ? 'landmark' : 'other'].add(k); out.blend.add(m.transparent); out.dither.add(/cutNoise/.test(String(m.onBeforeCompile))); } } n.children.forEach((c) => walk(c, inLm)); }; dressed.forEach((o) => walk(o, false)); return { landmark: [...out.landmark], other: [...out.other], blended: [...out.blend], dithered: [...out.dither], types: [...out.types] }; })(),

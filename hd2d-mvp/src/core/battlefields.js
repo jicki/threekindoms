@@ -1,5 +1,6 @@
 import { advancedBattle } from './battle-rules.js';
 import { siegeLayout } from './siege.js';
+import { APPROACH_CAMPAIGN_REVISION, APPROACH_SIEGE_REVISION, extendBattleApproaches } from './battle-approaches.js';
 
 // 君主列传新开局的战场配置。原版和没有 battlefields 标记的旧记录仍使用导出数据。
 // battlefields=1 的布局需要保持稳定；后续调整应新增版本，不能改写已中断战斗的布局。
@@ -121,7 +122,11 @@ export function resolveBattlefield(data, g, city, from, revision) {
   const dep = layout?.dep ?? (data.deploy[city]?.[from] || Object.values(data.deploy[city] ?? {})[0]);
   const map = layout?.map ?? data.maps[city], villages = layout?.villages ?? data.villages[city] ?? [];
   if (g.battlefields !== 2 || !dep) return { map, dep, villages, profile, entry, siege: null };
-  const current = g.campaignRevision >= 9 ? 4 : advancedBattle(g) ? 3 : 2;
-  if (revision === 4 && current < 4) throw new Error('当前战役不支持该城防布局');
-  return { ...siegeLayout(map, dep, villages, layout?.direction, city === 30 || city === 31, revision ?? current, profile), profile, entry };
+  const current = g.campaignRevision >= APPROACH_CAMPAIGN_REVISION ? APPROACH_SIEGE_REVISION
+    : g.campaignRevision >= 9 ? 4 : advancedBattle(g) ? 3 : 2;
+  const selected = revision ?? current;
+  if (![1, 2, 3, 4, APPROACH_SIEGE_REVISION].includes(selected) || selected > current) throw new Error('当前战役不支持该城防布局');
+  const fortress = siegeLayout(map, dep, villages, layout?.direction, city === 30 || city === 31, Math.min(selected, 4), profile);
+  const battle = selected === APPROACH_SIEGE_REVISION ? extendBattleApproaches(fortress, profile) : fortress;
+  return { ...battle, profile, entry };
 }

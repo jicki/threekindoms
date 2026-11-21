@@ -10,7 +10,7 @@
 // When the 战略地图 or the war map runs slowly the game offers the next preset down once, in a corner notice the player can
 // take or ignore; it never switches by itself.
 import { h } from './ui.js';
-import { PHONE } from './phone.js';
+import { PHONE, TOUCH_BATTLE } from './phone.js';
 
 const HIGH_PIXELS = 3.7e6, MEDIUM_PIXELS = 2.3e6; // 2560×1440 and about 2020×1140: on an M4 a frame is about 4 ms + 4.9 ms per million pixels
 export const PRESETS = {
@@ -32,7 +32,7 @@ const store = (k, v) => { try { if (v === undefined) return localStorage.getItem
 
 // The preset stored from last time, for what must be decided before the renderer's settings (which 战略地图 to build).
 // A phone starts on 低 (the flat 战略地图 and war map: an iPhone 16 Pro only just holds 60 fps on 高, 2026-11-14) until the player picks.
-export const savedQuality = () => (PRESETS[store(KEY)] ? store(KEY) : PHONE ? 'low' : 'high');
+export const savedQuality = () => (PRESETS[store(KEY)] ? store(KEY) : TOUCH_BATTLE ? 'low' : 'high');
 
 // 系统 → 战场: which war map a battle opens on, decided as it opens. 随画质 follows the preset (低 → the flat painted map, else
 // 3D); 平面 and 3D hold whatever the 画质, so a 3D 战略地图 can go with the flat war map and the other way round

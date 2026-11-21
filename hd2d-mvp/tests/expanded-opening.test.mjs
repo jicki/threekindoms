@@ -256,3 +256,52 @@ test('两名或三名武将的单城势力仍可派一人占领空关', async ()
     assert.ok(occupied, `${own.length} 名武将时不能被开局保护阻止扩张`);
   }
 });
+
+test('空城按产业、土地获得岁入，最高电脑好战档也不增加无主库藏', () => {
+  for (const expanded of [false, true]) {
+    if (expanded) useExpanded();
+    else G.setData(structuredClone(base), ORIGINAL_SCENARIO);
+    const g = G.newGame(0, 1, 19), c = g.cities[5];
+    Object.assign(g, { warlike: true, warlikeTiers: true });
+    Object.assign(c, { faction: G.NONE, officers: [], pop: 240, land: 90, industry: 96, gov: 70, gold: 0, rice: 0 });
+    const earned = kind => G.income(g, kind).find(([id]) => id === c.id)?.[1];
+    const gold = earned('gold'), rice = earned('rice');
+    assert.ok(gold > 0 && rice > 0);
+    assert.deepEqual([c.gold, c.rice, c.faction], [gold, rice, G.NONE]);
+    Object.assign(g, { warlike: false });
+    assert.equal(earned('gold'), gold); assert.equal(earned('rice'), rice);
+    assert.equal(c.gold, gold * 2); assert.equal(c.rice, rice * 2);
+    if (expanded) assert.ok(G.income(g, 'gold').every(([id]) => !G.isPass(id)));
+  }
+});
+
+test('电脑可从只有两将的邻城占领有岁入的辽东、西安阳，保持守将和库藏', async () => {
+  for (const target of [0, 5]) {
+    let claimed = false;
+    for (let seed = 0; seed < 100 && !claimed; seed++) {
+      const d = G.setData(structuredClone(useExpanded()), EXPANDED_MAP_ID);
+      const g = G.newGame(0, 1, seed), faction = 4;
+      d.rules.ai_domestic.faction_development_threshold_out_of_80.fill(0);
+      for (const row of d.rules.ai_dispatch) row.weights = [16, 0, 0];
+      const dest = g.cities[target], from = g.cities[G.roads(target).find(id => !G.isPass(id))];
+      for (const c of g.cities) Object.assign(c, { faction: c.id === target ? G.NONE : 0, officers: [], gold: 0, rice: 0 });
+      Object.assign(from, { faction, officers: [20, 21] });
+      d.cities[target].facilities.weapons = false;
+      Object.assign(dest, { land: 120, industry: 120, pop: 600, gov: 100 });
+      Object.assign(g.factions[faction], { ruler: 20, city: from.id });
+      for (const id of [20, 21]) Object.assign(g.officers[id], { soldiers: 900, loyalty: 100, status: G.SERVING, int: 80 });
+      G.income(g, 'gold'); G.income(g, 'rice');
+      const local = [dest.gold, dest.rice];
+      assert.ok(local[0] >= 100 && local[1] >= 120);
+      from.gold = from.rice = 0;
+      await aiTurn(g, faction, { event: async () => {}, afterWar: async () => {}, war: async () => assert.fail('年初不得进攻邻城') });
+      if (dest.faction !== faction) continue;
+      assert.deepEqual(from.officers, [20]);
+      assert.deepEqual(dest.officers, [21]);
+      assert.deepEqual([dest.gold, dest.rice], local);
+      assert.deepEqual([from.gold, from.rice], [0, 0]);
+      claimed = true;
+    }
+    assert.ok(claimed, `电脑应能占领 ${G.cityName(target)}`);
+  }
+});

@@ -137,8 +137,14 @@ export function figure(id, cls = '') {
   return avatar(id, 'calm', `${cls} figure`);
 }
 // face(id) is the officer's portrait; face(id, cls, mood) is the dialog bust with that expression.
+const refreshedPortraits = { 24: '郭嘉', 75: '黄忠', 100: '淳于琼', 153: '张飞', 169: '邓艾', 206: '杨修', 234: '吕蒙' };
 export function face(id, cls = '', mood = null) {
-  if (mood == null) return officerImage(id, cls, builtInPortrait(id));
+  if (mood == null) {
+    const officer = data().officers[id];
+    const refresh = officer && refreshedPortraits[id] === officer.name && art(id) === id
+      && !officer.visual?.portrait && !officer.portraitData;
+    return officerImage(id, cls, builtInPortrait(id), refresh ? `assets/portrait-refresh/${id}.webp` : null);
+  }
   const f = faceFiles[art(id)];
   return officerImage(id, cls, f?.[mood] || f?.calm || builtInPortrait(id), visualUrl(officerVisual(id)?.faces?.[mood]));
 }

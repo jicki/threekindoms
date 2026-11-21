@@ -47,7 +47,7 @@ test('switched on, a record costs nothing and the dock says so', async () => {
   const { books, free } = await state();
   assert.equal(free, true);
   await openCmds(page, '城');
-  assert.ok(await page.locator('.dock .tabs [data-tab="录"] .free').count());
+  assert.ok(await page.locator('.dock .acts [data-act="记录"] .free').count());
   await save('二'); await page.waitForTimeout(800);
   assert.equal((await state()).books, books);
   assert.equal(await record(2), books);
@@ -68,7 +68,7 @@ test('switched off again it costs one, and a record from before the option reads
   const { books, free } = await state();
   assert.ok(!free);
   await openCmds(page, '城');
-  assert.equal(await page.locator('.dock .tabs [data-tab="录"] .free').count(), 0);
+  assert.equal(await page.locator('.dock .acts [data-act="记录"] .free').count(), 0);
   await save('四'); await settle(books - 1);
   assert.equal(await record(4), books - 1);
   assert.ok(!(await page.evaluate(() => JSON.parse(localStorage.getItem('haou-hd2d-save:1')).freeSave)));

@@ -7,6 +7,10 @@ const mm = (s) => !!globalThis.matchMedia?.(s).matches;
 const touchOnly = mm('(pointer: coarse)') && !mm('(any-pointer: fine)');
 const short = Math.min(globalThis.screen?.width ?? 9999, globalThis.screen?.height ?? 9999);
 export const PHONE = q.has('phone') ? q.get('phone') !== '0' : touchOnly && short < 600;
+export const ANDROID_TABLET = short >= 600 && /Android/i.test(globalThis.navigator?.userAgent ?? '')
+  && (touchOnly || (globalThis.navigator?.maxTouchPoints ?? 0) > 0);
+export const TOUCH_BATTLE = PHONE || ANDROID_TABLET;
+if (ANDROID_TABLET && globalThis.document) document.body.classList.add('android-tablet');
 
 // The safe area (notch, home bar) in CSS px, measured from env(safe-area-inset-*); index.html asks for viewport-fit=cover.
 // ?safe=l,r,t,b stands in for a phone's in a desktop browser.
@@ -38,7 +42,7 @@ if (PHONE && globalThis.document) {
   // The phone's stylesheet is fetched here, on a phone only. A desktop window never loads it: its rules would match nothing there,
   // but its :has() selectors still cost the browser a little on every redraw of the HUD (a frame late in tests/strategyflat's
   // title-to-record ease, 2026-11-14).
-  document.head.append(Object.assign(document.createElement('link'), { rel: 'stylesheet', href: new URL('./phone.css?v=3', import.meta.url).href }));
+  document.head.append(Object.assign(document.createElement('link'), { rel: 'stylesheet', href: new URL('./phone.css?v=4', import.meta.url).href }));
   applyMargins();
   for (const t of ['resize', 'orientationchange']) addEventListener(t, () => { applyMargins(); setTimeout(applyMargins, 300); });
   // The page itself never zooms or scrolls: two fingers belong to the map (iOS Safari ignores user-scalable=no).

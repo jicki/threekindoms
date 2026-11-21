@@ -79,8 +79,9 @@ function valid(rec) {
   if (!validDefenseSupport(rec.g, rec.war, rec.side, rec.field.units)) return null;
   if (rec.g.battlefields === 2) {
     try {
-      const w = rec.war, { siege } = resolveBattlefield(data(), rec.g, w.city, w.from, rec.field.siegeRevision ?? 1);
+      const w = rec.war, { siege, map, approaches } = resolveBattlefield(data(), rec.g, w.city, w.from, rec.field.siegeRevision ?? 1);
       if (!siege || !restoreGates(siege,rec.field.siegeGates)) return null;
+      if (approaches && rec.field.units.some(u => !Number.isInteger(u?.x) || !Number.isInteger(u.y) || map[u.y]?.[u.x] === undefined)) return null;
     } catch { return null; }
   }
   return rec;

@@ -345,7 +345,7 @@ test('扩展地图的 39 处据点和所有相邻入口均有场景、独立站�
     const f = new Field(g, war([40], [42], city.id, from), 'att');
     assert.ok(f.sceneProfile?.label);
     assert.ok(['n','s','w','e'].includes(f.entryDirection), label);
-    assert.ok(f.map.length === 19 && f.map.every(row => row.length === 32));
+    assert.ok(f.map.length === 27 && f.map.every(row => row.length === 40));
     assert.equal(f.siege.gates.length, city.kind === 'pass' ? 4 : 8);
     const attacker = f.side('att')[0], defender = f.side('def')[0];
     assert.notDeepEqual([attacker.x, attacker.y], [defender.x, defender.y], label);

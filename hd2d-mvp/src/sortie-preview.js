@@ -6,18 +6,21 @@ import { cityIntel } from './core/strategy-intel.js';
 import { defenseCandidates } from './core/warcore.js';
 import { gateNormal, siegeExtent } from './core/siege.js';
 import { FOREST, SAND, RIVER, MOUNT } from './core/field.js';
+import { POST_MOBILITY } from './core/battle-approaches.js';
+import { APPROACH_COLORS, paintApproaches } from './war/approach-display.js';
 
 const DIRECTIONS = { n: '北', e: '东', s: '南', w: '西' };
 const TERRAIN = ['#42563f', '#987d51', '#727956', '#3a738d', '#635d57', '#c89258'];
 const MARKS = { attack: '#9fdff5', wall: '#b29d7a', gate: '#ffe389', court: '#9b683f' };
 
-function planMap({ map, dep, siege }) {
+function planMap({ map, dep, siege, approaches }) {
   const cell = 8, canvas = h('canvas', { width: map[0].length * cell, height: map.length * cell,
     role: 'img', 'aria-label': '战场俯视图，上北下南' });
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
   const tile = (x, y, color) => { ctx.fillStyle = color; ctx.fillRect(x * cell, y * cell, cell, cell); };
   map.forEach((row, y) => row.forEach((terrain, x) => tile(x, y, TERRAIN[terrain])));
+  paintApproaches(ctx, approaches, cell);
   if (siege) {
     for (const { x, y } of siege.walls) tile(x, y, MARKS.wall);
     for (const { x, y } of siege.gates) tile(x, y, MARKS.gate);
@@ -74,7 +77,9 @@ export function sortiePreview(data, g, from, to) {
     toggle.setAttribute('aria-expanded', String(!detail.hidden));
     toggle.textContent = detail.hidden ? '查看战场布阵' : '收起战场布阵';
     if (!detail.hidden && !detail.firstChild) detail.append(...[planMap(field), h('p', { class: 'hint' },
-      h('span', { style: { color: MARKS.attack } }, '浅蓝框为攻方布阵区。'), siege ? h('span', { style: { color: MARKS.gate } }, '金色格为城门。') : null)].filter(Boolean));
+      h('span', { style: { color: MARKS.attack } }, '浅蓝框为攻方布阵区。'), siege ? h('span', { style: { color: MARKS.gate } }, '金色格为城门。') : null),
+      field.approaches ? h('p', { class: 'hint' }, h('span', { style: { color: APPROACH_COLORS.main } }, '土黄色主道'), '、',
+        h('span', { style: { color: APPROACH_COLORS.flank } }, '浅灰色侧道'), `可减少行军消耗。前哨有兵驻守时，次日机动力＋${POST_MOBILITY}。`) : null].filter(Boolean));
   } }, '查看战场布阵');
   return h('section', { class: 'sortie-preview', 'aria-label': '出阵预览' }, h('div', { class: 'sortie-head' }, h('strong', {}, route), toggle),
     h('p', { class: 'hint' }, [field.profile?.label, direction && `从${DIRECTIONS[direction]}面入场`, weather, fortress, moat].filter(Boolean).join(' · ')),
