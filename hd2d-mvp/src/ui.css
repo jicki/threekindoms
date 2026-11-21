@@ -1089,10 +1089,17 @@ body.flat2d .unitpanel .acts { grid-column: 2; max-width: none; gap: 4px; justif
 @media (min-width: 1201px) and (max-width: 1300px) { body.flat2d .unitpanel { padding: 6px 8px; column-gap: 8px; } body.flat2d .unitpanel dl { font-size: 11.5px; column-gap: 3px; } }
 body.flat2d .wardock { bottom: 8px; right: 12px; padding: 6px; }
 .wardock .turnpair { bottom: calc(100% + 6px); right: 0; padding: 6px; display: flex; gap: 6px; }
-.warzoom { bottom: 74px; right: 372px; padding: 6px; display: flex; gap: 6px; white-space: nowrap; }
-body:not(.phone):has(.deploybtn) .warzoom { bottom: 190px; }
+.warzoom { padding: 6px; display: flex; gap: 6px; white-space: nowrap; }
+.turnpair > .warzoom { right: calc(100% + 6px); top: 50%; transform: translateY(-50%); }
+body:has(.turnpair > .warzoom) .deploybtn { top: 96px; bottom: auto; }
+/* 桌面窄窗的左下角留给武将卡片，镜头按钮在右侧叠放。 */
+@media (max-width: 900px) {
+  .turnpair > .warzoom { top: auto; right: 0; bottom: calc(100% + 6px); transform: none; }
+}
+body.flat2d:not(.phone) .warzoom { bottom: 74px; right: 372px; }
+body.flat2d:not(.phone):has(.deploybtn) .warzoom { bottom: 190px; }
 @media (max-width: 1100px) {
-  body:not(.phone) .warzoom, body:not(.phone):has(.deploybtn) .warzoom { top: 160px; bottom: auto; left: 12px; right: auto; }
+  body.flat2d:not(.phone) .warzoom, body.flat2d:not(.phone):has(.deploybtn) .warzoom { top: 160px; bottom: auto; left: 12px; right: auto; }
 }
 .warzoom .icon { min-width: 36px; font-size: 18px; }
 .wardock .turnbtn { padding: 5px 7px; }

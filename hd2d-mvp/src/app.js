@@ -3298,6 +3298,12 @@ function warUi(field) {
       $('.wardock')?.remove();
       $('.warzoom')?.remove();
       const act = s.myTurn && !s.deploying, canSelect = s.myTurn || s.deploying;
+      const zoomByTurn = !PHONE && !warFlat;
+      const zoom = localOpening ? h('div', { class: 'panel warzoom', role: 'group', 'aria-label': '战场缩放' },
+        h('button', { class: 'btn icon', 'aria-label': '缩小战场', title: '缩小战场（−）', onclick: () => war?.zoom(260) }, '−'),
+        h('button', { class: 'btn icon', 'aria-label': '放大战场', title: '放大战场（＋）', onclick: () => war?.zoom(-260) }, '＋'),
+        h('button', { class: 'btn overview', 'aria-label': '战场全图', 'aria-pressed': String(war?.field === field && war.overviewActive()),
+          title: '查看全图，按 Esc 或点击地图返回原视角', onclick: () => war?.toggleOverview() }, '全图')) : null;
       const rosterButton = () => h('button', { class: 'btn war-rosterbtn', disabled: !canSelect, title: '从我军名单选择武将（也可用 [ 和 ] 切换）', onclick: chooseWarOfficer }, '选将');
       root().append(h('div', { class: 'panel wardock' },
         s.deploying ? rosterButton() : h('button', { class: 'btn', disabled: !act || !s.canUndo, title: '撤销上一次移动，退还机动力（Z）', 'data-pad': 'x', onclick: () => war?.undo() }, '撤销', h('kbd', {}, 'Z')),
@@ -3307,16 +3313,13 @@ function warUi(field) {
           h('button', { class: 'btn icon threatbtn', 'aria-pressed': String(threatPinned), title: '敌军威胁范围（按住 R 临时查看）：敌军下次行动时，任何一名敌将单独最远能打到的格子。机动力全军共用，不是全体同时能到。指着一名敌将只看他一人的', 'aria-label': '敌军威胁范围', onclick: toggleThreat }, '威', h('kbd', { class: 'pad-only', 'data-glyph': 'y' })),
           s.deploying ? null : rosterButton(),
           h('button', { class: 'btn icon turnbtn', title: '向左旋转视角（Q，或按住右键拖动）', 'aria-label': '向左旋转视角', html: TURN_ICON(-1), onclick: () => war?.rotate?.(-1) }),
-          h('button', { class: 'btn icon turnbtn', title: '向右旋转视角（E，或按住右键拖动）', 'aria-label': '向右旋转视角', html: TURN_ICON(1), onclick: () => war?.rotate?.(1) })),
+          h('button', { class: 'btn icon turnbtn', title: '向右旋转视角（E，或按住右键拖动）', 'aria-label': '向右旋转视角', html: TURN_ICON(1), onclick: () => war?.rotate?.(1) }),
+          zoomByTurn ? zoom : null),
         h('button', { class: 'btn terrainbtn', 'aria-pressed': String(terrainPinned), title: '人物淡出，显示被遮住的地形（按住 T 临时查看）', onclick: () => { terrainPinned = !terrainPinned; terrainView(); } }, '地形', h('kbd', { 'data-glyph': 'l3' }, 'T')),
         PHONE ? h('button', { class: 'btn icon cyclebtn', disabled: !canSelect, 'aria-label': '上一名武将', onclick: () => keyCycle(-1) }, '‹') : null,
         PHONE ? h('button', { class: 'btn icon cyclebtn', disabled: !canSelect, 'aria-label': '下一名武将', onclick: () => keyCycle(1) }, '›') : null,
         h('button', { class: 'btn primary', disabled: !act, title: '我军全体待机，结束本日（Enter）', 'aria-label': '待机并结束本日', 'data-pad': 'y-hold', onclick: () => endDay() }, h('span', { class: 'day-full' }, '待机·结束本日'), h('span', { class: 'day-short' }, '结束本日'), h('kbd', {}, '⏎'))));
-      if (localOpening) root().append(h('div', { class: 'panel warzoom', role: 'group', 'aria-label': '战场缩放' },
-        h('button', { class: 'btn icon', 'aria-label': '缩小战场', title: '缩小战场（−）', onclick: () => war?.zoom(260) }, '−'),
-        h('button', { class: 'btn icon', 'aria-label': '放大战场', title: '放大战场（＋）', onclick: () => war?.zoom(-260) }, '＋'),
-        h('button', { class: 'btn overview', 'aria-label': '战场全图', 'aria-pressed': String(war?.field === field && war.overviewActive()),
-          title: '查看全图，按 Esc 或点击地图返回原视角', onclick: () => war?.toggleOverview() }, '全图')));
+      if (zoom && !zoomByTurn) root().append(zoom);
     },
     // two of these make a 计略 when the picture is off: each takes half the original's 3.48 s less the wrap-up
     stratBanner: (n) => banner(n, '#c070ff', paced(ORIGINAL.strategyCast)),

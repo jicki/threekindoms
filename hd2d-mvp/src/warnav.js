@@ -93,9 +93,9 @@ export function createWarNav(war, host) {
     const bar = document.querySelector('.warbar'), lows = [...document.querySelectorAll('.unitpanel:not(.compare), .wardock')].filter((e) => e.offsetParent);
     band = { top: (bar?.offsetParent ? bar.getBoundingClientRect().bottom : 40) + 10, bottom: (lows.length ? innerHeight - Math.min(...lows.map((e) => e.getBoundingClientRect().top)) : 0) + 10, left: 12, right: 12 };
   }
-  // The minimap stands just over the turn pair (or the dock), wherever the window's size puts them.
+  // 小地图跟随右下方工具栏，为窄窗中叠放的缩放按钮留出空间。
   function place() {
-    const under = [...document.querySelectorAll('.wardock .turnpair, .wardock')].filter((e) => e.offsetParent).map((e) => e.getBoundingClientRect().top);
+    const under = [...document.querySelectorAll('.wardock :is(.turnpair, .warzoom), .wardock')].filter((e) => e.offsetParent).map((e) => e.getBoundingClientRect().top);
     box.style.bottom = `${Math.round(innerHeight - (under.length ? Math.min(...under) : innerHeight - 110) + 8)}px`;
   }
   function drawEdges() {

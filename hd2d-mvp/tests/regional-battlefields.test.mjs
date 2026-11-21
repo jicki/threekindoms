@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as G from '../src/core/game.js';
-import { Field, PLAIN, RIVER, SAND } from '../src/core/field.js';
+import { ATTACK_COST, Field, PLAIN, RIVER, SAND } from '../src/core/field.js';
 import { applyScenario } from '../src/core/scenario.js';
 import { loadScenario } from '../src/core/scenario-store.js';
 import { SOVEREIGN_SCENARIO_ID } from '../src/core/visuals.js';
@@ -295,6 +295,68 @@ test('宛城前阵阻挡破门，电脑先攻前阵，中断继续后保留解�
     if (descriptor) Object.defineProperty(globalThis, 'localStorage', descriptor);
     else delete globalThis.localStorage;
   }
+});
+
+function campEncounter() {
+  const f = new Field(fresh(), war(32, 13, 3), 'att');
+  const { camp } = f.siege, [, guard] = f.side('def'), [enemy, reinforcement, reserve] = f.side('att');
+  Object.assign(f.O(guard.id), { soldiers: 800, hp: 90, int: 10, army: '平' });
+  Object.assign(f.O(enemy.id), { soldiers: 500, hp: 90 });
+  Object.assign(enemy, { x: camp.x - 2, y: camp.y });
+  reinforcement.gone = true; reserve.gone = true;
+  assert.ok(f.deployable(enemy.x, enemy.y));
+  f.weather = 'clear'; f.turn = 'def'; f.pool.def = ATTACK_COST + 7;
+  return { f, camp, guard, enemy, reinforcement };
+}
+
+test('宛城外营守军可出营迎击孤军，恢复战斗后仍可接战和回营', () => {
+  const { f, camp, guard, enemy } = campEncounter(), initial = f.pool.def;
+  const move = f.aiActions('def', u => u === guard).next().value;
+  assert.equal(move?.type, 'move');
+  assert.notEqual(keyOf(guard), keyOf(camp));
+  assert.equal(f.dist(guard, enemy), 1);
+  assert.equal(f.pool.def, initial - move.cost);
+  assert.ok(f.pool.def >= ATTACK_COST);
+
+  const restored = Field.restore(f.g, f.war, f.snapshot()), [target] = restored.side('att');
+  const sentry = restored.side('def').find(u => u.id === guard.id);
+  const actions = restored.aiActions('def', u => u === sentry);
+  const strike = actions.next().value;
+  assert.equal(strike?.type, 'attack');
+  assert.equal(strike.d, target);
+  assert.equal(restored.pool.def, initial - move.cost - ATTACK_COST);
+  target.gone = true;
+  assert.equal(actions.next().value?.type, 'move');
+  assert.equal(keyOf(sentry), keyOf(camp));
+  assert.equal(restored.campSecured, false);
+  assert.ok(restored.siege.gates.every(gate => !gate.open));
+});
+
+test('宛城外营遇多支敌军、兵力不足或机动力不足时，营格守军留守', () => {
+  for (const reason of ['多支敌军', '兵力不足', '机动力不足']) {
+    const { f, camp, guard, enemy, reinforcement } = campEncounter();
+    if (reason === '多支敌军') Object.assign(reinforcement, { x: camp.x, y: camp.y + 2, gone: false });
+    if (reason === '兵力不足') f.O(enemy.id).soldiers = 950;
+    if (reason === '机动力不足') f.pool.def = ATTACK_COST;
+    const action = f.aiDecide(guard);
+    assert.notEqual(action?.type, 'move', reason);
+    assert.equal(keyOf(guard), keyOf(camp), reason);
+    assert.equal(f.human, 'att');
+    assert.equal(f.campSecured, false);
+  }
+});
+
+test('宛城已有守军占住营格时，营侧电脑副将可出击', () => {
+  const { f, camp, guard, reinforcement } = campEncounter(), reserve = f.side('def')[2];
+  Object.assign(reserve, { x: camp.x - 1, y: camp.y + 1 });
+  Object.assign(f.O(reserve.id), { soldiers: 800, hp: 90, int: 10, army: '平' });
+  Object.assign(reinforcement, { x: camp.x, y: camp.y + 2, gone: false });
+  Object.assign(f.O(reinforcement.id), { soldiers: 500, hp: 90 });
+  assert.notEqual(f.aiDecide(guard)?.type, 'move');
+  const actions = f.aiActions('def', u => u === reserve);
+  assert.equal(actions.next().value?.type, 'move');
+  assert.equal(actions.next().value?.type, 'attack');
+  assert.equal(f.unitAt(camp.x, camp.y), guard);
 });
 
 test('有天然河道的城池四向连通，桥头能平接两岸', () => {

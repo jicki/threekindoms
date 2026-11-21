@@ -10,7 +10,7 @@ import { passiveRiceUse } from './ruler-passives.js';
 import { resolveBattlefield } from './battlefields.js';
 import { POST_MOBILITY } from './battle-approaches.js';
 import { siegeRing, wallAt, gateAt, gateDefense, blockedStrategy, blockedTerrain, restoreGates } from './siege.js';
-import { EXPANDED_WARDS_LAYOUT_REVISION, CORNER_LAYOUT_REVISION } from './regional-battlefields.js';
+import { EXPANDED_WARDS_LAYOUT_REVISION, CORNER_LAYOUT_REVISION, REGIONAL_LAYOUT_REVISION } from './regional-battlefields.js';
 import { abilityStrategy, abilityStrategyIds, strategySpecs } from './famous-skills.js';
 import { advancedBattle, aiBattleBonus, battleWeather, fullStrategyWeather, officerPassive, tacticWeather, WEATHER_NAMES, weatherPenalty } from './battle-rules.js';
 import { strategyBonus, strategyWard } from './officer-passives.js';
@@ -864,6 +864,13 @@ export class Field {
     if (flee) { const [city] = isRuler && this.g.noWarDeath ? this.roomTargets(u) : this.retreatTargets(u); if (city != null) { this.retreat(u, city); return { type: 'retreat', u, city }; } }
     if (u.mission && !u.mission.done) return this.missionAct(u);
     if (u.role === 7) return null;
+    const { siege } = this;
+    const guardingCamp = s === 'def' && this.fortifiedDefense && siege.revision >= REGIONAL_LAYOUT_REVISION
+      && siege.camp && !this.campSecured && !u.commander && siegeRing(siege, u) > siege.outer;
+    if (guardingCamp) {
+      const action = this.guardCamp(u);
+      if (action) return action;
+    }
     const adj = this.adjacentEnemies(u);
     const commanderFoe = this.side(foe).find((e) => e.commander);
     let custom = null;
@@ -907,7 +914,7 @@ export class Field {
       const cast = this.aiStrategy(u, false);
       if (cast) return cast;
       if (adj.length && this.pool[s] >= ATTACK_COST) return this.doAttack(u, adj);
-      return this.guardCastle(u);
+      return guardingCamp ? null : this.guardCastle(u);
     }
     if (s === 'att' && this.approaches && !adj.length && this.day <= 10 && !u.commander
       && !u.stop && !u.qimen && o.soldiers >= 300) {
@@ -962,6 +969,40 @@ export class Field {
     }
     if (u.role === 2) { if (s === 'def') return this.approach(u, commanderFoe); return this.approach(u, this.assaultTarget()); }
     return this.aiStrategy(u, false) || this.approach(u, this.side(s).find((x) => x.commander));
+  }
+  guardCamp(u) {
+    if (u.stop || u.qimen || this.pool.def <= 0) return null;
+    const { siege } = this, { camp } = siege, officer = this.O(u.id);
+    const outside = (v) => siegeRing(siege, v) > siege.outer;
+    const holder = this.unitAt(camp.x, camp.y);
+    const enemies = this.side('att').filter(v => outside(v) && this.dist(v, camp) <= 4);
+    const budget = Math.min(5, this.pool.def - ATTACK_COST);
+    // 营格有人留守，或只有一个近敌时，才尝试出击。保留同回合发起白兵所需的机动力。
+    if (budget >= 0 && enemies.length && (enemies.length === 1 || (holder?.side === 'def' && holder !== u))
+        && officer.soldiers >= 300 && officer.hp * 2 >= maxHp(officer)) {
+      const reach = this.reach(u, budget, (x,y) => outside({ x,y }) && this.dist({ x,y }, camp) <= 3);
+      let best = null;
+      for (const target of enemies) {
+        const troops = this.O(target.id).soldiers;
+        if (troops > officer.soldiers) continue;
+        for (const [dx,dy] of DIRS) {
+          const [x,y] = [target.x + dx, target.y + dy];
+          const cost = reach.dist.get(`${x},${y}`);
+          if (cost == null || (best && (cost > best.cost || (cost === best.cost && troops >= best.troops)))) continue;
+          best = { x, y, cost, troops, target };
+        }
+      }
+      if (best?.cost === 0) return this.doAttack(u, [best.target]);
+      if (best) {
+        const [step] = this.path(reach, best.x, best.y), cost = this.cost(u, ...step);
+        this.move(u, ...step, cost);
+        return { type: 'move', u, path: [step], cost };
+      }
+    }
+    if (holder) return null;
+    // 出营后没有接战机会，就回填空出的营格，避免留下无守军的破城入口。
+    const limit = Math.max(3, this.dist(u, camp));
+    return this.siegeApproach(u, camp, (x,y) => outside({ x,y }) && this.dist({ x,y }, camp) <= limit);
   }
   guardCastle(u) {
     const siege = this.siege, inside = (v) => siegeRing(siege, v) <= siege.outer;

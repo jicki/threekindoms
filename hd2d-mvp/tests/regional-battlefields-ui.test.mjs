@@ -374,17 +374,27 @@ test('三维战场聚焦可控武将，触摸板连续缩放，Esc 和地图点�
       const w = window.__game.war, u = w.field.side('att').find(u => u.commander);
       return { ...w.viewState(), unit: w.screenOf(u.x, u.y), selected: w.st.sel?.id ?? null, day: w.field.day };
     });
+    const zoom = page.getByRole('group', { name: '战场缩放' });
+    const checkToolbar = async (stacked) => {
+      const z = await zoom.boundingBox(), t = await page.locator('.turnpair').boundingBox();
+      assert.ok(z && t);
+      if (stacked) {
+        assert.ok(Math.abs(z.x + z.width - t.x - t.width) < 2 && t.y - z.y - z.height >= 4);
+      } else {
+        assert.ok(t.x - z.x - z.width >= 4 && t.x - z.x - z.width <= 10);
+        assert.ok(Math.abs(z.y + z.height / 2 - t.y - t.height / 2) < 2);
+      }
+      for (const button of await zoom.getByRole('button').all()) await button.click({ trial: true, timeout: 5000 });
+    };
     await warRest(page);
     const opening = await read();
     assert.equal(opening.zoom, 'mid');
     assert.ok(opening.unit.x > 425 && opening.unit.x < 990 && opening.unit.y > 150 && opening.unit.y < 615);
     assert.ok(opening.selected != null);
     assert.equal(await page.getByRole('group', { name: '全军集结地' }).getByRole('button').count(), 4);
-    for (const [width, height] of [[860, 650], [960, 600]]) {
+    for (const [width, height] of [[1280, 800], [960, 600], [860, 650]]) {
       await page.setViewportSize({ width, height });
-      for (const name of ['缩小战场', '放大战场', '战场全图']) {
-        await page.getByRole('button', { name }).click({ trial: true });
-      }
+      await checkToolbar(width <= 900);
     }
     await page.setViewportSize({ width: 1280, height: 800 });
     await warRest(page);
@@ -469,6 +479,13 @@ test('三维战场聚焦可控武将，触摸板连续缩放，Esc 和地图点�
     assert.equal(reset.zoom, 'mid');
     assert.equal(reset.day, 1);
     assert.ok(Math.abs(reset.unit.x - opening.unit.x) < 40 && Math.abs(reset.unit.y - opening.unit.y) < 110);
+    await page.setViewportSize({ width: 860, height: 650 });
+    await checkToolbar(true);
+    await page.waitForFunction(() => {
+      const tools = document.querySelector('.warzoom').getBoundingClientRect();
+      const map = document.querySelector('.warmini').getBoundingClientRect();
+      return map.height > 0 && map.top >= 0 && map.bottom + 4 <= tools.top;
+    }, null, { timeout: 5000 });
     assert.deepEqual(page.errors, []);
   } finally { await game.close(); }
 });
