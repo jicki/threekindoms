@@ -27,3 +27,4 @@ hd2d-mvp/desktop/build/*.ico
 !hd2d-mvp/assets/regional/*.webp
 !hd2d-mvp/assets/portrait-refresh/*.webp
 !hd2d-mvp/assets/portrait-refresh/*.png
+!hd2d-mvp/assets/battle-textures/*.webp

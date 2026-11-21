@@ -3111,7 +3111,7 @@ async function fieldWar(w, humanSide, { after = { kind: humanSide === 'att' ? 'a
   const ui = warUi(field);
   await Promise.all([
     loadFieldSprites(), loadOfficerMarch(field.units.map((u) => u.id)),
-    loadWarGround(g.month, w.city).catch((e) => console.warn('war ground', e)), // painted materials (src/warplate.js)
+    loadWarGround(g.month, w.city, { refined: !!field.approaches?.barriers }).catch((e) => console.warn('war ground', e)), // painted materials (src/warplate.js)
   ]);
   warFlat = nextWarFlat();
   war = createWarView({ T, audio, ui, sprites, flat: warFlat, yaw, prepareSkirmish: (res) => prepareSkirmish(field, res.pending),
@@ -3236,9 +3236,14 @@ function warUi(field) {
     log: (x) => { const box = $('.logbox'); if (box) box.prepend(h('p', { html: x })); if (PHONE) toast(x, 2400); },
     warHud(s) {
       $('.warbar')?.remove();
+      $('.war-zones')?.remove();
+      const zones = s.deploying && human ? field.deploymentZones(human) : [];
+      if (zones.length > 1) root().append(h('div', { class: 'panel war-zones', role: 'group', 'aria-label': '布阵区' },
+        ...zones.map(zone => h('button', { class: 'btn', onclick: () => war?.centreOn?.(...zone.anchor) }, zone.name))));
       root().prepend(h('div', { class: 'panel warbar' },
         h('span', { class: 'day', title: `战场：${field.sceneProfile?.label ?? s.city}${field.weather === 'rain' ? ' · 雨天林河行军较慢，削弱火计，增强水计' : field.weather === 'snow' ? ' · 雪天行军较慢，白兵骑兵减少一次行动' : ''}` }, `${s.city}之战　第${s.day}日/${s.max}${field.weather ? ` · ${WEATHER_NAMES[field.weather]}` : ''}`),
         h('span', { class: `turn ${s.deploying ? 'deploy' : s.myTurn ? 'mine' : 'theirs'}` }, s.deploying ? '布阵中' : s.myTurn ? '我军行动' : '敌军行动'),
+        field.siege?.camp ? h('span', { class: 'war-objective', title: '攻方占领前阵后可突破城门' }, field.campSecured ? '争夺城池' : '争夺前阵') : null,
         h('span', { class: 'side me' }, field.war.support && human === 'def' ? `${s.me.name}联军` : `${s.me.name}(${s.me.role})`, '机动力', h('b', {}, s.me.pool), `兵${s.me.troops} 米${s.me.rice} 金${s.me.gold}`),
         h('span', { class: 'side foe' }, `${s.foe.name}`, '机动力', h('b', {}, s.foe.pool), `兵${s.foe.troops} 米${s.foe.rice}`),
         warFlat ? h('button', { class: 'btn viewmode', title: '本场是平面战场，点此查看原因与如何换回3D战场', onclick: flatInfo }, '平面战场') : null));
@@ -3271,7 +3276,7 @@ function warUi(field) {
     deploy(on) {
       $('.deploybtn')?.remove();
       if (on) root().append(h('div', { class: 'panel deploybtn' },
-        h('div', {}, h('b', {}, '布阵'), h('p', { class: 'hint' }, pad.active ? padText((k) => `光标选我军武将按 ${k('a')}，再到绿色格按 ${k('a')} 放置。`) : '点选我军武将，再点绿色格放置。', h('br'), '地形不限，开战后不能再调整。')),
+        h('div', {}, h('b', {}, '布阵'), h('p', { class: 'hint' }, pad.active ? padText((k) => `光标选我军武将按 ${k('a')}，再到绿色格按 ${k('a')} 放置。`) : '点选我军武将，再点绿色格放置。', h('br'), field.approaches?.barriers ? '仅高亮地格可布阵，开战后不能再调整。' : '地形不限，开战后不能再调整。')),
         h('button', { class: 'btn primary', 'data-pad': 'y-hold', onclick: () => war?.finishDeploy() }, '布阵完成', h('kbd', { class: 'pad-only' }))));
     },
     warUnit(info) {
@@ -3592,7 +3597,7 @@ function besideUnit(u, acts, label = `${name(u.id)}的命令`, dock = null) {
     const busy = [...(fs?.marks ?? []).map((m) => (m.kind === 'move' || m.kind === 'path' ? { ...tile(war.screenOf(m.x, m.y), 0.7), w: plain } : { ...tile(war.screenOf(m.x, m.y)), w: 1 })),
       ...(fs?.units ?? []).filter((x) => x.visible && x.u !== u).flatMap((x) => stand(war.screenOf(Math.round(x.x), Math.round(x.y))).map((b) => ({ ...b, w: 1 })))];
     const mine = stand(c);
-    const hud = $$('.warbar, .unitpanel, .wardock, .turnpair, .logbox, .sysbtns, .deploybtn, .unitacts').filter((e) => e !== el && e.getClientRects().length).map((e) => { const b = e.getBoundingClientRect(); return { x0: b.left, x1: b.right, y0: b.top, y1: b.bottom }; });
+    const hud = $$('.warbar, .war-zones, .unitpanel, .wardock, .turnpair, .logbox, .sysbtns, .deploybtn, .unitacts').filter((e) => e !== el && e.getClientRects().length).map((e) => { const b = e.getBoundingClientRect(); return { x0: b.left, x1: b.right, y0: b.top, y1: b.bottom }; });
     const top = three ? ($('.warbar')?.getBoundingClientRect().bottom ?? 0) + 6 : FLAT_INSET.top + 6, bottom = three ? innerHeight - 8 : innerHeight - FLAT_INSET.bottom - 6;
     const at = (sd, k) => {
       const x = sd === 'r' ? c.x + c.cw * k : sd === 'l' ? c.x - c.cw * k - r.width : c.x - r.width / 2;

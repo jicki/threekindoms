@@ -239,6 +239,7 @@ export const deepWaterTex = () => (deep ||= waterTex(37, ['#174a66', '#1b5574', 
 const BEVEL = 0.06, MARGIN = 0.22, OFFS = [0, BEVEL, MARGIN, 1 - MARGIN, 1 - BEVEL, 1];
 // A hill (cell with hAt) is a curved surface: a finer, even grid so it does not facet.
 const OFFS_HILL = [0, BEVEL, 0.18, 0.32, 0.5, 0.68, 0.82, 1 - BEVEL, 1];
+const OFFS_RIDGE = [0, 0.25, 0.5, 0.75, 1]; // 连绵的山脊使用较疏的网格，给长边留出变化。
 const DIRS4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const BED = 0.15; // a neighbour below this is a river bed
 
@@ -294,7 +295,7 @@ export function buildTerrain({ W, H, cell, wx, wz, rimDepth = 2.2, textures = di
     const drop = nh.map((v, k) => h - v > 0.05 && !(c.hAt && nb[k]?.hAt));
     const taller = (dx, dy) => { const n = at(x + dx, y + dy); return n && !(c.hAt && n.hAt) && n.h - h > 0.1 ? Math.min(1, (n.h - h) / 0.35) : 0; };
     const topAt = (fx, fz) => (c.hAt ? c.hAt(fx, fz) : h);
-    const O = c.hAt || (wobble && !c.square && drop.some(Boolean)) ? OFFS_HILL : OFFS, N = O.length; // a bulging edge needs the finer row of points
+    const O = c.ridge ? OFFS_RIDGE : c.hAt || (wobble && !c.square && drop.some(Boolean)) ? OFFS_HILL : OFFS, N = O.length;
     const round = roundBanks ? bankCorners(x, y, c, nb, at, roundCliffs) : null;
     // wobble: an edge that drops bulges outward by up to `wobble` of a cell, by noise along it in world space
     // (so the face below follows the same line) and nothing at its ends (so neighbours meet): a bank or a

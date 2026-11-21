@@ -30,7 +30,7 @@ function encounter(id, weather, { caster = 40, revision, keepSiege = false } = {
   };
   const f = new Field(g, war, 'att'), [u, helper] = f.side('att'), [target, neighbour] = f.side('def');
   // 单项公式验证使用相同的无遮挡地格，城门限制有独立的回归测试。
-  if (!keepSiege) f.siege = null;
+  if (!keepSiege) { f.siege = null; f.approaches = null; }
   f.pool.att = 100; f.r = () => 0;
   Object.assign(u, { x: 3, y: 3 }); Object.assign(helper, { x: 4, y: 4 });
   Object.assign(target, { x: 4, y: 3 }); Object.assign(neighbour, { x: 4, y: 2 });
@@ -117,7 +117,7 @@ test('修订 2 的既有记录和中断按原天气恢复，升级后才生效',
   assert.equal(prior.hitChance(prior.side('att')[0], prior.side('def')[0], 1), f.hitChance(u, target, 1));
   const g = structuredClone(before);
   assert.ok(G.upgradeCampaign(g));
-  assert.equal(g.campaignRevision, 12);
+  assert.equal(g.campaignRevision, 13);
   assert.deepEqual(legacyRoster(structuredClone(g), 2), before);
   assert.equal(impact(5, 'rain', { revision: 2 }), impact(5, 'clear', { revision: 2 }));
 });

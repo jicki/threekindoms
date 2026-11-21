@@ -272,12 +272,12 @@ export function seasonalRoof(material, place) {
     diffuseColor.rgb *= s_stage(vWP);`);
 }
 // Rivers and lakes freeze north of the snow line: pale ice with the water's pattern showing as cracks.
-export function seasonalWater(material, place) {
-  return patch(material, 'water', place, '', `
+export function seasonalWater(material, place, openSea = false) {
+  return patch(material, openSea ? 'open-sea' : 'water', place, '', `
     float ice = smoothstep(.4, .7, s_snow(vWP + vec3(0., .4, 0.), .5));
     ${LUM}
     vec3 iceCol = mix(mix(vec3(.55, .68, .78), vec3(.86, .92, .96), clamp(lum * 3., 0., 1.)), mix(vec3(.11, .21, .33), vec3(.28, .4, .54), clamp(lum * 3., 0., 1.)), uCalm); // calm: steel-blue ice, apart from the snow
-    diffuseColor.rgb = mix(diffuseColor.rgb, iceCol, ice) * s_stage(vWP);
+    diffuseColor.rgb = mix(diffuseColor.rgb, iceCol, ice)${openSea ? '' : ' * s_stage(vWP)'};
     diffuseColor.a = mix(diffuseColor.a, .97, ice);`);
 }
 // The sand-table board (sandtable.js) keeps its painted colours: a month tints them by how far its palette has
@@ -421,13 +421,13 @@ export function seasonalize(root, place) {
   const done = new Map();
   const variant = (m, o) => {
     if (!m?.isMeshStandardMaterial || m.userData.season) return m;
-    const u = o.userData, key = `${m.uuid}|${u.tile || u.tree || u.foliage || (u.water ? 'water' : 'snow')}`;
+    const u = o.userData, key = `${m.uuid}|${u.tile || u.tree || u.foliage || (u.openSea ? 'open-sea' : u.water ? 'water' : 'snow')}`;
     if (done.has(key)) return done.get(key);
     let out;
     if (u.tree) out = seasonalTree(m, u.tree, place);
     else if (u.tile) out = seasonalTile(cloneMat(m), u.tile, place, toneOf(m.map));
     else if (u.foliage) out = seasonalSprite(cloneMat(m), u.foliage, place);
-    else if (u.water) out = seasonalWater(cloneMat(m), place);
+    else if (u.water) out = seasonalWater(cloneMat(m), place, u.openSea);
     else out = seasonalRoof(cloneMat(m), place);
     out.userData.season = true; done.set(key, out); return out;
   };

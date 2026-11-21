@@ -5,6 +5,7 @@ import * as G from '../src/core/game.js';
 import { Field } from '../src/core/field.js';
 import { resolveBattlefield } from '../src/core/battlefields.js';
 import { POST_MOBILITY, APPROACH_CAMPAIGN_REVISION } from '../src/core/battle-approaches.js';
+import { REGIONAL_BATTLE_REVISION } from '../src/core/regional-battlefields.js';
 import { siegeExtent } from '../src/core/siege.js';
 import { applyScenario } from '../src/core/scenario.js';
 import { loadScenario } from '../src/core/scenario-store.js';
@@ -18,7 +19,7 @@ const key = (x, y) => `${x},${y}`;
 const distance = ([ax, ay], [bx, by]) => Math.abs(ax - bx) + Math.abs(ay - by);
 function game() {
   G.setData(expanded, EXPANDED_MAP_ID);
-  return G.newGame(4, 1, 7);
+  return { ...G.newGame(4, 1, 7), campaignRevision: APPROACH_CAMPAIGN_REVISION };
 }
 function war(city = 34, from = 8) {
   return { city, from, attacker: 0, defender: 4, day: 1,
@@ -96,9 +97,9 @@ test('升级旧战役只改变之后的战斗，修订 5 中断持久化前哨�
   const before = new Field(g, w, 'att'), snapshot = before.snapshot();
   assert.deepEqual([before.width, before.height, before.siege.revision], [32, 19, 4]);
   assert.ok(G.upgradeCampaign(g));
-  assert.equal(g.campaignRevision, APPROACH_CAMPAIGN_REVISION);
+  assert.equal(g.campaignRevision, REGIONAL_BATTLE_REVISION);
   assert.deepEqual(Field.restore(g, w, snapshot).map, before.map);
-  const f = new Field(g, w, 'att');
+  const f = new Field({ ...g, campaignRevision: APPROACH_CAMPAIGN_REVISION }, w, 'att');
   Object.assign(f.side('att')[0], f.approaches.post);
   Object.assign(f.O(f.side('att')[0].id), { soldiers: 700 });
   Object.assign(f.side('att')[1], { x: 38, y: 25 });

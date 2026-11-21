@@ -7,20 +7,23 @@ import { rng } from '../pixel.js';
 import { backdrop, lightShafts } from '../fx.js';
 import { buildTerrain, dressBoard, calmTextures, deepWaterTex, vnoise } from '../diorama.js';
 import { seasonalize } from '../seasons.js';
-import { warGround, bakePlate, paintTerrain, paintedWater, plantWoods } from '../warplate.js';
+import { warGround, bakePlate, paintTerrain, paintedWater, plantWoods, waterSurface } from '../warplate.js';
 import { seasonEnv } from '../seasonenv.js';
 import { seeThrough } from '../seethrough.js';
 import { FOREST, SAND, PLAIN, RIVER, MOUNT, CASTLE } from '../core/field.js';
 import { FACTION_COLORS } from '../core/game.js';
 import { WATER_Y, PITCH, KIND, PLATE_M, PLATE_PX, DIRS, woodsOf, keySun, phase, WAR_RAIN } from './shared.js';
 import { buildFortification } from '../fortification.js';
-import { addApproachScenery } from './approach-display.js';
+import { addApproachScenery, paintRoadSurface } from './approach-display.js';
+import { luoyangCourt } from './scenery-plan.js';
+import { isCoastalBattle, townSurface } from './surface.js';
 
 export function makeBoard(wv) {
   const { ctx, field, T0 } = wv; let tp = T0;
   const { width: W, height: H } = field;
   const { audio, ui, sprites } = ctx;
   const map = field.map, human = field.human;
+  const refined = !!field.approaches?.barriers;
   const scene = new THREE.Scene();
   // Haze in the month's colour (seasonenv.js): the board is clear, the surrounding country fades out over its outer half.
   scene.fog = new THREE.Fog('#c9d4dc', 48, 100); // further out than the old dusk haze: a pale month fog washes out sooner
@@ -49,6 +52,7 @@ export function makeBoard(wv) {
   if (tint) scene.fog.color.lerp(new THREE.Color(tint), 0.25);
   // The key light: a warm, pale low sun on a clear day, the month's own grey light in a rainy, stormy or snowing one (keySun).
   { const k = keySun(field.g.month); sun.color.copy(k.color); sun.intensity = k.intensity; }
+  if (refined && field.weather === 'clear') sun.color.lerp(new THREE.Color('#fff7ea'), 0.47);
   // The painted materials (src/warplate.js), loaded by app.js before the battle; without them (a test that
   // builds the view directly) the board falls back to the tile textures and the 3D woods.
   const G = warGround(field.g.month, field.war.city);
@@ -66,8 +70,31 @@ export function makeBoard(wv) {
   // castle on a plinth. The rules never read these heights.
   const TIER = 0.75, PLAIN_Y = 0.3, CASTLE_Y = 0.8;
   const hillCell = (x, y) => terr(Math.max(0, Math.min(W - 1, x)), Math.max(0, Math.min(H - 1, y))) === MOUNT; // the range runs on past the board's edge
-  const mountH = (x, y) => PLAIN_Y + TIER * (DIRS.every(([dx, dy]) => hillCell(x + dx, y + dy)) ? 2 : 1);
-  const topY = (x, y) => [PLAIN_Y, PLAIN_Y, PLAIN_Y, WATER_Y, mountH(x, y), CASTLE_Y][terr(x, y)];
+  const court = luoyangCourt(field.siege);
+  const paving = townSurface(field, court);
+  const jiange = field.war.city === 36 && refined;
+  const outer = jiange ? field.siege.gates.filter(g => g.ring === field.siege.outer) : [];
+  const cliff = (x, y) => {
+    const distance = Math.abs(x - field.siege.cx), ridge = vnoise(x * 0.29, y * 0.18, 36);
+    const folds = vnoise(x * 0.75, y * 0.52, 72);
+    return 1.42 + Math.min(4.0, Math.max(0, distance - 3) * 0.44) * (0.40 + 0.96 * ridge) + 0.63 * folds;
+  };
+  const cliffApron = (x, y) => {
+    const beyond = Math.max(0, -0.5 - x, x - W + 0.5, -0.5 - y, y - H + 0.5);
+    return PLAIN_Y + (cliff(x, y) - PLAIN_Y) * Math.max(0, 1 - beyond / 10);
+  };
+  const mountH = (x, y) => jiange ? cliff(x, y)
+    : PLAIN_Y + TIER * (DIRS.every(([dx, dy]) => hillCell(x + dx, y + dy)) ? 2 : 1);
+  function topY(x, y) {
+    const crossing = field.approaches?.roads.get(`${x},${y}`)?.kind;
+    if (crossing === 'bridge') return PLAIN_Y;
+    if (jiange && crossing === 'plank') {
+      const fromGate = Math.min(...outer.map(g => Math.abs(y - g.y)));
+      return PLAIN_Y + Math.max(0.06, 1.03 - fromGate * 0.16);
+    }
+    const t = terr(x, y);
+    return t === MOUNT ? mountH(x, y) : [PLAIN_Y, PLAIN_Y, PLAIN_Y, WATER_Y, 0, CASTLE_Y][t];
+  }
 
   // --- Diorama: merged bevelled terrain, then set dressing (src/diorama.js) ---
   const TOP = ['forest', 'sand', 'grass', 'bed', 'hill', 'stone'], SIDE = ['earth', 'dirt', 'earth', 'earth', G ? 'tier' : 'rock', 'wall'];
@@ -90,12 +117,23 @@ export function makeBoard(wv) {
   }
   const boardCell = (x, y) => {
     const t = terr(x, y), h = t === RIVER ? 0.05 : topY(x, y);
+    if (refined && t === CASTLE) {
+      return { h, top: G ? 'plate' : 'stone', kind: 'castle', side: 'earth', ridge: true, square: true,
+        hAt: (fx, fz) => {
+          const edge = Math.max(Math.abs(fx - 0.5), Math.abs(fz - 0.5));
+          return PLAIN_Y + (h - PLAIN_Y) * (1 - THREE.MathUtils.smoothstep(edge, 0.28, 0.5));
+        } };
+    }
+    if (jiange && field.approaches.barriers.get(`${x},${y}`) === '断崖') {
+      return { h, top: G ? 'plate' : 'hill', kind: 'hill', side: 'rock', ridge: true,
+        hAt: (fx, fz) => cliff(x + fx - 0.5, y + fz - 0.5) };
+    }
     // Hills are rock and moss: snow comes from the month and the battlefield's latitude (seasons.js), so a
     // tropical 交州 range stays bare while the 幽州 hills whiten from 十月.
     // Painted, a hill is a rock mesa (A2): flat tops stepping up toward the middle of a range, cliff faces
     // between, the corners rounded (buildTerrain roundCliffs); the castle stays square.
-    if (G) return { h, top: 'plate', side: SIDE[t], kind: KIND[t], square: t === CASTLE };
-    return { h, top: TOP[t], side: SIDE[t], ...(t === MOUNT ? { hAt: hillAt(x, y) } : {}) };
+    if (G) return { h, top: 'plate', side: SIDE[t], kind: t !== RIVER && paving(x, y) ? 'castle' : KIND[t], square: t === CASTLE };
+    return { h, top: t !== RIVER && paving(x, y) ? 'stone' : TOP[t], side: SIDE[t], ...(t === MOUNT ? { hAt: hillAt(x, y) } : {}) };
   };
   // Landscape around the board (APRON cells deep): not playable, the same ground level at the edge so the
   // map reads as a window onto a wider country. Edge terrain carries on outward (woods stay woods, rivers run
@@ -106,12 +144,17 @@ export function makeBoard(wv) {
     const cx = Math.max(0, Math.min(W - 1, x)), cy = Math.max(0, Math.min(H - 1, y)), d = Math.max(cx - x, x - cx, cy - y, y - cy);
     const t0 = terr(cx, cy), straight = cx === x || cy === y, n = vnoise(x * 0.18, y * 0.18, seed), m = vnoise(x * 0.07, y * 0.07, seed + 1);
     // A clear step down in light at the board's edge, then a slow fade outward: the board is the lit stage (A2).
-    const shade = Math.max(0.15, 0.27 - (d - 1) * 0.03);
+    const shade = refined ? 1 - THREE.MathUtils.smoothstep(d, 0, APRON) * 0.67 : Math.max(0.15, 0.27 - (d - 1) * 0.03);
     // A river carries on only where it meets the edge head-on (it flows in from beyond), not where it runs along it.
     const ox = cx !== x ? 0 : 1, oy = cy !== y ? 0 : 1, inward = [cx - (x < cx ? -1 : x > cx ? 1 : 0), cy - (y < cy ? -1 : y > cy ? 1 : 0)];
     const along = (k) => { const ax = cx + ox * k, ay = cy + oy * k; return inside(ax, ay) && terr(ax, ay) === RIVER; };
     const far = G ? (Math.max(cx - x, x - cx, cy - y, y - cy) <= PLATE_M ? 'plate' : 'far') : null;
-    if (t0 === RIVER && straight && inside(...inward) && terr(...inward) === RIVER && !(along(1) && along(-1)))
+    if (jiange && t0 === MOUNT && d <= 9) {
+      return { h: cliffApron(x, y), top: far ?? 'hill', side: 'rock', ridge: true, shade,
+        kind: 'rock', paint: 'hill', d, hAt: (fx, fz) => cliffApron(x + fx - 0.5, y + fz - 0.5) };
+    }
+    if (field.approaches?.barriers?.get(`${cx},${cy}`) === '深海' ||
+      (t0 === RIVER && straight && inside(...inward) && terr(...inward) === RIVER && !(along(1) && along(-1))))
       return { h: 0.05, top: far ?? 'bed', side: 'earth', shade, river: true, kind: 'river' };
     const rise = Math.max(0, d - 4) * (0.1 + m * 0.2), hill = Math.floor(rise * (0.6 + n * 0.8) / 0.22) * 0.22;
     // A range at the edge runs on outward (painted: level for two cells, so no cliff stands along the board's edge).
@@ -141,13 +184,14 @@ export function makeBoard(wv) {
     // Worn ground: round the castle and the villages, where the armies and the townsfolk walk.
     const towns = [...(field.map.flatMap((row, y) => row.flatMap((t, x) => (t === CASTLE ? [[x, y, 1]] : [])))), ...field.villages.map((v) => [v.x, v.y, 0.6])];
     const near = (x, y) => Math.max(0, ...towns.map(([tx, ty, k]) => k * Math.max(0, 1 - Math.hypot(x - tx, y - ty) / 2.6)));
-    const playable = (x, y) => inside(x, y) && terr(x, y) !== RIVER;
+    const playable = (x, y) => inside(x, y) && terr(x, y) !== RIVER && !(refined && paving(x, y));
     const seed = field.war.city * 7 + 3;
     // all the plates read besides the materials (bakePlate keeps the picture for the next battle here)
-    const plateKey = `${field.war.city}|${JSON.stringify(field.map)}|${JSON.stringify(field.villages.map((v) => [v.x, v.y]))}`;
+    const plateKey = `${field.war.city}|${field.war.from}|${field.siege?.revision ?? 0}|${Object.keys(G.img).join(',')}|${JSON.stringify(field.map)}|${JSON.stringify(field.villages.map((v) => [v.x, v.y]))}`;
     paintTerrain(tiles, G, {
-      plate: bakePlate(G, { ...PB, px: field.approaches ? 56 : PLATE_PX, kind: kindAt, near, grid: playable, seed, key: plateKey }),
-      far: bakePlate(G, { ...PA, px: 16, kind: kindAt, near, seed, key: plateKey }),
+      plate: bakePlate(G, { ...PB, px: field.approaches ? 56 : PLATE_PX, kind: kindAt, near, grid: playable, seed, key: plateKey, refined,
+        detail: refined ? P => paintRoadSurface(P, G, field.approaches) : null }),
+      far: bakePlate(G, { ...PA, px: 16, kind: kindAt, near, seed, key: plateKey, refined }),
     });
   }
   scene.add(tiles);
@@ -159,7 +203,9 @@ export function makeBoard(wv) {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const t = terr(x, y); if (t === RIVER) continue;
     if (vset.has(`${x},${y}`)) continue; // houses and their clutter fill village cells
-    ({ [PLAIN]: S.plains, [FOREST]: S.forests, 1: S.sands, [MOUNT]: S.mountains }[t])?.push(spot(x, y));
+    if (!paving(x, y) && !(refined && field.approaches.roads.has(`${x},${y}`))) {
+      ({ [PLAIN]: S.plains, [FOREST]: S.forests, 1: S.sands, [MOUNT]: S.mountains }[t])?.push(spot(x, y));
+    }
     for (const [dx, dy] of DIRS) if (inside(x + dx, y + dy) && terr(x + dx, y + dy) === RIVER && t !== CASTLE && t !== MOUNT) S.banks.push({ ...spot(x, y), dx, dy });
     if (t === CASTLE) S.castle = spot(x, y);
     // Open ground around the castle gets the odd farmhouse (the town outside the walls).
@@ -170,7 +216,7 @@ export function makeBoard(wv) {
   S.wildForests = []; S.wildRocks = [];
   for (const c of ringCells) {
     const sp = { x: wx(c.x), z: wz(c.y), h: c.h };
-    if (c.kind === 'forest') S.wildForests.push({ ...sp, shade: c.shade });
+    if (c.kind === 'forest' && (!refined || c.d <= 11)) S.wildForests.push({ ...sp, shade: c.shade });
     else if (c.kind === 'rock') { if (c.d < 10) S.wildRocks.push(sp); }
     else if (c.kind === 'grass' && c.d < 3) S.plains.push(sp);
   }
@@ -189,13 +235,14 @@ export function makeBoard(wv) {
   S.siteKind = field.sceneProfile?.kind;
   if (S.siteKind === 'pass') S.outskirts.length = 0;
   const before = new Set(scene.children);
-  const fortification = field.siege && !flat ? buildFortification(field.siege, { wx, wz, topY }) : null;
+  const houses = court ? field.approaches.sites.filter(s => s.kind === 'house') : [];
+  const fortification = field.siege && !flat ? buildFortification(field.siege, { wx, wz, topY, court, houses, jiange, refined }) : null;
   if (fortification) scene.add(fortification.fort);
-  if (!flat && field.approaches) addApproachScenery(scene, field.approaches, { wx, wz, topY });
+  if (!flat && field.approaches) addApproachScenery(scene, field.approaches, { wx, wz, topY, jiange, court, city: field.war.city, paintedRoads: refined && !!G });
   // 新版城防组包含中央建筑，保留 S.castle 供取景和植被使用。
   const decor = field.siege?.style ? { ...S, castle: null } : S;
   const dressing = flat ? { billboards: [], lights: [], labels: [], update() {} } : dressBoard(scene, decor, field.war.city * 31 + 5, { calm: true, painted: !!G });
-  const woods = G && !flat && plantWoods(scene, G, woodsOf(S, rng(field.war.city * 53 + 1), W, H), PITCH, field.war.city);
+  const woods = G && !flat && plantWoods(scene, G, woodsOf(S, rng(field.war.city * 53 + 1), W, H, refined), PITCH, field.war.city);
   // Everything the dressing stood up (castle, villages, cottages, trees, rocks, grass) thins out in front of a general (src/seethrough.js):
   // cleared over him with a soft blended rim; the castle and the village houses only thin to 0.45 of their picture, so a keep still reads as a keep.
   const dressed = scene.children.filter((o) => !before.has(o)), LANDMARK_KEEP = 0.45, DRESS_KEEP = 0;
@@ -203,15 +250,27 @@ export function makeBoard(wv) {
   for (const b of dressing.billboards) billboards.push(b);
   tp = phase('war:dressing', tp);
   const still = { update() {} };
-  const sky = flat ? still : backdrop(scene, { radius: 34, y: -2.6, tint: '#d8dce0', ridges: ['#6a7a8c', '#8292a4', '#a2b0be'] }), shafts = flat ? still : lightShafts(scene, 7, [W, H]);
-  if (!flat) env.backdrop(sky);
-  const waterTex = flat ? new THREE.Texture() : G ? paintedWater(G, GW, GH) : deepWaterTex().clone();
+  const openSea = refined && field.siege?.type === 'island' && !!G?.img['water-ripples'];
+  const sky = flat || openSea ? still : backdrop(scene, { radius: 34, y: -2.6, tint: '#d8dce0', ridges: ['#6a7a8c', '#8292a4', '#a2b0be'] });
+  const shafts = flat || openSea ? still : lightShafts(scene, 7, [W, H]);
+  if (sky !== still) env.backdrop(sky);
+  const shore = !flat && refined && G?.img['water-ripples'] && grid.some(c => c.kind === 'river')
+    ? waterSurface(G, GW, GH, (x, y) => grid[y * GW + x].kind === 'river', isCoastalBattle(field), openSea) : null;
+  const waterTex = shore?.map ?? (flat ? new THREE.Texture() : G ? paintedWater(G, GW, GH) : deepWaterTex().clone());
   if (!flat) {
     waterTex.needsUpdate = true;
     if (!G) waterTex.repeat.set(W / 2 + APRON, H / 2 + APRON);
     // Matte water: one flat plane under a low sun, so anything glossier mirrors the sun as a blown-out white patch on whatever river lies opposite the eye.
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(W + APRON * 2, H + APRON * 2), new THREE.MeshStandardMaterial({ map: waterTex, transparent: true, opacity: 0.92, roughness: 0.85, metalness: 0.05, emissive: '#0a3452', emissiveIntensity: 0.32 }));
-    water.rotation.x = -Math.PI / 2; water.position.y = WATER_Y; water.receiveShadow = true; water.userData.water = true; scene.add(water);
+    const water = new THREE.Mesh(shore?.geometry ?? new THREE.PlaneGeometry(GW, GH),
+      shore?.material ?? new THREE.MeshStandardMaterial({ map: waterTex, transparent: true, opacity: 0.92, roughness: 0.85, metalness: 0.05, emissive: '#0a3452', emissiveIntensity: 0.32 }));
+    water.rotation.x = -Math.PI / 2; water.position.y = WATER_Y; water.receiveShadow = true;
+    Object.assign(water.userData, { water: true, openSea }); scene.add(water);
+    if (shore?.offshore) {
+      const ocean = new THREE.Mesh(shore.offshore, shore.material);
+      ocean.rotation.x = water.rotation.x; ocean.position.y = WATER_Y - 0.012;
+      ocean.receiveShadow = true;
+      Object.assign(ocean.userData, { water: true, openSea }); scene.add(ocean);
+    }
   }
   // Trees and rocks beyond the board dim with the apron ground (seasons.js s_stage).
   const [ax, bx, az, bz] = [wx(-0.5), wx(W - 0.5), wz(-0.5), wz(H - 0.5)];
@@ -227,9 +286,14 @@ export function makeBoard(wv) {
     const lab = new CSS2DObject(el); lab.position.set(dressing.labels[i].x, topY(v.x, v.y) + 0.85, dressing.labels[i].z); scene.add(lab);
     vsigns.push({ el, lab, cell: new THREE.Vector3(wx(v.x), topY(v.x, v.y), wz(v.y)), w: 0, h: 0 });
   });
-  if (!flat && field.approaches) {
-    const { x, y } = field.approaches.post;
-    const el = document.createElement('div'); el.className = 'vtag'; el.textContent = '哨'; el.title = field.ground(x, y);
+  const plankRoute = jiange && field.approaches.routes.find(r => r.goal.label === '栈道至内关');
+  const plankCells = plankRoute ? plankRoute.cells.filter(([x, y]) => field.approaches.roads.get(`${x},${y}`)?.kind === 'plank') : [];
+  const plankMark = plankCells.length && plankCells[Math.floor(plankCells.length * 0.42)];
+  if (!flat && field.approaches) for (const { x, y, label, kind } of [{ ...field.approaches.post, kind: 'post' },
+    ...(plankMark ? [{ x: plankMark[0], y: plankMark[1], kind: 'plank', label: '贴壁栈道' }] : []),
+    ...(field.approaches.sites ?? []).filter(s => s.kind !== 'house')]) {
+    const el = document.createElement('div'); el.className = 'vtag'; el.textContent = { post: '哨', camp: '营', harbor: '港', landing: '滩', plank: '栈' }[kind];
+    el.title = label ?? field.ground(x, y);
     const lab = new CSS2DObject(el), cell = new THREE.Vector3(wx(x), topY(x, y), wz(y));
     lab.position.copy(cell).add(new THREE.Vector3(0, 0.65, 0)); scene.add(lab);
     vsigns.push({ el, lab, cell, w: 0, h: 0 });
@@ -242,5 +306,5 @@ export function makeBoard(wv) {
   // vsignW is reassigned later (the units' tag layout): it is read and written as wv.vsignW from here on, never copied.
   return { audio, ui, sprites, map, human, scene, camera, sun, back, hemi, env, where, G, flat, wx, wz, terr, inside, hillCell, topY,
     APRON, GW, GH, grid, tiles, r, billboards, S, dressing, woods, dressed, LANDMARK_KEEP, cutout, still, sky, shafts, waterTex, torches,
-    vsignW, vsigns, VICON, fortification, disposeBoard };
+    vsignW, vsigns, VICON, fortification, jiange, plankMark, disposeBoard };
 }

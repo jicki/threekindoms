@@ -24,7 +24,8 @@ export function makeProbe(wv) {
     sel: st.sel && !st.sel.gone ? st.sel : null, hover: st.hoverCell,
     fx: wv.fx2d, weather: where.weather, month: field.g.month,
     villages: [...field.villages.map(v => ({ x: v.x, y: v.y, icon: VICON[v.kind] || '村' })),
-      ...(field.approaches ? [{ ...field.approaches.post, icon: '哨' }] : [])],
+      ...(field.approaches ? [{ ...field.approaches.post, icon: '哨' },
+        ...(field.approaches.sites ?? []).filter(s => s.kind !== 'house').map(s => ({ ...s, icon: { camp: '营', harbor: '港', landing: '滩' }[s.kind] }))] : [])],
   });
   // What tools/war_look_check.mjs measures that the pixels alone do not tell (read-only).
   const probe = () => ({

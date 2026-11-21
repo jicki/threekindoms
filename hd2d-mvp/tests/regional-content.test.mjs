@@ -7,7 +7,7 @@ import { loadScenario } from '../src/core/scenario-store.js';
 import { EXPANDED_MAP_ID, expandMap } from '../src/core/expanded-map.js';
 import { SOVEREIGN_SCENARIO_ID, visualUrl } from '../src/core/visuals.js';
 import { ADDITIONAL_OFFICERS, REGIONAL_OFFICERS, REGIONAL_REVISION, REGIONAL_WEAPONS } from '../src/core/regional-content.js';
-import { APPROACH_CAMPAIGN_REVISION } from '../src/core/battle-approaches.js';
+import { REGIONAL_BATTLE_REVISION } from '../src/core/regional-battlefields.js';
 import { famousLabel } from '../src/core/famous-skills.js';
 import { officerPassive } from '../src/core/battle-rules.js';
 import { SPECIAL_TROOPS, officerSpecialty, officerTroopType } from '../src/core/troop-specialties.js';
@@ -113,7 +113,7 @@ test('修订 9 分身、寻访进度与势力引用安全迁移，原版没有�
   assert.equal(G.recordOfficerName(g, first), G.data().officers[0].name);
   const snapshot = structuredClone(g);
   assert.ok(G.upgradeCampaign(g));
-  assert.equal(g.campaignRevision, APPROACH_CAMPAIGN_REVISION);
+  assert.equal(g.campaignRevision, REGIONAL_BATTLE_REVISION);
   assert.equal(g.battlefields, 2);
   assert.equal(g.siegeTactics, true);
   assert.deepEqual(g.officers.slice(0, first), snapshot.officers.slice(0, first));

@@ -9,43 +9,59 @@ import * as THREE from 'three';
 import { groundSeason, seasonKey } from './warseason.js';
 import { siteOfCity } from './china.js';
 import { vnoise } from './diorama.js';
+import { waterColor, waterDepth } from './war/surface.js';
 
 export { groundSeason };
 const DIR = 'assets/ai/warground/';
 const cache = new Map();
-const image = (n) => cache.get(n) ?? cache.set(n, new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = `${DIR}${n}.webp`; })).get(n);
+const image = (n, dir = DIR) => {
+  const src = `${dir}${n}.webp`;
+  if (!cache.has(src)) cache.set(src, new Promise((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = error => { cache.delete(src); reject(error); };
+    i.src = src;
+  }));
+  return cache.get(src);
+};
 const rectsOf = (n) => cache.get(`${n}.json`) ?? cache.set(`${n}.json`, fetch(`${DIR}${n}.json`).then((r) => r.json())).get(`${n}.json`);
 
 const MATERIALS = ['dirt', 'sand', 'hilltop', 'forest-floor', 'paving', 'fields', 'bank', 'water', 'cliff', 'cliff-tier', 'snow', 'castle', 'village'];
+const SURFACES = ['road-earth', 'court-stone', 'water-ripples', 'woods-floor'];
 let loaded = null;
 // Before the battle scene is built (app.js): the materials for this battle's month and place.
-export async function loadWarGround(month, city) {
+export async function loadWarGround(month, city, { refined = false } = {}) {
   const T0 = performance.now(); // tools/scene_switch_trace.mjs (PERF-05): measures only
   const season = groundSeason(month, siteOfCity(city)?.lat ?? 33);
   const names = [...new Set([...MATERIALS, season.grass, season.mix?.[0]].filter(Boolean))];
-  const [imgs, atlas, sheet] = await Promise.all([Promise.all(names.map(image)), image(season.trees), rectsOf(season.trees)]);
+  const [imgs, atlas, sheet, surfaces] = await Promise.all([
+    Promise.all(names.map(n => image(n))), image(season.trees), rectsOf(season.trees),
+    refined ? Promise.all(SURFACES.map(async n => [n, await image(n, 'assets/battle-textures/').catch(() => null)])) : [],
+  ]);
   // A painted battlefield (tools/gen_warmap_codex.sh), when one exists for this field: maps/<city>.json lists
   // the board's rectangle in the picture and a picture per season ('spring', 'summer', 'autumn', 'winter').
   let painted = null;
-  try {
+  if (!refined) try {
     const m = await (await fetch(`${DIR}maps/${city}.json`, { cache: 'no-store' })).json(), file = m.images[seasonKey(month, season)] ?? Object.values(m.images)[0];
     painted = { board: m.board, img: await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = `${DIR}maps/${file}`; }) };
   } catch { /* none for this field: the map is composed from the materials */ }
-  loaded = { key: `${month}|${city}`, season, painted, img: Object.fromEntries(names.map((n, i) => [n, imgs[i]])), atlas, sheet };
+  loaded = { key: `${month}|${city}`, season, painted,
+    img: Object.fromEntries([...names.map((n, i) => [n, imgs[i]]), ...surfaces.filter(([, img]) => img)]), atlas, sheet };
   performance.measure('war:loadGround(async)', { start: T0 });
   return loaded;
 }
 export const warGround = (month, city) => (loaded?.key === `${month}|${city}` ? loaded : null);
 
 // How many cells one repeat of a swatch spans.
-const SPAN = { grass: 5, 'grass-spring': 5, 'grass-autumn': 5, snow: 5, dirt: 4.5, sand: 5, hilltop: 3.5, 'forest-floor': 4, paving: 3, fields: 6, bank: 3, water: 4.5 };
+const SPAN = { grass: 5, 'grass-spring': 5, 'grass-autumn': 5, snow: 5, dirt: 4.5, sand: 5, hilltop: 3.5, 'forest-floor': 4, paving: 3, fields: 6, bank: 3, water: 4.5,
+  'road-earth': 3.5, 'court-stone': 3, 'woods-floor': 4.2, 'water-ripples': 7 };
 
 // A painter over cells [x0, x0 + w) × [y0, y0 + h) at px texels a cell. kind(x, y) → 'grass' | 'forest' |
 // 'sand' | 'hill' | 'river' | 'castle' | 'fields' | null (outside: grass). mask(cover, …) thresholds a per-cell
 // cover (0…1) with the battlefield's edge noise into an alpha mask (MR texels a cell); layMask lays a material
 // through it; ground() lays every material, the month's grass and snow; grid() draws the faint cell lines.
 export const MR = 12;
-export function painter(G, { x0, y0, w, h, px, kind, near = () => 0, seed = 1 }) {
+export function painter(G, { x0, y0, w, h, px, kind, near = () => 0, seed = 1, refined = false }) {
   const W = w * px, H = h * px, M = MR, mw = w * M, mh = h * M;
   const make = (cw, ch, o) => { const c = Object.assign(document.createElement('canvas'), { width: cw, height: ch }); return [c, c.getContext('2d', o)]; };
   const [canvas, g] = make(W, H), [tmp, t] = make(W, H), [low, l] = make(w, h);
@@ -93,12 +109,12 @@ export function painter(G, { x0, y0, w, h, px, kind, near = () => 0, seed = 1 })
     lay('dirt', (x, y) => (K(x, y) === 'grass' ? 0.12 + 0.5 * near(x, y) : 0), { edge: 1.2 });
     lay('fields', is('fields'), { edge: 0.25 });
     lay('sand', is('sand'));
-    lay('forest-floor', is('forest'), { cut: 0.55 });
+    lay(refined && G.img['woods-floor'] ? 'woods-floor' : 'forest-floor', is('forest'), { cut: refined ? 0.43 : 0.55 });
     // Hilltops lean to bare rock, greyer and darker than the meadow, so a hill never reads as a plain.
     lay('hilltop', is('hill'), { cut: 0.45, edge: 0.25, filter: 'saturate(0.6) brightness(0.88) contrast(1.08)' });
     lay('bank', is('river'), { cut: 0.36, edge: 0.3 });
     if (water) lay('water', is('river'), { cut: 0.52, edge: 0.3 });
-    lay('paving', is('castle'), { edge: 0.06, cut: 0.5 });
+    lay(refined && G.img['court-stone'] ? 'court-stone' : 'paving', is('castle'), { edge: refined ? 0.16 : 0.06, cut: 0.5 });
     if (S.snow) lay('snow', (x, y) => (K(x, y) === 'river' && water ? 0 : S.snow + (K(x, y) === 'hill' ? 0.15 : K(x, y) === 'forest' ? -0.1 : 0)), { edge: 1.0, cut: 0.5 });
   }
   // The grid: a dark line with a lit edge beside it, faint, only between playable cells (not on water).
@@ -115,7 +131,7 @@ export function painter(G, { x0, y0, w, h, px, kind, near = () => 0, seed = 1 })
       g.stroke();
     }
   }
-  return { canvas, g, W, H, px, x0, y0, mask, layMask, lay, ground, grid, pattern, K };
+  return { canvas, g, W, H, px, x0, y0, w, h, mask, layMask, lay, ground, grid, pattern, K };
 }
 
 // Bake one plate for the 3D board; grid(x, y): whether the cell is playable (gets the grid line).
@@ -124,13 +140,14 @@ export function painter(G, { x0, y0, w, h, px, kind, near = () => 0, seed = 1 })
 // war entered again, or in another month of the same season, gets the same picture without painting it again. One
 // battle's two plates are kept; each call still returns a texture of its own (the war disposes it when it ends).
 const PLATES_MAX = 2, plates = [];
-export function bakePlate(G, { grid = null, key = null, ...o }) {
+export function bakePlate(G, { grid = null, key = null, detail = null, ...o }) {
   const k = key && `${JSON.stringify(G.season)}|${o.px}|${o.x0},${o.y0},${o.w},${o.h}|${grid ? 'grid' : ''}|${key}`;
   let canvas = k && plates.find((e) => e.k === k)?.canvas;
   if (!canvas) {
     const P = painter(G, o);
     P.ground();
-    if (grid) P.grid(grid);
+    detail?.(P);
+    if (grid) P.grid(grid, o.refined ? { dark: 0.10, lit: 0.04 } : undefined);
     canvas = P.canvas;
     if (k) { plates.push({ k, canvas }); if (plates.length > PLATES_MAX) plates.shift(); }
   }
@@ -164,6 +181,61 @@ export function paintTerrain(tiles, G, plates) {
 }
 
 export const paintedWater = (G, w, h) => tiled(G.img.water, w / SPAN.water, h / SPAN.water);
+
+export function waterSurface(G, w, h, wet, coast, island) {
+  const geometry = new THREE.PlaneGeometry(w, h, w * 2, h * 2);
+  const p = geometry.attributes.position, color = new THREE.Color(), values = new Float32Array(p.count * 3);
+  const depth = waterDepth(w, h, wet);
+  for (let i = 0; i < p.count; i++) {
+    const d = depth(p.getX(i) + w / 2 - 0.5, h / 2 - p.getY(i) - 0.5);
+    const [r, g, b] = waterColor(d, coast);
+    color.setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace).toArray(values, i * 3);
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(values, 3));
+  const ripple = G?.img['water-ripples'];
+  const map = ripple ? tiled(ripple, w / SPAN['water-ripples'], h / SPAN['water-ripples']) : new THREE.Texture();
+  const material = new THREE.MeshStandardMaterial({
+    ...(ripple ? { map } : {}),
+    vertexColors: true, roughness: 0.76, metalness: 0.04, emissive: '#233e48', emissiveIntensity: 0.20,
+  });
+  let offshore = null;
+  if (island) {
+    // 岛外仍是深海。用同一材质和波纹坐标延伸海面，免得镜头里露出沙盘的矩形边缘。
+    offshore = new THREE.PlaneGeometry(w + 84, h + 84);
+    const points = offshore.attributes.position, uv = offshore.attributes.uv;
+    const [r,g,b] = waterColor(Infinity, true);
+    color.setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
+    const tint = new Float32Array(points.count * 3);
+    for (let i = 0; i < points.count; i++) {
+      uv.setXY(i, points.getX(i) / w + 0.5, points.getY(i) / h + 0.5);
+      color.toArray(tint, i * 3);
+    }
+    offshore.setAttribute('color', new THREE.BufferAttribute(tint, 3));
+  }
+  return { geometry, material, map, offshore };
+}
+
+export function paintWaterSurface(P, G, mask, coast) {
+  if (!mask) return;
+  const scale = 4, width = P.w * scale, height = P.h * scale;
+  const canvas = Object.assign(document.createElement('canvas'), { width, height }), g = canvas.getContext('2d');
+  const depth = waterDepth(P.w, P.h, (x,y) => P.K(x + P.x0, y + P.y0) === 'river');
+  const tint = g.createImageData(width, height);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const rgb = waterColor(depth((x + 0.5) / scale - 0.5, (y + 0.5) / scale - 0.5), coast);
+    tint.data.set([...rgb, 255], (y * width + x) * 4);
+  }
+  g.putImageData(tint, 0, 0);
+  P.layMask(t => {
+    t.imageSmoothingEnabled = true;
+    t.drawImage(canvas, 0, 0, P.W, P.H);
+    if (G.img['water-ripples']) {
+      t.save(); t.globalCompositeOperation = 'multiply'; t.globalAlpha = 0.66;
+      t.fillStyle = P.pattern('water-ripples', 0, t); t.fillRect(0, 0, P.W, P.H);
+      t.restore();
+    }
+  }, mask);
+}
 
 // Woods: one quad per tree from the season's sheet, standing on its foot and reclined by half the camera's
 // pitch toward the eye (as the generals are), stretched back to the painted proportions. Normals point up, so
@@ -208,10 +280,11 @@ export function plantWoods(scene, G, trees, pitch, seed = 1) {
     // A blossoming crown is the odd one in a spring wood (the calm board: the generals stay the colour).
     const set = t.pine ? pines : bloom.length && rnd() < 0.08 ? bloom : broad, [rx, ry, rw, rh] = set[Math.floor(rnd() * set.length)];
     const wide = (t.size * rw) / ref;
-    im.setMatrixAt(i, m4.compose(v.set(t.x, t.h - 0.04, t.z), q, s.set(wide, (wide * rh) / rw, 1)));
+    im.setMatrixAt(i, m4.compose(v.set(t.x, t.h - 0.04, t.z), q, s.set(wide, (wide * rh) / rw * (t.stretch ?? 1), 1)));
     // Half the trees mirrored, in the texture coordinates (a mirrored quad would face away).
     rect.set(rnd() < 0.5 ? [rx / AW, 1 - (ry + rh) / AH, rw / AW, rh / AH] : [(rx + rw) / AW, 1 - (ry + rh) / AH, -rw / AW, rh / AH], i * 4);
-    im.setColorAt(i, c.setScalar(t.shade ?? 1));
+    const light = t.shade ?? 1, tone = t.tone ?? 0;
+    im.setColorAt(i, c.setRGB(light * (1 + tone * 0.16), light * (1 - tone * 0.08), light * (1 - tone * 0.16)));
   });
   geo.setAttribute('aRect', new THREE.InstancedBufferAttribute(rect, 4));
   // The crowns are painted lit and shaded already: they cast onto the ground but take no shadow (a wood would

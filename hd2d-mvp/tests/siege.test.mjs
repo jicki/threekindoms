@@ -123,9 +123,9 @@ test('洛阳与长安采用不同外廓，水岸固定在城市一侧，偏门�
   assert.throws(()=>Field.restore(oldGame,w,record));
   const before = structuredClone(oldGame);
   assert.ok(G.upgradeCampaign(oldGame));
-  assert.equal(oldGame.campaignRevision,12);
+  assert.equal(oldGame.campaignRevision,13);
   assert.deepEqual(legacyRoster(structuredClone(oldGame),8),before);
-  assert.equal(new Field(oldGame,w,'def').siege.revision,5);
+  assert.equal(new Field(oldGame,w,'def').siege.revision,6);
   assert.deepEqual(Field.restore(oldGame,w,old.snapshot()).siege,old.siege);
 });
 

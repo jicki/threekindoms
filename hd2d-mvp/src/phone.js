@@ -42,7 +42,7 @@ if (PHONE && globalThis.document) {
   // The phone's stylesheet is fetched here, on a phone only. A desktop window never loads it: its rules would match nothing there,
   // but its :has() selectors still cost the browser a little on every redraw of the HUD (a frame late in tests/strategyflat's
   // title-to-record ease, 2026-11-14).
-  document.head.append(Object.assign(document.createElement('link'), { rel: 'stylesheet', href: new URL('./phone.css?v=4', import.meta.url).href }));
+  document.head.append(Object.assign(document.createElement('link'), { rel: 'stylesheet', href: new URL('./phone.css?v=5', import.meta.url).href }));
   applyMargins();
   for (const t of ['resize', 'orientationchange']) addEventListener(t, () => { applyMargins(); setTimeout(applyMargins, 300); });
   // The page itself never zooms or scrolls: two fingers belong to the map (iOS Safari ignores user-scalable=no).

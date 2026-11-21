@@ -98,7 +98,7 @@ export const MAT = {
 // A height field over the eave rectangle: "roof distance" d is 0 on the ridge and 1 on the eaves, the slope
 // is concave (y = H(1−d)^1.6, like a 庑殿/歇山 profile) and the corners lift. ax/az: eave half sizes;
 // ridge: share of ax the ridge runs along x.
-function roofGeo(ax, az, H, ridge = 0.45, lift = 0.25, n = 16) {
+export function roofGeo(ax, az, H, ridge = 0.45, lift = 0.25, n = 16) {
   const pos = [], uv = [], idx = [];
   for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) {
     const s = i / n * 2 - 1, t = j / n * 2 - 1;

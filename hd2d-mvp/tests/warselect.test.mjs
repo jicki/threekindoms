@@ -30,7 +30,7 @@ async function finish(p) {
 async function arrange(p) {
   return p.evaluate(() => {
     const w = window.__game.war, f = w.field, mine = f.side(f.human), foe = f.alive.filter((u) => u.side !== f.human);
-    const put = (u, x, y) => { u.x = x; u.y = y; w.spriteOf(u).position.set(x - 15.5, w.probe().top(x, y), y - 9); };
+    const put = (u, x, y) => { u.x = x; u.y = y; w.spriteOf(u).position.set(x - (f.width - 1) / 2, w.probe().top(x, y), y - (f.height - 1) / 2); };
     // 三维城防放大后，中央名牌下方会投影到不可通行的墙格。在护城河外保留可走的重叠地格。
     const outside = !w.flat && f.siege;
     mine.forEach((u, i) => put(u, outside ? 2 + i * 3 : 12 + i * 4, 10));
@@ -130,7 +130,7 @@ for (const [view, query] of [['3D', ''], ['平面', '&flat']]) {
             const x = s.x + cos * lx - sin * ly, y = foot + sin * lx + cos * ly;
             if (y <= head + 2 || y >= s.y - s.ch * 0.5 || document.elementFromPoint(x, y)?.tagName !== 'CANVAS') continue;
             const gx = Math.floor((x - (s.x - (u.x + 0.5) * s.cw)) / s.cw), gy = Math.floor((y - (s.y - (u.y + 0.5) * s.ch)) / s.ch);
-            if (gx < 0 || gy < 0 || gx >= 32 || gy >= 19 || w.field.unitAt(gx, gy)) continue;
+            if (!w.field.inside(gx, gy) || w.field.unitAt(gx, gy)) continue;
             out[kind] = { x, y, gx, gy };
           }
           return out;

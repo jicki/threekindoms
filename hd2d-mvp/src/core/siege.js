@@ -188,9 +188,14 @@ function cityFortress(map, dep, villages, direction, connectRiver, profile) {
 
 export const wallAt = (siege,x,y) => siege?.walls.some(w => w.x===x && w.y===y) ?? false;
 export const gateAt = (siege,x,y) => siege?.gates.find(g => g.x===x && g.y===y);
-export const siegeRing = ({ cx, cy, bounds, outer }, { x, y }) => bounds
-  ? outer * Math.max(Math.abs(x - cx) / bounds.outer[0], Math.abs(y - cy) / bounds.outer[1])
-  : Math.max(Math.abs(x - cx), Math.abs(y - cy));
+export const siegeRing = ({ cx, cy, bounds, outer, inner, districts, innerDistrict }, { x, y }) => {
+  if (districts) {
+    const cell = key(x, y);
+    return innerDistrict.has(cell) ? inner - 1 : districts.has(cell) ? outer : outer + 1;
+  }
+  return bounds ? outer * Math.max(Math.abs(x - cx) / bounds.outer[0], Math.abs(y - cy) / bounds.outer[1])
+    : Math.max(Math.abs(x - cx), Math.abs(y - cy));
+};
 export const gateNormal = (siege, gate) => NORMALS[gate.face] ?? [Math.sign(gate.x - siege.cx), Math.sign(gate.y - siege.cy)];
 export const siegeExtent = (siege, layer) => siege.bounds?.[layer] ?? [siege[layer], siege[layer]];
 
@@ -206,22 +211,34 @@ export function gateDefense(siege, from, target) {
     return aligned(from) && aligned(target) && a >= -1 && a <= 0 && b > 0 && b - a <= 2;
   });
 }
+// 仅连线穿过格内才阻隔；擦过格边、格角时放行，两个方向使用同一判断。
+const EPS = 1e-9;
+function crossesCell(a, b, x, y) {
+  let lo = 0, hi = 1;
+  for (const [start, delta, center] of [[a.x, b.x - a.x, x], [a.y, b.y - a.y, y]]) {
+    const min = center - 0.5, max = center + 0.5;
+    if (!delta) { if (start <= min || start >= max) return false; continue; }
+    const t1 = (min - start) / delta, t2 = (max - start) / delta;
+    lo = Math.max(lo, Math.min(t1,t2)); hi = Math.min(hi, Math.max(t1,t2));
+    if (hi - lo <= EPS) return false;
+  }
+  return hi > EPS && lo < 1 - EPS;
+}
+
+export function blockedTerrain(barriers, a, b) {
+  if (!barriers || !a || !b) return false;
+  for (let y = Math.min(a.y,b.y); y <= Math.max(a.y,b.y); y++)
+    for (let x = Math.min(a.x,b.x); x <= Math.max(a.x,b.x); x++) {
+      const type = barriers.get(key(x,y));
+      if ((type === '断崖' || type === '街区建筑') && crossesCell(a,b,x,y)) return true;
+    }
+  return false;
+}
+
 export function blockedStrategy(siege, a, b) {
   if (!siege || !a || !b) return false;
-  const dx=b.x-a.x, dy=b.y-a.y, eps=1e-9;
-  // 连线穿过墙格内部才阻隔；仅擦过边或角不算穿墙。线段裁剪对两个方向完全相同。
-  const crossesWall = (wall) => {
-    let lo=0, hi=1;
-    for (const [start, delta, center] of [[a.x,dx,wall.x],[a.y,dy,wall.y]]) {
-      const min=center-0.5, max=center+0.5;
-      if (delta===0) { if (start<=min || start>=max) return false; continue; }
-      const t1=(min-start)/delta, t2=(max-start)/delta;
-      lo=Math.max(lo,Math.min(t1,t2)); hi=Math.min(hi,Math.max(t1,t2));
-      if (hi-lo<=eps) return false;
-    }
-    return hi>eps && lo<1-eps;
-  };
-  if (siege.walls.some(crossesWall)) return true;
+  const dx=b.x-a.x, dy=b.y-a.y, eps=EPS;
+  if (siege.walls.some(wall => crossesCell(a,b,wall.x,wall.y))) return true;
   // 门的外侧边界才是闭门屏障；守军站在门格仍可向城内施策。
   return siege.gates.some(gate => {
     if (gate.open) return false;

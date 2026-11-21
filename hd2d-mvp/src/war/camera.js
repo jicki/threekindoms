@@ -12,6 +12,7 @@ export function makeCamera(wv) {
   const { width: W, height: H } = field;
   const fort = wv.fortification?.fort;
   const fortHeight = fort ? new THREE.Box3().setFromObject(fort).max.y : 0;
+  const pitchDefault = wv.jiange ? 0.75 : PITCH;
   // --- Camera ---
   // The wheel steps through four distances: the whole battle at the board's own slant (全景, the overview), the board filling the
   // screen (远), 9×6 cells, 5×3 cells (feedback R04, 2026-11-02: 远 alone left the enemy off the screen at a corner angle).
@@ -20,7 +21,7 @@ export function makeCamera(wv) {
   wv.focusMode = null; const focusAt = new THREE.Vector3(), focusWant = new THREE.Vector3(), focusPick = new THREE.Vector3();
   const LENS = { whole: { dof: 1.0, band: 0.12, far: 1.2, near: 1 }, far: { dof: 1.2, band: 0.09, far: 1.3, near: 1 }, mid: { dof: 1.4, band: 0.07, bandWorld: 2.2, rampWorld: 3.5, far: 1.4, near: 0.8 }, near: { dof: 1.4, band: 0.05, bandWorld: 2.2, rampWorld: 3.5, far: 1.5, near: 0.8 } };
   const STEPS = ['whole', 'far', 'mid', 'near'], STEP_BOX = { mid: [9, 6], near: [5, 3] }, CENTRE = new THREE.Vector3(0, 0.3, 0);
-  const view = { yaw: YAWS[0], yawGoal: YAWS[0], yawFrom: YAWS[0], yawT0: null, dist: 31, distGoal: null, pitch: PITCH, pitchGoal: null, target: CENTRE.clone(), targetGoal: CENTRE.clone(), fit: true,
+  const view = { yaw: YAWS[0], yawGoal: YAWS[0], yawFrom: YAWS[0], yawT0: null, dist: 31, distGoal: null, pitch: pitchDefault, pitchGoal: null, target: CENTRE.clone(), targetGoal: CENTRE.clone(), fit: true,
     zoom: 'whole', zoomAcc: 0, zoomAt: 0, tactical: null, compact: advancedBattle(field.g) };
   // Distance at which a box of cells lies between the HUD bands at the given yaw and pitch (binary search on distance, projecting
   // its corners). The whole board (world = true) is fixed to the map; the 9×6 and 5×3 boxes are laid out on the screen, centred on `target`.
@@ -83,11 +84,15 @@ export function makeCamera(wv) {
     // 新战役默认少留一圈空地，仍用双方武将和城池的实际投影验算画面范围。
     const closer = view.compact && pitch <= 1.2;
     const margin = closer ? 1.05 : 1.2;
-    const siege = pitch <= 1.2 && siegeFrame(field);
+    const deployment = !field.resumed && (!wv.st || wv.st.deploying);
+    const siege = pitch <= 1.2 && siegeFrame(field, { deployment });
     if (siege) {
       const { cx, cy } = field.siege;
       const [mx, my] = siegeExtent(field.siege, 'moat'), [ox, oy] = siegeExtent(field.siege, 'outer');
       const points = [];
+      if (deployment && field.dep.attackerZones) for (const { rect: [x0, x1, y0, y1] } of [...field.dep.attackerZones, ...field.dep.defenderZones]) {
+        for (const x of [x0, x1]) for (const y of [y0, y1]) points.push(new THREE.Vector3(wx(x), topY(x, y), wz(y)));
+      }
       for (const dx of [-1, 1]) for (const dy of [-1, 1]) {
         points.push(new THREE.Vector3(wx(cx + dx * (mx + 0.5)), 0, wz(cy + dy * (my + 0.5))));
         points.push(new THREE.Vector3(wx(cx + dx * (ox + 0.5)), fortHeight, wz(cy + dy * (oy + 0.5))));
@@ -99,6 +104,10 @@ export function makeCamera(wv) {
       if (field.approaches) {
         const { x, y } = field.approaches.post;
         points.push(new THREE.Vector3(wx(x), topY(x, y) + 0.9, wz(y)));
+      }
+      if (wv.plankMark) {
+        const [x, y] = wv.plankMark;
+        points.push(new THREE.Vector3(wx(x), topY(x, y) + 0.95, wz(y)));
       }
       wholeAt.set(wx((siege.x0 + siege.x1) / 2), CENTRE.y, wz((siege.y0 + siege.y1) / 2));
       const minimum = margin * farDist(yaw, pitch);
@@ -147,6 +156,12 @@ export function makeCamera(wv) {
   }
   // The corner an attacking army starts nearest the viewer's bottom left from (it marches up and to the right).
   function pickYaw() {
+    if (wv.plankMark) {
+      const [x] = wv.plankMark;
+      const across = Math.sign(field.siege.cx - x), toward = field.entryDirection === 'n' ? -1 : 1;
+      const angle = YAWS.find(yaw => Math.sign(Math.sin(yaw)) === across && Math.sign(Math.cos(yaw)) === toward);
+      if (angle !== undefined) return angle;
+    }
     const mine = field.alive.filter((u) => u.side === 'att'); if (!mine.length) return YAWS[0];
     const c = new THREE.Vector3(); for (const u of mine) c.add(corner.set(wx(u.x), 0, wz(u.y))); c.divideScalar(mine.length);
     const p = new THREE.Vector3();
@@ -355,13 +370,13 @@ export function makeCamera(wv) {
     resetView() {
       castMoved(); cam.tactical(false);
       view.compact = advancedBattle(field.g);
-      view.moved = false; view.pitch = PITCH; view.pitchGoal = null; view.zoom = wv.st.sel && !wv.st.sel.gone ? 'mid' : 'whole'; view.zoomAcc = 0;
+      view.moved = false; view.pitch = pitchDefault; view.pitchGoal = null; view.zoom = wv.st.sel && !wv.st.sel.gone ? 'mid' : 'whole'; view.zoomAcc = 0;
       if (wv.st.sel && !wv.st.sel.gone) { focusOn(wv.st.sel); view.distGoal = stepDist('mid'); } else view.fit = true;
     },
     // Centre a cell exactly at a given distance (close-ups, review captures).
     frame(x, y, dist = 10) { cam.tactical(false); view.panned = false; view.fit = false; view.atFit = false; view.moved = true; view.targetGoal.set(wx(x), topY(x, y), wz(y)); view.dist = dist; view.distGoal = null; },
     // Whole board in view (the opening shot, and 镜头复位 with nothing selected).
-    overview() { castMoved(); cam.tactical(false); wv.st.sel = null; wv.showOptions(); view.moved = false; view.pitch = PITCH; view.pitchGoal = null; view.zoom = 'whole'; view.fit = true; view.compact = advancedBattle(field.g); },
+    overview() { castMoved(); cam.tactical(false); wv.st.sel = null; wv.showOptions(); view.moved = false; view.pitch = pitchDefault; view.pitchGoal = null; view.zoom = 'whole'; view.fit = true; view.compact = advancedBattle(field.g); },
     // The board is read from one fixed angle (A2): a drag slides the map instead of turning or tilting it.
     orbit(dx, dy) { const k = view.dist * 0.0021; this.pan(-dx * k, -dy * k / Math.sin(view.pitch)); },
     // The wheel steps 全景 → far → mid → near: every 100 of wheel turned (wheel down pulls back) is one step, and the ends stop.

@@ -14,6 +14,7 @@ for (const [city, from, style, width, height, flat] of [[12, 32, 'luoyang', 13, 
       await newCampaign(p, '刘备');
       await p.evaluate(({city,from}) => {
         const { g, debug } = window.__game;
+        g.campaignRevision = 12; // 既有中断记录的旧布局仍应能在两种渲染器中打开。
         const w = { city, from, attacker: 0, defender: 4, day: 1,
           att: { ids: [40,41], gold: 100, rice: 500 }, def: { ids: [43,44], gold: 100, rice: 500 } };
         debug.fieldWar(w, 'att').catch(e => { window.__battleError = String(e.stack || e); });
@@ -55,6 +56,7 @@ for (const mode of ['3d', 'phone']) test(`${mode} 关隘战场可进入、布阵
     await newCampaign(p, '刘备');
     await p.evaluate(() => {
       const { g, debug } = window.__game;
+      g.campaignRevision = 12;
       g.month = 11;
       const w = { city: 34, from: 8, attacker: 0, defender: 4, day: 1,
         att: { ids: [40, 41], gold: 100, rice: 500 }, def: { ids: [43, 44], gold: 100, rice: 500 } };

@@ -79,6 +79,8 @@ body.phone .warbar .day, body.phone.flat2d .warbar .day { font-size: 16px; }
 body.phone .warbar .side b, body.phone.flat2d .warbar .side b { font-size: 14px; }
 body.phone .warbar .side { gap: 5px; }
 body.phone .warbar .viewmode { display: none; }
+body.phone .war-zones { top: calc(var(--gt) + 37px); left: var(--g); max-width: calc(100% - var(--g) - var(--gr)); }
+body.phone .war-zones .btn { min-height: var(--hit); font-size: 14px; }
 body.phone[data-screen="war"] .logbox { display: none; }
 
 body.phone .wardock, body.phone.flat2d .wardock { right: var(--gr); bottom: var(--gb); padding: 4px; gap: 4px; }

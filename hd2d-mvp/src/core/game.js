@@ -14,7 +14,7 @@ import { SOVEREIGN_SCENARIO_ID } from './visuals.js';
 import { chooseCampaignEvent, applyCampaignEvent } from './campaign-events.js';
 import { FAMOUS_ROSTER_START, activateFamousRoster, extraSearchIds, famousRosterTemplate, famousRosterFor, rosterRecordName, staticRosterSize } from './famous-roster.js';
 import { REGIONAL_REVISION, OFFICER_ROSTER_REVISION, addRegionalStock, hasRegionalContent } from './regional-content.js';
-import { APPROACH_CAMPAIGN_REVISION } from './battle-approaches.js';
+import { REGIONAL_BATTLE_REVISION } from './regional-battlefields.js';
 import { readResource } from '../resource.js';
 import { officerPassive, advancedBattle } from './battle-rules.js';
 import { charityBonus, developmentBonus, discountedCost } from './officer-passives.js';
@@ -66,7 +66,7 @@ const officerRecord = (o) => ({
 const CAMPAIGN_REVISION = 9;
 const FAMOUS_ROSTER_RULES = { famousSkills: 2, famousRoster: 3 };
 const FAMOUS_CAMPAIGN_RULES = { ...FAMOUS_ROSTER_RULES, battlefields: 2, siegeTactics: true };
-const latestCampaignRevision = () => scenarioId === EXPANDED_MAP_ID ? APPROACH_CAMPAIGN_REVISION : CAMPAIGN_REVISION;
+const latestCampaignRevision = () => scenarioId === EXPANDED_MAP_ID ? REGIONAL_BATTLE_REVISION : CAMPAIGN_REVISION;
 const supportsNewBattle = () => D.expandedMap === true && (scenarioId === EXPANDED_MAP_ID || D.newBattleRules === true);
 function campaignDefaults() {
   const defaults = {};
@@ -923,7 +923,7 @@ const quickKey = () => `${key()}:quick`, quickBak = () => `${quickKey()}:bak`;
 const parse = (s) => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
 const read = (k) => { try { return parse(localStorage.getItem(k)); } catch { return null; } };
 export const futureVersion = (g) => (Number.isInteger(g?.version) && g.version > SAVE_VERSION)
-  || (Number.isInteger(g?.campaignRevision) && g.campaignRevision > APPROACH_CAMPAIGN_REVISION);
+  || (Number.isInteger(g?.campaignRevision) && g.campaignRevision > REGIONAL_BATTLE_REVISION);
 const slotStates = new WeakMap();
 export function slotToken(slot) { try { return localStorage.getItem(slotKey(slot)); } catch { return undefined; } }
 export const futureSlot = (slot) => futureVersion(parse(slotToken(slot)));

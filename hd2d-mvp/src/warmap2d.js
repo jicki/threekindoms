@@ -5,15 +5,17 @@
 // nothing on the map ever hides them. The rules, the AI and the HUD stay the war view's (src/warview.js):
 // this layer draws its state each frame and turns a pointer into a cell for it.
 // The HUD sits in a strip above and a strip below the map (body.flat2d in ui.css), never over it.
-import { painter, MR } from './warplate.js';
+import { painter, paintWaterSurface, MR } from './warplate.js';
 import { FOREST, RIVER, MOUNT, CASTLE } from './core/field.js';
 import { name, data } from './core/game.js';
 import { createSky2d } from './skyfx2d.js';
 import { rng } from './pixel.js';
 import { PHONE, TOUCH_BATTLE, margins } from './phone.js';
-import { siegeFrame } from './war/shared.js';
-import { fortressStyle } from './fortress-style.js';
-import { paintApproaches } from './war/approach-display.js';
+import { forestCluster, siegeFrame } from './war/shared.js';
+import { fortressStyle, hasGateWings, rampartProfile } from './fortress-style.js';
+import { paintApproaches, paintRoadSurface } from './war/approach-display.js';
+import { luoyangCourt } from './war/scenery-plan.js';
+import { isCoastalBattle, townSurface } from './war/surface.js';
 
 const KIND = ['forest', 'sand', 'grass', 'river', 'hill', 'castle'];
 // px kept for the HUD strips (ui.css body.flat2d). Under 1200 px the foe's card stacks as a strip above ours (ui.css .unitpanel.compare), so the bottom strip is that much taller.
@@ -27,13 +29,15 @@ export function paintFlatMap(G, field, { px = field.approaches ? 60 : 80 } = {})
   const { width: W, height: H } = field;
   const map = field.map, clampX = (x) => Math.max(0, Math.min(W - 1, x)), clampY = (y) => Math.max(0, Math.min(H - 1, y));
   const terr = (x, y) => map[clampY(y)][clampX(x)]; // beyond the edge the edge terrain carries on (no seam of grass)
-  const kind = (x, y) => KIND[terr(x, y)];
+  const court = luoyangCourt(field.siege);
+  const refined = !!field.approaches?.barriers, paving = townSurface(field, court);
+  const kind = (x, y) => terr(x, y) !== RIVER && paving(x,y) ? 'castle' : KIND[terr(x, y)];
   const towns = [...map.flatMap((row, y) => row.flatMap((t, x) => (t === CASTLE ? [[x, y, 1]] : []))), ...field.villages.map((v) => [v.x, v.y, 0.7])];
   const near = (x, y) => Math.max(0, ...towns.map(([tx, ty, k]) => k * Math.max(0, 1 - Math.hypot(x - tx, y - ty) / 2.4)));
   const seed = field.war.city * 7 + 3;
-  const P = painter(G, { x0: 0, y0: 0, w: W, h: H, px, kind, near, seed });
+  const P = painter(G, { x0: 0, y0: 0, w: W, h: H, px, kind, near, seed, refined });
   const { g } = P;
-  P.ground({ water: true });
+  P.ground({ water: !refined });
 
   // A mask (MR texels a cell) moved by (dx, dy) cells and cut out of itself: the band along one side of a shape.
   const band = (m, dx, dy) => {
@@ -50,12 +54,15 @@ export function paintFlatMap(G, field, { px = field.approaches ? 60 : 80 } = {})
   // line of wash runs along every shore.
   const water = P.mask((x, y) => (kind(x, y) === 'river' ? 1 : 0), { cut: 0.52, edge: 0.3 });
   if (water) {
+    if (refined) paintWaterSurface(P, G, water, isCoastalBattle(field));
     P.layMask('rgba(0, 18, 30, 0.38)', band(water, 0, 0.26));
     P.layMask((t) => { t.fillStyle = P.pattern('bank', 3, t); t.fillRect(0, 0, P.W, P.H); t.fillStyle = 'rgba(40, 28, 16, 0.45)'; t.fillRect(0, 0, P.W, P.H); }, band(water, 0, 0.11));
     P.layMask('rgba(220, 236, 230, 0.3)', band(water, 0, -0.05));
   }
-  P.grid((x, y) => x >= 0 && y >= 0 && x < W && y < H && terr(x, y) !== RIVER, { dark: 0.3, lit: 0.08 });
-  paintApproaches(g, field.approaches, px);
+  if (refined) paintRoadSurface(P, G, field.approaches);
+  P.grid((x, y) => x >= 0 && y >= 0 && x < W && y < H && terr(x, y) !== RIVER && !(refined && paving(x,y)),
+    refined ? { dark: 0.15, lit: 0.04 } : { dark: 0.3, lit: 0.08 });
+  paintApproaches(g, field.approaches, px, { routes: !refined });
 
   // Rock mesas: every range stands up as one, and its heart (two cells in) as a second tier; each tier's lower
   // edge is a cliff face painted column by column from the cliff band (its grassy lip on top), with a shadow
@@ -101,8 +108,13 @@ export function paintFlatMap(G, field, { px = field.approaches ? 60 : 80 } = {})
     if (map[y][x] === FOREST) {
       const ahead = castle && Math.abs(x - castle[0]) <= 1 && y > castle[1] && y <= castle[1] + 1;
       if (ahead) { trees.push({ x: x + 0.5 + j(0.2), y: y + 0.8, size: 0.75 }); continue; }
+      if (refined) {
+        for (const {z,...tree} of forestCluster(x + 0.5, y + 0.55, r)) trees.push({ ...tree, y: z });
+        continue;
+      }
       for (const [a, b] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) trees.push({ x: x + 0.5 + a * 0.24 + j(0.14), y: y + 0.55 + b * 0.24 + j(0.12), size: 0.95 + r() * 0.3, pine: r() < 0.12 });
-    } else if (map[y][x] === 2 && near(x, y) === 0 && r() < 0.025) trees.push({ x: x + 0.5 + j(0.4), y: y + 0.8, size: 0.75 + r() * 0.2 });
+    } else if (map[y][x] === 2 && (!refined || !field.approaches.roads.has(`${x},${y}`))
+      && near(x, y) === 0 && r() < 0.025) trees.push({ x: x + 0.5 + j(0.4), y: y + 0.8, size: 0.75 + r() * 0.2 });
   }
   trees.sort((a, b) => a.y - b.y);
   const { rects } = G.sheet, broad = rects.filter((q) => q[4] === 'broad'), pines = rects.filter((q) => q[4] === 'pine'), bloom = rects.filter((q) => q[4] === 'bloom');
@@ -114,7 +126,7 @@ export function paintFlatMap(G, field, { px = field.approaches ? 60 : 80 } = {})
   g.fillStyle = 'rgba(8, 14, 4, 0.34)';
   for (const t of trees) { g.beginPath(); g.ellipse((t.x + 0.12) * px, (t.y - 0.02) * px, t.size * 0.48 * px, t.size * 0.26 * px, 0, 0, Math.PI * 2); g.fill(); }
   for (const t of trees) {
-    const [sx, sy, sw, sh] = t.rect, w = (t.size * sw / ref) * px, h = w * sh / sw;
+    const [sx, sy, sw, sh] = t.rect, w = (t.size * sw / ref) * px, h = w * sh / sw * (t.stretch ?? 1);
     g.save(); g.translate(t.x * px, t.y * px); if (t.flip) g.scale(-1, 1);
     g.drawImage(G.atlas, sx, sy, sw, sh, -w / 2, -h, w, h); g.restore();
   }
@@ -125,7 +137,7 @@ export function paintFlatMap(G, field, { px = field.approaches ? 60 : 80 } = {})
     g.fillStyle = 'rgba(10, 10, 4, 0.35)'; g.beginPath(); g.ellipse((cx + 0.1) * px, (cy + footDown - 0.08) * px, w * 0.48, w * 0.16, 0, 0, Math.PI * 2); g.fill();
     g.drawImage(img, cx * px - w / 2, (cy + footDown) * px - h, w, h);
   };
-  if (castle && field.siege?.style) paintFlatFortress(g, field.siege, px);
+  if (castle && field.siege?.style) paintFlatFortress(g, field.siege, px, refined);
   else if (castle && field.sceneProfile?.kind === 'pass') {
     const x = (castle[0] + 0.5) * px, y = (castle[1] + 0.7) * px;
     g.fillStyle = '#4b3b2b'; g.fillRect(x - px * 0.8, y - px * 0.32, px * 1.6, px * 0.42);
@@ -139,7 +151,7 @@ export function paintFlatMap(G, field, { px = field.approaches ? 60 : 80 } = {})
 }
 
 // 城体静态绘入战场底图，实况层只重绘开合中的门道和操作标记。
-function paintFlatFortress(g, siege, px) {
+function paintFlatFortress(g, siege, px, refined) {
   const style = fortressStyle(siege);
   const drawAt = ({x,y,face}, draw) => {
     g.save(); g.translate(x + 0.5, y + 0.5);
@@ -149,6 +161,16 @@ function paintFlatFortress(g, siege, px) {
   const rect = (color, x, y, w, h) => { g.fillStyle = color; g.fillRect(x,y,w,h); };
   const roof = (w,h,y=0) => {
     rect(style.shade,-w/2-0.05,y-h/2+0.07,w+0.10,h);
+    if (refined) {
+      const a = w / 2, b = h / 2;
+      g.save(); g.beginPath(); g.moveTo(-a, y-b); g.quadraticCurveTo(0, y-b+0.065, a, y-b);
+      g.lineTo(a-0.045, y+b); g.quadraticCurveTo(0, y+b-0.068, -a+0.045, y+b); g.closePath(); g.clip();
+      rect(style.roof, -a, y-b, w, h);
+      rect(style.shade, -a, y-0.013, w, b+0.013);
+      for (let x = -a+0.06; x < a; x += 0.085) rect('#ffffff25', x, y-b, 0.014, h);
+      rect(style.ridge, -a*0.57, y-0.019, w*0.57, 0.038);
+      g.restore(); return;
+    }
     g.fillStyle = style.roof; g.beginPath();
     g.moveTo(-w/2,y-h/2); g.lineTo(w/2,y-h/2); g.lineTo(w*0.45,y+h/2); g.lineTo(-w*0.45,y+h/2); g.closePath(); g.fill();
     rect(style.ridge,-w*0.37,y-0.02,w*0.74,0.04);
@@ -161,6 +183,18 @@ function paintFlatFortress(g, siege, px) {
     for (const side of [-0.40,0.34]) rect(style.light,side,-0.52,0.06,1.04);
   });
   for (const wall of siege.walls) drawAt(wall, () => {
+    if (refined) {
+      const outer = wall.ring === siege.outer, { base, crown } = rampartProfile(style, outer, wall.corner);
+      rect('#21181165', -0.5, -base/2+0.08, 1, base);
+      rect(style.stone, -0.5, -base/2, 1, base);
+      rect('#2b211942', -0.5, crown/2, 1, (base-crown)/2);
+      rect(style.light, -0.5, -crown/2, 1, crown);
+      rect('#23191145', -0.5, -crown/2+0.083, 1, crown-0.166);
+      for (const x of [-0.34,0,0.34]) for (const side of [-1,1])
+        rect(style.light, x-0.09, side * (crown/2-0.055)-0.039, 0.18, 0.078);
+      if (wall.corner && outer) roof(0.83*style.scale,0.68*style.scale);
+      return;
+    }
     const half = wall.corner ? 0.5 : wall.ring === siege.outer ? 0.31 : 0.23;
     rect(style.shade,-0.5,-half+0.08,1,half*2);
     rect(style.stone,-0.5,-half,1,half*2);
@@ -169,6 +203,16 @@ function paintFlatFortress(g, siege, px) {
     if (wall.corner && wall.ring === siege.outer) roof(0.85*style.scale,0.73*style.scale);
   });
   for (const gate of siege.gates) drawAt(gate, () => {
+    if (refined) {
+      const wings = hasGateWings(siege, gate), width = wings ? 2.38 : 1;
+      rect(style.stone, -width/2, -0.40, width, 0.80);
+      rect(style.shade, -0.34, -0.37, 0.68, 0.74);
+      for (const x of [-0.40,0.34]) rect(style.light, x, -0.4, 0.06, 0.80);
+      if (wings) for (const x of [-0.79,0.72]) rect('#a83128', x, 0.32, 0.07, 0.16);
+      roof(wings ? 1.98 : 0.94, wings ? 0.63 : 0.44, -0.33);
+      if (wings) roof(1.32, 0.46, -0.41);
+      return;
+    }
     rect(style.stone,-0.5,-0.34,1,0.68);
     rect(style.shade,-0.27,-0.5,0.54,1);
     roof(0.96*style.scale,gate.ring === siege.outer ? 0.40 : 0.34,-0.31);
@@ -235,26 +279,28 @@ export function flatten(war, G, blankScene) {
   }
   // Phone only: one finger slides the board, two fingers zoom it about the point between them (app.js).
   let autoFrame = PHONE && field.siege?.revision >= 2;
+  const splitLanding = field.dep.attackerZones?.length > 1;
+  const minZoom = splitLanding ? 0.78 : 1;
   const slide = (dx, dy) => { autoFrame = false; goal = null; view.x += dx; view.y += dy; place(); };
   const zoomAt = (deltaY, ndc) => {
-    const z = Math.max(1, Math.min(2.4, view.z * Math.exp(-deltaY * 0.001))); if (z === view.z) return;
+    const z = Math.max(minZoom, Math.min(2.4, view.z * Math.exp(-deltaY * 0.001))); if (z === view.z) return;
     autoFrame = false; goal = null;
     const px = (ndc.x + 1) / 2 * innerWidth, py = (1 - ndc.y) / 2 * innerHeight, fx = (px - box.x) / (box.cw * W), fy = (py - box.y) / (box.ch * H);
     view.z = z; place();
     view.x += px - (box.x + fx * box.cw * W); view.y += py - (box.y + fy * box.ch * H); place();
   };
   // Bring a cell to where the HUD leaves the board clear (the middle of the screen, a little above centre).
-  const centreOn = (x, y) => { autoFrame = false; view.x += innerWidth / 2 - (box.x + (x + 0.5) * box.cw); view.y += innerHeight * 0.45 - (box.y + (y + 0.5) * box.ch); place(); };
+  const centreOn = (x, y) => { autoFrame = false; goal = null; view.x += innerWidth / 2 - (box.x + (x + 0.5) * box.cw); view.y += innerHeight * 0.45 - (box.y + (y + 0.5) * box.ch); place(); };
   function resetView() {
     view.z = 1; view.x = view.y = 0; goal = null; place();
     if (!autoFrame) return;
-    const { x0, x1, y0, y1 } = siegeFrame(field), g = margins();
-    const top = g.t + 40, bottom = innerHeight - g.b - 44;
+    const { x0, x1, y0, y1 } = siegeFrame(field, { deployment: !field.resumed && field.day === 1 }), g = margins();
+    const top = g.t + (splitLanding ? 62 : 40), bottom = innerHeight - g.b - (splitLanding ? 60 : 44);
     const cols = x1 - x0 + 2, rows = y1 - y0 + 4;
-    view.z = Math.min(1.6, Math.max(1, Math.min((innerWidth - g.l - g.r - 24) / (cols * box.cw), (bottom - top) / (rows * box.ch))));
+    view.z = Math.min(1.6, Math.max(minZoom, Math.min((innerWidth - g.l - g.r - 24) / (cols * box.cw), (bottom - top) / (rows * box.ch))));
     place();
     view.x += (g.l + innerWidth - g.r) / 2 - (box.x + ((x0 + x1) / 2 + 0.5) * box.cw);
-    view.y += (top + bottom) / 2 - (box.y + ((y0 + y1) / 2 - 0.5) * box.ch);
+    view.y += (top + bottom) / 2 - (box.y + ((y0 + y1) / 2 + (splitLanding ? 0.5 : -0.5)) * box.ch);
     place();
   }
   // The phone's camera follows the play (a mouse sees the whole board at once; a zoomed or slid phone board does not): the
@@ -274,7 +320,10 @@ export function flatten(war, G, blankScene) {
       if (autoFrame) lastSel = st.sel;
       else { const cx = mine.reduce((a, u) => a + u.x, 0) / mine.length, cy = mine.reduce((a, u) => a + u.y, 0) / mine.length; centreOn(cx - 0.5, cy - 0.5); }
     }
-    if (st.sel !== lastSel) { lastSel = st.sel; if (st.sel && !st.sel.gone) ensure(st.sel.x, st.sel.y); }
+    if (st.sel !== lastSel) {
+      lastSel = st.sel;
+      if (st.sel && !st.sel.gone && !(autoFrame && splitLanding && st.deploying)) ensure(st.sel.x, st.sel.y);
+    }
     const ask = st.confirm?.t ?? st.strike?.t ?? st.ask ?? null;
     if (ask !== lastAsk) { lastAsk = ask; if (ask && !ask.gone) ensure(ask.x, ask.y); }
     for (const u of f.units) { const k = `${u.x},${u.y}`, was = stood.get(u); stood.set(u, k); if (was && was !== k && !u.gone && (f.turn !== f.human || !f.controls(u))) ensure(u.x, u.y); }
@@ -714,7 +763,8 @@ export function flatten(war, G, blankScene) {
     screenOf: (x, y) => ({ x: box.x + (x + 0.5) * box.cw, y: box.y + (y + 0.5) * box.ch, cw: box.cw, ch: box.ch }),
     screenAxes: () => ({ x: [box.cw, 0], y: [0, box.ch] }), // one grid step on screen (the gamepad's cursor, app.js)
     orbit() {}, zoom(d, ndc) { if (TOUCH_BATTLE) zoomAt(d, ndc); }, pan() {}, resetView() { if (TOUCH_BATTLE) { autoFrame = PHONE && field.siege?.revision >= 2; resetView(); } }, frame() {}, overview() { war.overview(); },
-    ...(TOUCH_BATTLE ? { slide, centreOn } : {}),
+    ...(TOUCH_BATTLE ? { slide } : {}),
+    ...((TOUCH_BATTLE || field.approaches?.barriers) ? { centreOn } : {}),
     rotate: undefined, turn: undefined, turnEnd: undefined, tactical: undefined, viewState: undefined, dof: undefined, setTerrainView: undefined, // the flat map has no turn, zoom step or overview of its own
     setInsets() {},
   });

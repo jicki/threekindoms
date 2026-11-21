@@ -7,6 +7,7 @@ import { loadScenario } from '../src/core/scenario-store.js';
 import { EXPANDED_MAP_ID, expandMap } from '../src/core/expanded-map.js';
 import { SOVEREIGN_SCENARIO_ID } from '../src/core/visuals.js';
 import { Field, FOREST, PLAIN } from '../src/core/field.js';
+import { gateNormal } from '../src/core/siege.js';
 import { Tactical } from '../src/core/tactical.js';
 import { Duel } from '../src/core/skirmish.js';
 import { battleWeather, officerPassive } from '../src/core/battle-rules.js';
@@ -102,11 +103,15 @@ test('战场天气改变机动力和火水计策，观天武将免受天气差�
 test('夹攻需要第二支可接敌的友军，破阵消耗一次白兵减益并随中断恢复', () => {
   const g = strategic(), chief = byName('诸葛亮'), partner = byName('赵云');
   const f = new Field(g, war([chief, partner], [40]), 'att'), [u, help] = f.side('att'), [v] = f.side('def');
-  Object.assign(u, { x: 2, y: 2 }); Object.assign(v, { x: 4, y: 2 }); Object.assign(help, { x: 4, y: 4 });
+  // 同一条谷底道路上验证夹攻和减益，避免夹杂断崖阻隔的判定。
+  const gate = f.siege.gates.find(g => g.face === f.entryDirection && g.ring === f.siege.outer);
+  const [dx, dy] = gateNormal(f.siege, gate);
+  const approach = n => ({ x: gate.x + dx * n, y: gate.y + dy * n });
+  Object.assign(u, approach(5)); Object.assign(v, approach(3)); Object.assign(help, approach(1));
   f.O(help.id).soldiers = 500;
   f.O(v.id).soldiers = 800; f.pool.att = 100; f.r = () => 0;
   assert.equal(f.canCast(u, 16, v), false);
-  help.y = 3;
+  Object.assign(help, approach(2));
   assert.ok(f.canCast(u, 16, v));
   assert.equal(f.cast(u, 16, v).hits[0].soldiers, -115);
   assert.equal(f.cast(u, 17, v).hits[0].soldiers, -50);
@@ -345,11 +350,17 @@ test('扩展地图的 39 处据点和所有相邻入口均有场景、独立站�
     const f = new Field(g, war([40], [42], city.id, from), 'att');
     assert.ok(f.sceneProfile?.label);
     assert.ok(['n','s','w','e'].includes(f.entryDirection), label);
-    assert.ok(f.map.length === 27 && f.map.every(row => row.length === 40));
-    assert.equal(f.siege.gates.length, city.kind === 'pass' ? 4 : 8);
+    assert.equal(f.siege.revision, 6);
+    assert.ok(f.height >= 30 && f.map.every(row => row.length === f.width && row.length >= 44));
+    assert.equal(f.siege.gates.filter(gate => gate.ring === f.siege.outer).length, city.kind === 'pass' ? 2 : 4);
     const attacker = f.side('att')[0], defender = f.side('def')[0];
     assert.notDeepEqual([attacker.x, attacker.y], [defender.x, defender.y], label);
     defender.gone = true;
+    if (f.siege.camp) {
+      assert.ok(!f.reach(attacker, Infinity).dist.has(f.castle().join(',')), label);
+      assert.ok(f.reach(attacker, Infinity).dist.has(`${f.siege.camp.x},${f.siege.camp.y}`), label);
+      f.campSecured = true;
+    }
     assert.ok(f.reach(attacker, Infinity).dist.has(f.castle().join(',')), label);
   }
 });

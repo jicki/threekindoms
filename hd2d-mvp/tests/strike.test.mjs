@@ -36,15 +36,15 @@ async function war(query = '&flat', { two = false, castle = false, size = null }
     const F = await import('./src/core/field.js'), w = window.__game.war, f = w.field;
     const me = f.alive.find((u) => u.side === f.human && !u.commander) ?? f.alive.find((u) => u.side === f.human);
     const foes = f.alive.filter((u) => u.side !== f.human).sort((a, b) => Number(!!a.commander) - Number(!!b.commander));
-    const free = (x, y) => f.inside(x, y) && !f.unitAt(x, y) && f.terr(x, y) === F.PLAIN;
+    const free = (x, y) => f.deployable(x, y) && !f.unitAt(x, y) && f.terr(x, y) === F.PLAIN;
     let spot = null;
-    for (let y = 2; y < F.H - 2 && !spot; y++) for (let x = 2; x < F.W - 3 && !spot; x++) if ([[x, y], [x + 1, y], [x, y + 1]].every(([cx, cy]) => free(cx, cy))) spot = [x, y];
+    for (let y = 2; y < f.height - 2 && !spot; y++) for (let x = 2; x < f.width - 3 && !spot; x++) if ([[x, y], [x + 1, y], [x, y + 1]].every(([cx, cy]) => free(cx, cy))) spot = [x, y];
     if (!spot) return false;
     [me.x, me.y] = spot; [foes[0].x, foes[0].y] = [spot[0] + 1, spot[1]];
     if (two) [foes[1].x, foes[1].y] = [spot[0], spot[1] + 1];
     if (castle) { const t = f.terr; f.terr = (x, y) => (x === foes[0].x && y === foes[0].y ? F.CASTLE : t.call(f, x, y)); }
     const top = w.probe().top;
-    for (const u of f.alive) w.spriteOf(u)?.position.set(u.x - F.W / 2 + 0.5, top(u.x, u.y), u.y - F.H / 2 + 0.5);
+    for (const u of f.alive) w.spriteOf(u)?.position.set(u.x - f.width / 2 + 0.5, top(u.x, u.y), u.y - f.height / 2 + 0.5);
     const r = f.r; window.__rolls = 0; f.r = (...a) => { window.__rolls++; return r(...a); };
     const atk = f.attack; window.__atk = 0; f.attack = function (...a) { window.__atk++; return atk.apply(this, a); };
     f.pool[f.human] = 30; w.clickCell(me.x, me.y); if (!w.flat) w.frame(me.x, me.y, 14);

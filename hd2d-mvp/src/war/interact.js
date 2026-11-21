@@ -87,13 +87,13 @@ export function makeInteract(wv) {
   function select(u) { st.sel = u; st.peek = null; st.menu = false; st.confirm = null; st.ask = null; st.strike = null; st.atkList = false; showOptions(); }
   // The enemies he may strike now, beside him (攻击, D32 §6): the 攻击 command lists them when there is more than one.
   const attackTargets = (u) => (u && !u.gone && controls(u) && field.turn === human && !field.over && field.pool[human] >= ATTACK_COST ? field.adjacentEnemies(u).filter((t) => attackable(u, t)) : []);
-  const attackRows = (u) => attackTargets(u).map((t) => ({ u: t, o: field.O(t.id), ground: TERRAIN_NAME[field.terr(t.x, t.y)], commander: !!t.commander }));
+  const attackRows = (u) => attackTargets(u).map((t) => ({ u: t, o: field.O(t.id), ground: TERRAIN_NAME[field.unitTerrain(t.x, t.y)], commander: !!t.commander }));
   // What the 攻击 confirmation states, read off the board only (no battle is made and nothing is drawn before it is given):
   // the 白兵's ground (the struck one's cell, as Field.attack takes it), whether he holds a castle (he stands in its formation;
   // ours is chosen as ever), whether he is the enemy's 总大将, and the mobility left after it.
   function strikeInfo() {
     const s = st.strike; if (!s) return null;
-    const left = field.pool[human] - ATTACK_COST, T = field.terr(s.t.x, s.t.y); // as Field.attack reads it
+    const left = field.pool[human] - ATTACK_COST, T = field.unitTerrain(s.t.x, s.t.y);
     return { t: s.t, cost: ATTACK_COST, pool: field.pool[human], left, attacks: Math.max(0, Math.floor(left / ATTACK_COST)), ground: TERRAIN_NAME[T], castle: T === CASTLE, commander: !!s.t.commander, entering: !!s.entering, from: s.from };
   }
   // What the panel's confirmation states: the caster, the 计略, its target, the odds, the cost and what the army has left after it.
@@ -118,16 +118,30 @@ export function makeInteract(wv) {
   // Whether u may cast this 计略 on someone now (the same check Field.cast makes before it runs).
   const castable = (u, id) => id === 11 ? field.canCast(u, 11, null) : field.side(u.side === 'att' ? 'def' : 'att').some((e) => field.canCast(u, id, e));
 
-  const inRect = (x, y) => wv.rect && x >= wv.rect[0] && x <= wv.rect[1] && y >= wv.rect[2] && y <= wv.rect[3];
+  const zones = human ? field.deploymentZones(human) : [];
+  const deployCells = zones.flatMap(({ cells, rect: [x0, x1, y0, y1] }) => {
+    if (cells) return cells;
+    const result = [];
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) result.push([x, y]);
+    return result;
+  });
+  const deployKeys = new Set(deployCells.map(([x, y]) => `${x},${y}`));
+  const inRect = (x, y) => deployKeys.has(`${x},${y}`);
   function showDeploy() {
     clearMarks();
-    for (let y = wv.rect[2]; y <= wv.rect[3]; y++) for (let x = wv.rect[0]; x <= wv.rect[1]; x++) if (inside(x, y) && field.deployable(x,y) && !field.unitAt(x, y)) mark(x, y, 'deploy');
+    for (const [x, y] of deployCells) if (field.deployable(x, y) && !field.unitAt(x, y)) mark(x, y, 'deploy');
     ui.warUnit(st.sel ? { u: st.sel, o: field.O(st.sel.id), mine: true, deploying: true, strategies: [] } : null);
   }
   function deployClick(x, y) {
     const u = field.unitAt(x, y);
     if (u && controls(u)) { st.sel = u; return showDeploy(); }
-    if (!u && st.sel && inRect(x, y) && field.deployable(x,y)) { const s = st.sel; s.x = x; s.y = y; showDeploy(); wv.moveAlong(s, [[x, y]], { perCell: 240, follow: false }); }
+    if (!u && st.sel && inRect(x, y) && field.deployable(x, y)) {
+      const s = st.sel;
+      s.x = x; s.y = y;
+      showDeploy();
+      if (field.approaches?.barriers) wv.place(s);
+      else wv.moveAlong(s, [[x, y]], { perCell: 240, follow: false });
+    }
   }
   wv.endDeploy = undefined;
   function finishDeploy() { if (!st.deploying) return; st.deploying = false; clearMarks(); st.sel = null; wv.endDeploy?.(); }

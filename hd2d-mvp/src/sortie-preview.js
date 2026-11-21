@@ -27,10 +27,23 @@ function planMap({ map, dep, siege, approaches }) {
     tile(siege.cx, siege.cy, MARKS.court);
   }
   // 攻方布阵格用轮廓标记，保留格内真实地形颜色。
-  const [x0, x1, y0, y1] = dep.attacker_rect;
   ctx.strokeStyle = MARKS.attack;
   ctx.lineWidth = 2;
-  ctx.strokeRect(x0 * cell + 1, y0 * cell + 1, (x1 - x0 + 1) * cell - 2, (y1 - y0 + 1) * cell - 2);
+  if (dep.attackerZones) {
+    for (const zone of dep.attackerZones) {
+      const keys = new Set(zone.cells.map(([x, y]) => `${x},${y}`));
+      ctx.beginPath();
+      for (const [x, y] of zone.cells) for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+        if (keys.has(`${x + dx},${y + dy}`)) continue;
+        const cx = (x + 0.5 + dx * 0.5) * cell, cy = (y + 0.5 + dy * 0.5) * cell;
+        ctx.moveTo(cx - dy * cell / 2, cy - dx * cell / 2); ctx.lineTo(cx + dy * cell / 2, cy + dx * cell / 2);
+      }
+      ctx.stroke();
+    }
+  } else {
+    const [x0, x1, y0, y1] = dep.attacker_rect;
+    ctx.strokeRect(x0 * cell + 1, y0 * cell + 1, (x1 - x0 + 1) * cell - 2, (y1 - y0 + 1) * cell - 2);
+  }
   return canvas;
 }
 
@@ -68,8 +81,11 @@ export function sortiePreview(data, g, from, to) {
     const [dx, dy] = gateNormal(siege, gate);
     return dx < 0 ? '西' : dx > 0 ? '东' : dy < 0 ? '北' : '南';
   }))).join('、');
-  const fortress = siege ? `外门 ${gateNames(siege.outer)} · 内门 ${gateNames(siege.inner)}` : '单城格城防';
-  const moat = siege ? outerTerrain(map, siege) : '';
+  const fortress = siege ? [`外门 ${gateNames(siege.outer)}`, gateNames(siege.inner) && `内门 ${gateNames(siege.inner)}`].filter(Boolean).join(' · ') : '单城格城防';
+  const moat = siege?.moatCells
+    ? siege.moatCells.some(cell => cell.wet) ? '临水城壕' : siege.moatCells.length ? '分段旱壕' : ''
+    : siege ? outerTerrain(map, siege) : '';
+  const regional = field.approaches?.barriers;
   const intel = defenseIntel(g, target);
   const detail = h('div', { class: 'sortie-map', hidden: true });
   const toggle = h('button', { class: 'btn', 'aria-expanded': 'false', onclick: () => {
@@ -79,9 +95,15 @@ export function sortiePreview(data, g, from, to) {
     if (!detail.hidden && !detail.firstChild) detail.append(...[planMap(field), h('p', { class: 'hint' },
       h('span', { style: { color: MARKS.attack } }, '浅蓝框为攻方布阵区。'), siege ? h('span', { style: { color: MARKS.gate } }, '金色格为城门。') : null),
       field.approaches ? h('p', { class: 'hint' }, h('span', { style: { color: APPROACH_COLORS.main } }, '土黄色主道'), '、',
-        h('span', { style: { color: APPROACH_COLORS.flank } }, '浅灰色侧道'), `可减少行军消耗。前哨有兵驻守时，次日机动力＋${POST_MOBILITY}。`) : null].filter(Boolean));
+        h('span', { style: { color: APPROACH_COLORS.flank } }, '浅灰色侧道'), `可减少行军消耗。前哨有兵驻守时，次日机动力＋${POST_MOBILITY}。`) : null,
+      regional ? h('p', { class: 'hint' }, [
+        field.dep.attackerZones.map(zone => zone.name).join('、'),
+        field.approaches.routes.map(r => r.goal.label).join('、'),
+        siege.camp && '攻方夺取前阵后可破门',
+      ].filter(Boolean).join(' · ')) : null].filter(Boolean));
   } }, '查看战场布阵');
   return h('section', { class: 'sortie-preview', 'aria-label': '出阵预览' }, h('div', { class: 'sortie-head' }, h('strong', {}, route), toggle),
-    h('p', { class: 'hint' }, [field.profile?.label, direction && `从${DIRECTIONS[direction]}面入场`, weather, fortress, moat].filter(Boolean).join(' · ')),
+    h('p', { class: 'hint' }, [field.approaches?.geography ?? field.profile?.label,
+      regional && field.dep.attackerZones.length > 1 ? '两处登陆' : direction && `从${DIRECTIONS[direction]}面入场`, weather, fortress, moat].filter(Boolean).join(' · ')),
     intel ? h('p', { class: 'hint' }, intel) : null, detail);
 }

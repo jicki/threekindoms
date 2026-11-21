@@ -62,7 +62,8 @@ test('出阵地图与洛阳实战外门一致，援军信息随侦察开放，�
       };
     });
     assert.ok(scheme.fits);
-    assert.deepEqual(scheme.size, [320, 216]);
+    assert.deepEqual(scheme.size, [416, 272]);
+    assert.match(await panel.innerText(), /河洛盆地.*分段旱壕/s);
     assert.ok(scheme.doors.length > 0 && scheme.doors.every(rgb => rgb.join() === '255,227,137,255'));
     await page.keyboard.press('Escape');
     await panel.waitFor({ state: 'hidden' });

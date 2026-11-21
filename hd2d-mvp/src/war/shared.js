@@ -15,12 +15,17 @@ export const YAWS = [1, 3, 5, 7].map((k) => k * Math.PI / 4), PITCH = 0.663, TOP
 export const KIND = ['forest', 'sand', 'grass', 'river', 'hill', 'castle'], PLATE_M = 2, PLATE_PX = 72;
 
 // 护城河外沿和当前部队占据的范围，共用于手机平面与三维战场。
-export function siegeFrame(field) {
+export function siegeFrame(field, { deployment = false } = {}) {
   if (!(field.siege?.revision >= 2)) return null;
   const { cx, cy } = field.siege, [mx, my] = siegeExtent(field.siege, 'moat');
   const x = [cx - mx, cx + mx], y = [cy - my, cy + my];
   for (const u of field.alive) { x.push(u.x); y.push(u.y); }
   if (field.approaches) { x.push(field.approaches.post.x); y.push(field.approaches.post.y); }
+  if (deployment && field.dep.attackerZones) {
+    for (const { rect: [x0, x1, y0, y1] } of [...field.dep.attackerZones, ...field.dep.defenderZones]) {
+      x.push(x0, x1); y.push(y0, y1);
+    }
+  }
   return { x0: Math.min(...x), x1: Math.max(...x), y0: Math.min(...y), y1: Math.max(...y) };
 }
 
@@ -34,16 +39,36 @@ export const NORTH_REACH = 0.5;
 export const FIGURE_STENCIL = 2;
 export const markFigure = (m) => Object.assign(m, { stencilWrite: true, stencilRef: FIGURE_STENCIL, stencilWriteMask: FIGURE_STENCIL, stencilFunc: THREE.AlwaysStencilFunc,
   stencilFail: THREE.KeepStencilOp, stencilZFail: THREE.KeepStencilOp, stencilZPass: THREE.ReplaceStencilOp });
-export function woodsOf(S, r, width = W, height = H) {
+export function forestCluster(x, z, r, edge = false) {
+  const angle = r() * Math.PI * 2, count = edge ? 1 + Number(r() < 0.43) : 2 + Number(r() < 0.22);
+  return Array.from({ length: count }, (_, i) => {
+    const a = angle + i * 2.4, radius = 0.13 + r() * 0.26, pine = r() < 0.22;
+    return { x: x + Math.cos(a) * radius, z: z + Math.sin(a) * radius,
+      size: i === 0 ? 0.93 + r() * 0.51 : 0.53 + r() * 0.52, pine,
+      stretch: pine ? 0.98 + r() * 0.24 : 0.86 + r() * 0.24, tone: r() - 0.5 };
+  });
+}
+
+export function woodsOf(S, r, width = W, height = H, refined = false) {
   const out = [], j = (k) => (r() - 0.5) * k;
   const tree = (c, x, z, size, extra = {}) => out.push({ x, z, h: c.h, size: Math.min(size, 2 * (z - (c.z - 0.5 - NORTH_REACH))), ...extra });
   for (const c of S.forests) {
     const ahead = S.castle && Math.abs(c.x - S.castle.x) < 1.6 && c.z > S.castle.z + 0.5 && c.z < S.castle.z + 2.6;
     if (ahead) { tree(c, c.x + j(0.3), c.z + 0.2, 0.7); continue; }
+    if (refined) {
+      for (const {x,z,size,...look} of forestCluster(c.x, c.z, r)) tree(c, x, z, size, look);
+      continue;
+    }
     for (const [a, b] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) tree(c, c.x + a * 0.25 + j(0.14), c.z + b * 0.25 + j(0.14), 1.05 + r() * 0.3, { pine: r() < 0.12 });
   }
   for (const c of S.plains) if (Math.abs(c.x) < width / 2 && Math.abs(c.z) < height / 2 && r() < 0.02) tree(c, c.x + j(0.5), c.z + j(0.5), 0.8 + r() * 0.25);
-  for (const c of S.wildForests) for (let i = 0; i < 3; i++) tree(c, c.x + j(0.9), c.z + j(0.9), 1 + r() * 0.3, { pine: r() < 0.3, shade: c.shade });
+  for (const c of S.wildForests) {
+    if (refined) {
+      for (const {x,z,size,...look} of forestCluster(c.x, c.z, r, true)) tree(c, x, z, size, { ...look, shade: c.shade });
+      continue;
+    }
+    for (let i = 0; i < 3; i++) tree(c, c.x + j(0.9), c.z + j(0.9), 1 + r() * 0.3, { pine: r() < 0.3, shade: c.shade });
+  }
   return out;
 }
 export const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];

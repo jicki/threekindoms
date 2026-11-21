@@ -12,3 +12,13 @@ const styles = {
 };
 
 export const fortressStyle = siege => styles[siege?.style];
+
+export function rampartProfile(style, outer, corner) {
+  return { height: (outer ? 0.81 : 0.57) * style.scale, base: corner ? 0.98 : outer ? 0.72 : 0.58,
+    crown: corner ? 0.74 : outer ? 0.49 : 0.39 };
+}
+
+export function hasGateWings(siege, gate) {
+  if (!['luoyang', 'changan'].includes(siege.style) || gate.ring !== siege.outer || gate.face !== 's') return false;
+  return [-1, 1].every(dx => siege.walls.some(w => w.ring === gate.ring && w.x === gate.x + dx && w.y === gate.y));
+}

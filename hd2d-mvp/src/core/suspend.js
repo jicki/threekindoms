@@ -8,7 +8,7 @@
 import { upgrade, registerClones, SAVE_VERSION, scenarioKey, data, futureVersion } from './game.js';
 import { validRaidRecord, registerRaidTemplates } from './raids.js';
 import { resolveBattlefield } from './battlefields.js';
-import { restoreGates } from './siege.js';
+import { restoreGates, wallAt } from './siege.js';
 import { validDefenseSupport } from './warcore.js';
 
 export const SUSPEND_KEY = 'haou-hd2d-suspend';
@@ -82,6 +82,10 @@ function valid(rec) {
       const w = rec.war, { siege, map, approaches } = resolveBattlefield(data(), rec.g, w.city, w.from, rec.field.siegeRevision ?? 1);
       if (!siege || !restoreGates(siege,rec.field.siegeGates)) return null;
       if (approaches && rec.field.units.some(u => !Number.isInteger(u?.x) || !Number.isInteger(u.y) || map[u.y]?.[u.x] === undefined)) return null;
+      if (approaches?.barriers && rec.field.units.some(u => !u.gone
+        && (wallAt(siege, u.x, u.y) || approaches.barriers.has(`${u.x},${u.y}`)))) return null;
+      if (siege.camp && (typeof rec.field.campSecured !== 'boolean'
+        || (!rec.field.campSecured && siege.gates.some(gate => gate.open)))) return null;
     } catch { return null; }
   }
   return rec;
