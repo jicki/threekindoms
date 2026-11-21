@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { startGame, newCampaign, closeMessages } from './game.mjs';
 
 let game;
-// A war on the player's turn with the enemy in a knot the player's best mind can 火计, the camera at the opening 全景.
+// 我方行动时准备一组火计目标，3D 测试主动切到全景再验证计略取景。
 async function knot(query = '') {
   const page = await game.open(query);
   await newCampaign(page);
@@ -25,19 +25,21 @@ async function knot(query = '') {
     await page.evaluate(() => window.__game.war.finishDeploy());
     await page.waitForFunction(() => { const f = window.__game.war.field; return f.turn === f.human && !document.querySelector('.banner, .panel.msg'); }, null, { timeout: 30000 });
   } finally { stop(); }
-  const ok = await page.evaluate(async () => {
-    const F = await import('./src/core/field.js'), w = window.__game.war, f = w.field;
+  const ok = await page.evaluate(() => {
+    const w = window.__game.war, f = w.field;
     const me = f.alive.filter((u) => u.side === f.human).sort((a, b) => f.O(b.id).int - f.O(a.id).int)[0], foes = f.alive.filter((u) => u.side !== f.human);
-    const free = (x, y) => { if (!f.inside(x, y) || f.unitAt(x, y) || Math.max(Math.abs(x - me.x), Math.abs(y - me.y)) < 2) return false; const e = foes[0], [hx, hy] = [e.x, e.y]; e.x = x; e.y = y; const r = f.legal(me, 0, e); e.x = hx; e.y = hy; return r; };
+    const free = (x, y) => f.deployable(x, y) && !f.unitAt(x, y)
+      && Math.max(Math.abs(x - me.x), Math.abs(y - me.y)) >= 2 && f.legal(me, 0, { ...foes[0], x, y });
     let cells = null;
-    for (let y = 0; y < F.H && !cells; y++) for (let x = 0; x < F.W && !cells; x++) {
+    for (let y = 0; y < f.height && !cells; y++) for (let x = 0; x < f.width && !cells; x++) {
       const c = [[x, y], [x + 1, y], [x, y + 1], [x + 1, y + 1], [x + 2, y], [x + 2, y + 1]].slice(0, foes.length);
       if (c.every(([cx, cy]) => free(cx, cy))) cells = c;
     }
     if (!cells) return false;
     foes.slice(0, cells.length).forEach((e, i) => { [e.x, e.y] = cells[i]; });
     const top = w.probe().top;
-    for (const u of f.alive) w.spriteOf(u)?.position.set(u.x - F.W / 2 + 0.5, top(u.x, u.y), u.y - F.H / 2 + 0.5);
+    for (const u of f.alive) w.spriteOf(u)?.position.set(u.x - f.width / 2 + 0.5, top(u.x, u.y), u.y - f.height / 2 + 0.5);
+    w.overview();
     f.pool[f.human] = 30; w.clickCell(me.x, me.y);
     window.__k = { me, n: foes.filter((e) => f.legal(me, 0, e)).length };
     return true;
@@ -62,9 +64,11 @@ for (const [view, query] of [['3D', ''], ['flat', '&flat']]) test(`${view}: 新�
     const target = await page.evaluate(async () => {
       const { FOREST } = await import('./src/core/field.js'), w = window.__game.war, f = w.field, me = w.st.sel;
       const foe = f.side(me.side === 'att' ? 'def' : 'att')[0];
-      const cell = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([x, y]) => [me.x + x, me.y + y]).find(([x, y]) => f.inside(x, y) && !f.unitAt(x, y));
+      f.terr = () => FOREST;
+      const cell = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([x, y]) => [me.x + x, me.y + y])
+        .find(([x, y]) => f.deployable(x, y) && !f.unitAt(x, y) && f.legal(me, 0, { ...foe, x, y }));
       if (!cell) return null;
-      [foe.x, foe.y] = cell; f.terr = () => FOREST;
+      [foe.x, foe.y] = cell;
       Object.assign(f.O(me.id), { int: 99, level: 8 }); Object.assign(f.O(foe.id), { int: 1, level: 1 });
       return { id: foe.id, enabled: f.g.safeStrategyChance, threshold: f.hitChance(me, foe) };
     });
@@ -79,7 +83,7 @@ for (const [view, query] of [['3D', ''], ['flat', '&flat']]) test(`${view}: 新�
 test('3D: choosing a 计略 at 全景 brings its targets up to a size that can be clicked, and leaving the choice gives the view back', async () => {
   const page = await knot();
   const before = await pose(page);
-  assert.equal(before.zoom, 'whole', 'the war opens at 全景');
+  assert.equal(before.zoom, 'whole', '从全景开始选择计略');
   await page.evaluate(() => window.__game.war.chooseStrategy(0));
   await page.waitForTimeout(1500);
   const ts = await targets(page);

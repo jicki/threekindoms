@@ -327,6 +327,12 @@ body.phone .tq-dcard { top: calc(9vh + 3px); }
 body.phone.flat2d .wardock .turnpair, body.phone .wardock .turnpair { display: contents; }
 body.phone.flat2d .wardock .turnbtn { display: none; }
 body.phone.flat2d .wardock .turnpair .threatbtn { display: inline-block; }
+body.phone .warzoom { top: calc(var(--gt) + 39px); bottom: auto; right: var(--gr); padding: 4px; gap: 4px; }
+body.phone .warzoom .btn { min-height: var(--hit); min-width: var(--hit); }
+@media (max-width: 640px) {
+  body.phone .war-zones { z-index: 1; }
+  body.phone:has(.war-zones) .warzoom { top: calc(var(--gt) + 97px); left: var(--g); right: auto; }
+}
 body.phone .wardock .threatbtn, body.phone .wardock .cyclebtn, body.phone .wardock .war-rosterbtn { min-height: var(--hit); min-width: var(--hit); padding: 0 8px; font-size: 16px; }
 body.phone .wardock .cyclebtn { font-size: 22px; line-height: 1; }
 body.phone .wardock > .btn { padding: 0 9px; }

@@ -13,7 +13,7 @@ import { rng } from './pixel.js';
 import { PHONE, TOUCH_BATTLE, margins } from './phone.js';
 import { forestCluster, siegeFrame } from './war/shared.js';
 import { fortressStyle, hasGateWings, rampartProfile } from './fortress-style.js';
-import { REGIONAL_LAYOUT_REVISION } from './core/regional-battlefields.js';
+import { ALIGNED_APPROACH_LAYOUT_REVISION, REGIONAL_LAYOUT_REVISION } from './core/regional-battlefields.js';
 import { paintApproaches, paintRoadSurface } from './war/approach-display.js';
 import { luoyangCourt } from './war/scenery-plan.js';
 import { isCoastalBattle, townSurface } from './war/surface.js';
@@ -257,6 +257,8 @@ export function flatten(war, G, blankScene) {
   wrap.append(cv); document.body.append(wrap); document.body.classList.add('flat2d');
   const g = cv.getContext('2d');
   const view = { z: 1, x: 0, y: 0 };
+  const localOpening = field.siege?.revision >= REGIONAL_LAYOUT_REVISION;
+  const interactiveView = TOUCH_BATTLE || localOpening;
   let box = null, time = 0, tv = 0, painted = null; // tv: how far the ground view (F04) is shown
   const sky = createSky2d(); let skyT;
   const thin = new Map(); // each general's eased opacity while he covers the hovered cell
@@ -274,15 +276,16 @@ export function flatten(war, G, blankScene) {
     const B = pic.board, band = vh - FLAT_INSET.top - FLAT_INSET.bottom, k0 = Math.min((vw - FLAT_INSET.side * 2) / B.w, band / B.h), k = k0 * view.z;
     // The phone's drag and pinch (view): the board may slide until its far edge is a third of the screen in from the side,
     // so every cell can be brought clear of the HUD in the corners.
-    const mx = Math.max(0, (B.w * k - vw) / 2) + vw * 0.3, my = Math.max(0, (B.h * k - vh) / 2) + vh * 0.32;
+    const mx = localOpening ? B.w * k / 2 : Math.max(0, (B.w * k - vw) / 2) + vw * 0.3;
+    const my = localOpening ? B.h * k / 2 + vh * 0.1 : Math.max(0, (B.h * k - vh) / 2) + vh * 0.32;
     view.x = Math.max(-mx, Math.min(mx, view.x)); view.y = Math.max(-my, Math.min(my, view.y));
     box = { k, cw: (B.w * k) / W, ch: (B.h * k) / H, x: (vw - B.w * k) / 2 + view.x, y: FLAT_INSET.top + (band - B.h * k) / 2 + view.y, dpr };
   }
   // Phone only: one finger slides the board, two fingers zoom it about the point between them (app.js).
   let autoFrame = PHONE && field.siege?.revision >= 2;
-  const splitLanding = field.dep.attackerZones?.length > 1;
-  const minZoom = splitLanding ? 0.78 : 1;
-  const ward = PHONE && field.siege?.revision >= REGIONAL_LAYOUT_REVISION && field.siege.type !== 'pass' ? field.siege.districts : null;
+  const splitLanding = field.dep.attackerZones?.length > 1 && !field.dep.attackerZones[0].corner;
+  const minZoom = localOpening ? 1 : splitLanding ? 0.78 : 1, maxZoom = localOpening ? 4 : 2.4;
+  const ward = PHONE && field.siege?.revision >= ALIGNED_APPROACH_LAYOUT_REVISION && field.siege.type !== 'pass' ? field.siege.districts : null;
   let manualView = false, outsideZoom = null, zoomGoal = null;
   function useManualView() { autoFrame = false; goal = null; manualView = true; outsideZoom = zoomGoal = null; }
   const slide = (dx, dy) => { useManualView(); view.x += dx; view.y += dy; place(); };
@@ -292,15 +295,28 @@ export function flatten(war, G, blankScene) {
     view.x += px - (box.x + fx * box.cw * W); view.y += py - (box.y + fy * box.ch * H); place();
   }
   const zoomAt = (deltaY, ndc = { x: 0, y: 0 }) => {
-    const z = Math.max(minZoom, Math.min(2.4, view.z * Math.exp(-deltaY * 0.001)));
+    if (!Number.isFinite(deltaY) || !deltaY) return;
+    const z = Math.max(minZoom, Math.min(maxZoom, view.z * Math.exp(-deltaY * 0.001)));
     if (z !== view.z || ward) useManualView();
-    if (z !== view.z) zoomAbout(z, (ndc.x + 1) / 2 * innerWidth, (1 - ndc.y) / 2 * innerHeight);
+    if (localOpening && z === minZoom && deltaY > 0) {
+      useManualView(); view.z = z; view.x = view.y = 0; place();
+    } else if (z !== view.z) zoomAbout(z, (ndc.x + 1) / 2 * innerWidth, (1 - ndc.y) / 2 * innerHeight);
   };
   // Bring a cell to where the HUD leaves the board clear (the middle of the screen, a little above centre).
   const centreOn = (x, y) => { autoFrame = false; goal = null; view.x += innerWidth / 2 - (box.x + (x + 0.5) * box.cw); view.y += innerHeight * 0.45 - (box.y + (y + 0.5) * box.ch); place(); };
   function resetView() {
     view.z = 1; view.x = view.y = 0; goal = null;
     outsideZoom = zoomGoal = null; manualView = false; place();
+    if (localOpening) {
+      const ours = field.alive.filter(u => field.controls(u));
+      const unit = ours.includes(war.st.sel) ? war.st.sel : ours.find(u => u.commander) ?? ours[0];
+      if (unit) {
+        const safe = margins(), cell = Math.min((innerWidth - safe.l - safe.r) / 13, (innerHeight - safe.t - safe.b - 72) / 11);
+        view.z = Math.min(maxZoom / 1.4, Math.max(1.6, cell / box.ch));
+        place(); centreOn(unit.x, unit.y);
+      }
+      return;
+    }
     if (!autoFrame) return;
     const { x0, x1, y0, y1 } = siegeFrame(field, { deployment: !field.resumed && field.day === 1 }), g = margins();
     const top = g.t + (splitLanding ? 62 : 40), bottom = innerHeight - g.b - (splitLanding ? 60 : 44);
@@ -332,7 +348,7 @@ export function flatten(war, G, blankScene) {
       outsideZoom = zoomGoal ?? view.z;
       const safe = margins();
       const cell = Math.min((innerWidth - safe.l - safe.r) / 11, (innerHeight - safe.t - safe.b - 96) / 8);
-      zoomGoal = Math.max(view.z, Math.min(2.1, cell / (box.ch / view.z)));
+      zoomGoal = localOpening ? Math.min(maxZoom, 1.25 * view.z) : Math.max(view.z, Math.min(2.1, cell / (box.ch / view.z)));
       ensure(u.x, u.y, true);
     } else if (!inside && outsideZoom != null) {
       zoomGoal = outsideZoom; outsideZoom = null;
@@ -348,7 +364,8 @@ export function flatten(war, G, blankScene) {
     const st = war.st, f = field, mine = f.alive.filter((u) => f.controls(u));
     if (!opened && mine.length) {
       opened = true;
-      if (autoFrame) lastSel = st.sel;
+      if (localOpening) { resetView(); lastSel = st.sel; }
+      else if (autoFrame) lastSel = st.sel;
       else { const cx = mine.reduce((a, u) => a + u.x, 0) / mine.length, cy = mine.reduce((a, u) => a + u.y, 0) / mine.length; centreOn(cx - 0.5, cy - 0.5); }
     }
     if (st.sel !== lastSel) {
@@ -357,11 +374,15 @@ export function flatten(war, G, blankScene) {
     }
     const ask = st.confirm?.t ?? st.strike?.t ?? st.ask ?? null;
     if (ask !== lastAsk) { lastAsk = ask; if (ask && !ask.gone) ensure(ask.x, ask.y); }
-    for (const u of f.units) { const k = `${u.x},${u.y}`, was = stood.get(u); stood.set(u, k); if (was && was !== k && !u.gone && (f.turn !== f.human || !f.controls(u))) ensure(u.x, u.y); }
+    for (const u of f.units) {
+      const k = `${u.x},${u.y}`, was = stood.get(u); stood.set(u, k);
+      if (was && was !== k && !u.gone && (!localOpening || !manualView)
+        && (f.turn !== f.human || !f.controls(u) || (localOpening && u === st.sel))) ensure(u.x, u.y);
+    }
     followWard(dt, st);
     if (goal) { const k = 1 - Math.exp(-dt * 7); view.x += (goal.x - view.x) * k; view.y += (goal.y - view.y) * k; if (Math.abs(goal.x - view.x) + Math.abs(goal.y - view.y) < 1) goal = null; place(); }
   }
-  const resize = () => { layout(); if (autoFrame) resetView(); };
+  const resize = () => { layout(); if (autoFrame || (localOpening && !manualView)) resetView(); };
   resize(); addEventListener('resize', resize);
   wrap.dispose = () => { removeEventListener('resize', resize); wrap.remove(); };
   const cellAt = (ndc) => {
@@ -788,14 +809,17 @@ export function flatten(war, G, blankScene) {
     // For the tests: how often the board under the generals was painted (paintBase) against frames drawn.
     flatDebug: () => ({ basePaints, frames, base: [base.width, base.height], canvas: [cv.width, cv.height], country: pic.country }),
     // A hidden window still moves the war on (app.js runs it 30 times a second) but paints nothing, as the 3D views.
-    update(dt) { time += dt; war.update(dt); if (PHONE) follow(dt); if (!document.hidden) draw(); },
+    update(dt) { time += dt; war.update(dt); if (PHONE || localOpening) follow(dt); if (!document.hidden) draw(); },
     hover(ndc) { return war.hoverCell(pick(ndc)); },
     click(ndc, e) { const c = pick(ndc); if (c) war.clickCell(c.x, c.y, e); }, // the event goes on: src/commitguard.js judges the click by it
     // A cell's centre on screen, in CSS px (tools click the map as a player would).
     screenOf: (x, y) => ({ x: box.x + (x + 0.5) * box.cw, y: box.y + (y + 0.5) * box.ch, cw: box.cw, ch: box.ch }),
     screenAxes: () => ({ x: [box.cw, 0], y: [0, box.ch] }), // one grid step on screen (the gamepad's cursor, app.js)
-    orbit() {}, zoom(d, ndc) { if (TOUCH_BATTLE) zoomAt(d, ndc); }, pan() {}, resetView() { if (TOUCH_BATTLE) { autoFrame = PHONE && field.siege?.revision >= 2; resetView(); } }, frame() {}, overview() { war.overview(); },
-    ...(TOUCH_BATTLE ? { slide } : {}),
+    orbit() {}, zoom(d, ndc) { if (interactiveView) zoomAt(d, ndc); }, pan() {}, resetView() { if (interactiveView) { autoFrame = PHONE && field.siege?.revision >= 2; resetView(); } }, frame() {}, overview() {
+      if (localOpening) { useManualView(); view.z = 1; view.x = view.y = 0; place(); }
+      else war.overview();
+    },
+    ...(interactiveView ? { slide } : {}),
     ...((TOUCH_BATTLE || field.approaches?.barriers) ? { centreOn } : {}),
     rotate: undefined, turn: undefined, turnEnd: undefined, tactical: undefined, viewState: undefined, dof: undefined, setTerrainView: undefined, // the flat map has no turn, zoom step or overview of its own
     setInsets() {},

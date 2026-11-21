@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startGame, newCampaign, closeMessages } from './game.mjs';
+import { startGame, newCampaign, closeMessages, warRest } from './game.mjs';
+import { ALIGNED_APPROACH_BATTLE_REVISION } from '../src/core/regional-battlefields.js';
 
 const scenario = 'builtin-sovereigns-expanded-map';
 async function deploy(page, city, from, human = 'att', revision = null) {
@@ -26,6 +27,7 @@ test('手机触控可切换两个登陆区并跨区布阵，深海不可放置�
   try {
     const page = await game.open('&phone&flat');
     await deploy(page, 38, 17);
+    await page.getByRole('button', { name: '战场全图' }).tap();
     const zones = page.getByRole('group', { name: '布阵区' });
     assert.deepEqual(await zones.getByRole('button').allTextContents(), ['主登陆滩', '侧翼小湾']);
     const points = await page.evaluate(() => {
@@ -36,7 +38,7 @@ test('手机触控可切换两个登陆区并跨区布阵，深海不可放置�
           - (Math.abs(b[0] - land[0]) + Math.abs(b[1] - land[1])))[0];
       const visible = f.deploymentZones('att').every(z => {
         const p = w.screenOf(...z.anchor);
-        return p.x > 180 && p.x < innerWidth - 30 && p.y > 44 && p.y < innerHeight - 70;
+        return p.x > 80 && p.x < innerWidth - 30 && p.y > 44 && p.y < innerHeight - 56;
       });
       const canvas = w.composite(), ctx = canvas.getContext('2d'), cell = canvas.width / f.width;
       const sample = (x, y) => [...ctx.getImageData(Math.floor((x + 0.5) * cell), Math.floor((y + 0.5) * cell), 1, 1).data];
@@ -45,7 +47,7 @@ test('手机触控可切换两个登陆区并跨区布阵，深海不可放置�
         nearWater: sample(shore, y), deepWater: sample(2, y) };
     });
     assert.equal(points.flat, true);
-    assert.equal(points.visible, true, '默认取景能看到两个登陆区');
+    assert.equal(points.visible, true, '全图取景能看到两个登陆区');
     assert.ok(points.nearWater[1] > points.deepWater[1] + 12, '平面版岸边比外海明亮');
     await zones.getByRole('button', { name: '侧翼小湾' }).tap();
     const tap = async ([x, y]) => {
@@ -134,7 +136,7 @@ test('手机并州进城后放大街区，切回城外恢复倍率，手动缩�
   const game = await startGame({ scenario, width:844, height:390, touch:true });
   try {
     const page = await game.open('&phone&flat');
-    await deploy(page,2,5);
+    await deploy(page,2,5,'att',ALIGNED_APPROACH_BATTLE_REVISION);
     await page.getByRole('button',{ name:'布阵完成' }).tap();
     await page.waitForFunction(() => !window.__game.war.st.deploying && !window.__game.war.st.busy);
     const setup = await page.evaluate(() => {
@@ -214,6 +216,7 @@ test('桌面三维显示洛阳街坊和分段城壕，进城道路与小地图�
   try {
     const page = await game.open();
     await deploy(page, 12, 32);
+    await page.getByRole('button', { name: '战场全图' }).click();
     await page.waitForFunction(() => window.__game.war.viewState().still);
     const board = await page.evaluate(() => {
       const w = window.__game.war, f = w.field;
@@ -238,7 +241,7 @@ test('桌面三维显示洛阳街坊和分段城壕，进城道路与小地图�
     assert.ok(board.height > 2.5, '宫殿与南门有可见的高度差');
     assert.ok(board.buildings > 4 && board.render > 0);
     assert.ok(board.moat > 10 && !board.wet);
-    assert.equal(board.routes, 3);
+    assert.equal(board.routes, 4);
     assert.deepEqual(board.mini, [520, 340]);
     assert.equal(board.framed, true);
     const entrance = await page.evaluate(async () => {
@@ -275,6 +278,11 @@ test('剑阁栈道的可见高度和拾取对应实际栈道格，断崖仍不�
   try {
     const page = await game.open();
     await deploy(page, 36, 25);
+    await page.evaluate(() => {
+      const w = window.__game.war, route = w.field.approaches.routes.find(r => r.goal.label === '栈道至内关');
+      const deck = route.cells.filter(([x,y]) => w.field.approaches.roads.get(`${x},${y}`)?.kind === 'plank');
+      w.centreOn(...deck[Math.floor(deck.length / 2)]);
+    });
     await page.waitForFunction(() => window.__game.war.viewState().still);
     const status = await page.evaluate(() => {
       const w = window.__game.war, f = w.field, u = f.side('att')[0], board = w.probe();
@@ -343,6 +351,113 @@ test('新材质加载失败时，仍可使用既有贴图进入桌面战场并�
     }), true);
     await page.getByRole('button', { name: '布阵完成' }).click();
     await page.waitForFunction(() => !window.__game.war.st.deploying);
+    assert.deepEqual(page.errors, []);
+  } finally { await game.close(); }
+});
+
+test('三维战场开场及布阵完成后聚焦可控武将，滚轮、键盘和全图可连续切换', { timeout: 120000 }, async () => {
+  const game = await startGame({ scenario, width: 1280, height: 800 });
+  try {
+    const page = await game.open();
+    await deploy(page, 32, 13);
+    const read = () => page.evaluate(() => {
+      const w = window.__game.war, u = w.field.side('att').find(u => u.commander);
+      return { ...w.viewState(), unit: w.screenOf(u.x, u.y), selected: w.st.sel?.id ?? null, day: w.field.day };
+    });
+    await warRest(page);
+    const opening = await read();
+    assert.equal(opening.zoom, 'mid');
+    assert.ok(opening.unit.x > 425 && opening.unit.x < 990 && opening.unit.y > 150 && opening.unit.y < 615);
+    assert.ok(opening.selected != null);
+    assert.equal(await page.getByRole('group', { name: '布阵区' }).getByRole('button').count(), 4);
+    for (const [width, height] of [[860, 650], [960, 600]]) {
+      await page.setViewportSize({ width, height });
+      for (const name of ['缩小战场', '放大战场', '战场全图']) {
+        await page.getByRole('button', { name }).click({ trial: true });
+      }
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await warRest(page);
+    const tower = await page.evaluate(() => {
+      const w = window.__game.war, { x,y } = w.field.approaches.post, probe = w.probe();
+      const scene = w.scene.getObjectByName('battle-approaches');
+      const pennant = scene.children.find(mesh => mesh.isInstancedMesh && mesh.material.color.getHexString() === 'a74432');
+      return pennant?.instanceMatrix.array[13] - probe.top(x,y);
+    });
+    assert.ok(tower > 1.1, '三维哨楼有高于底座的旗帜');
+    await page.getByRole('button', { name: '布阵完成' }).click();
+    await warRest(page);
+    assert.equal((await read()).zoom, 'mid');
+    assert.equal((await read()).selected, null);
+
+    await page.mouse.move(780, 335);
+    await page.mouse.wheel(0, -120);
+    await warRest(page);
+    const near = await read();
+    assert.equal(near.zoom, 'near');
+    assert.ok(near.dist < opening.dist);
+    await page.getByRole('button', { name: '缩小战场' }).click();
+    await warRest(page);
+    assert.equal((await read()).zoom, 'mid');
+    await page.getByRole('button', { name: '战场全图' }).click();
+    await warRest(page);
+    assert.equal((await read()).tactical, true);
+    await page.keyboard.press('=');
+    await warRest(page);
+    assert.equal((await read()).tactical, false);
+    assert.equal((await read()).zoom, 'far');
+    await page.keyboard.press('c');
+    await warRest(page);
+    const reset = await read();
+    assert.equal(reset.zoom, 'mid');
+    assert.equal(reset.day, 1);
+    assert.ok(Math.abs(reset.unit.x - opening.unit.x) < 40 && Math.abs(reset.unit.y - opening.unit.y) < 110);
+    assert.deepEqual(page.errors, []);
+  } finally { await game.close(); }
+});
+
+test('手机平面战场先看主将，四角可定位，双指和缩放按钮可放大及还原全图', { timeout: 120000 }, async () => {
+  const game = await startGame({ scenario, width: 844, height: 390, touch: true });
+  try {
+    const page = await game.open('&phone&flat&safe=24,24,6,12');
+    await deploy(page, 11, 14);
+    const zones = page.getByRole('group', { name: '布阵区' });
+    const zoom = page.getByRole('group', { name: '战场缩放' });
+    await page.setViewportSize({ width: 568, height: 320 });
+    for (const group of [zones, zoom]) {
+      for (const button of await group.getByRole('button').all()) await button.click({ trial: true, timeout: 5000 });
+    }
+    await page.setViewportSize({ width: 844, height: 390 });
+    await page.waitForFunction(() => {
+      const w = window.__game.war, u = w.field.side('att')[0], at = w.screenOf(u.x, u.y);
+      return Math.abs(at.x - 422) < 28 && Math.abs(at.y - 175.5) < 28;
+    }, null, { timeout: 5000 });
+    const read = () => page.evaluate(() => {
+      const w = window.__game.war, u = w.field.side('att')[0], last = w.field.dep.attackerZones.at(-1).anchor;
+      return [w.screenOf(u.x,u.y), w.screenOf(...last)];
+    });
+    const [first] = await read();
+    await zones.getByRole('button').last().tap();
+    const [, corner] = await read();
+    assert.ok(Math.abs(corner.x - 422) < 28 && Math.abs(corner.y - 175.5) < 28);
+    const touch = await page.context().newCDPSession(page);
+    const drag = async (from, to) => {
+      const points = d => [{ x: 422 - d, y: 154, id: 1 }, { x: 422 + d, y: 154, id: 2 }];
+      await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: points(from) });
+      await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: points(to) });
+      await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    };
+    await drag(36, 54);
+    const [large] = await read();
+    assert.ok(large.cw > corner.cw * 1.15);
+    await drag(54, 30);
+    const [smaller] = await read();
+    assert.ok(smaller.cw < large.cw * 0.85);
+    await page.getByRole('button', { name: '战场全图' }).tap();
+    const [overview] = await read();
+    assert.ok(overview.cw < first.cw * 0.75);
+    await page.getByRole('button', { name: '放大战场' }).tap();
+    assert.ok((await read())[0].cw > overview.cw);
     assert.deepEqual(page.errors, []);
   } finally { await game.close(); }
 });

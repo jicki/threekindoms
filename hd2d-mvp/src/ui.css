@@ -589,7 +589,7 @@ body.cine .warmini, body.cine .waredges, body.scenic .warmini, body.scenic .ware
 .dmg.self { font-size: 18px; color: #ffcf8a; }
 .dmg.allin { font: 900 30px/1 var(--serif); letter-spacing: .3em; color: #ffd27a; -webkit-text-stroke: 1.5px #2a0800; text-shadow: 0 3px 0 #000, 0 0 16px #e22; }
 body.cine .msg { bottom: calc(9vh + 16px); } /* above the letterbox */
-body.cine .citypanel, body.cine .logbox, body.cine .warcards, body.cine .wardock, body.cine .warbar, body.cine .sysbtns, body.cine .deploybtn, body.cine .war-zones { display: none; }
+body.cine .citypanel, body.cine .logbox, body.cine .warcards, body.cine .wardock, body.cine .warbar, body.cine .sysbtns, body.cine .deploybtn, body.cine .war-zones, body.cine .warzoom { display: none; }
 .sysbtns { --sys-top: 12px; position: fixed; top: var(--sys-top); right: 12px; max-width: calc(100vw - 24px); display: flex; flex-direction: column; align-items: flex-end; gap: 6px; z-index: 6; }
 .sysbtns .btn { padding: 4px 10px; font-size: 14px; }
 .sysmenu-list { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px; padding: 6px; border-radius: 6px; background: var(--menu-bg); border: 1px solid rgba(220,180,110,.25); box-shadow: 0 10px 28px rgba(0,0,0,.5);
@@ -1088,6 +1088,12 @@ body.flat2d .unitpanel .acts { grid-column: 2; max-width: none; gap: 4px; justif
 @media (min-width: 1201px) and (max-width: 1300px) { body.flat2d .unitpanel { padding: 6px 8px; column-gap: 8px; } body.flat2d .unitpanel dl { font-size: 11.5px; column-gap: 3px; } }
 body.flat2d .wardock { bottom: 8px; right: 12px; padding: 6px; }
 .wardock .turnpair { bottom: calc(100% + 6px); right: 0; padding: 6px; display: flex; gap: 6px; }
+.warzoom { bottom: 74px; right: 372px; padding: 6px; display: flex; gap: 6px; white-space: nowrap; }
+body:not(.phone):has(.deploybtn) .warzoom { bottom: 190px; }
+@media (max-width: 1100px) {
+  body:not(.phone) .warzoom, body:not(.phone):has(.deploybtn) .warzoom { top: 160px; bottom: auto; left: 12px; right: auto; }
+}
+.warzoom .icon { min-width: 36px; font-size: 18px; }
 .wardock .turnbtn { padding: 5px 7px; }
 body.flat2d .wardock .turnpair :is(.turnbtn, .threatbtn) { display: none; } /* 平面地图保留选将入口，不显示旋转或威胁按钮 */
 body.flat2d:not(.phone) .wardock .turnpair:not(:has(.war-rosterbtn)) { display: none; }

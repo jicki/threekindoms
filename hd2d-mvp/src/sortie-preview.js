@@ -86,6 +86,7 @@ export function sortiePreview(data, g, from, to) {
     ? siege.moatCells.some(cell => cell.wet) ? '临水城壕' : siege.moatCells.length ? '分段旱壕' : ''
     : siege ? outerTerrain(map, siege) : '';
   const regional = field.approaches?.barriers;
+  const zones = field.dep.attackerZones ?? [];
   const intel = defenseIntel(g, target);
   const detail = h('div', { class: 'sortie-map', hidden: true });
   const toggle = h('button', { class: 'btn', 'aria-expanded': 'false', onclick: () => {
@@ -97,13 +98,15 @@ export function sortiePreview(data, g, from, to) {
       field.approaches ? h('p', { class: 'hint' }, h('span', { style: { color: APPROACH_COLORS.main } }, '土黄色主道'), '、',
         h('span', { style: { color: APPROACH_COLORS.flank } }, '浅灰色侧道'), `可减少行军消耗。前哨有兵驻守时，次日机动力＋${POST_MOBILITY}。`) : null,
       regional ? h('p', { class: 'hint' }, [
-        field.dep.attackerZones.map(zone => zone.name).join('、'),
-        field.approaches.routes.map(r => r.goal.label).join('、'),
+        zones.map(zone => zone.name).join('、'),
+        [...new Set(field.approaches.routes.map(r => r.goal.label))].join('、'),
         siege.camp && '攻方夺取前阵后可破门',
       ].filter(Boolean).join(' · ')) : null].filter(Boolean));
   } }, '查看战场布阵');
   return h('section', { class: 'sortie-preview', 'aria-label': '出阵预览' }, h('div', { class: 'sortie-head' }, h('strong', {}, route), toggle),
     h('p', { class: 'hint' }, [field.approaches?.geography ?? field.profile?.label,
-      regional && field.dep.attackerZones.length > 1 ? '两处登陆' : direction && `从${DIRECTIONS[direction]}面入场`, weather, fortress, moat].filter(Boolean).join(' · ')),
+      zones[0]?.corner ? [ '城外四角布阵', direction && `主将从${DIRECTIONS[direction]}侧来路入场` ].filter(Boolean).join(' · ')
+        : regional && zones.length > 1 ? '两处登陆' : direction && `从${DIRECTIONS[direction]}面入场`,
+      weather, fortress, moat].filter(Boolean).join(' · ')),
     intel ? h('p', { class: 'hint' }, intel) : null, detail);
 }

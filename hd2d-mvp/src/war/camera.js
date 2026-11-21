@@ -5,11 +5,13 @@ import * as THREE from 'three';
 import { blurWeight } from '../post.js';
 import { advancedBattle } from '../core/battle-rules.js';
 import { siegeExtent } from '../core/siege.js';
+import { REGIONAL_LAYOUT_REVISION } from '../core/regional-battlefields.js';
 import { YAWS, PITCH, TOP_PITCH, TURN_MS, EDGE, tween, siegeFrame } from './shared.js';
 
 export function makeCamera(wv) {
   const { field, human, camera, flat, wx, wz, topY, S, showRoundels } = wv;
   const { width: W, height: H } = field;
+  const localOpening = field.siege?.revision >= REGIONAL_LAYOUT_REVISION;
   const fort = wv.fortification?.fort;
   const fortHeight = fort ? new THREE.Box3().setFromObject(fort).max.y : 0;
   const pitchDefault = wv.jiange ? 0.75 : PITCH;
@@ -103,7 +105,7 @@ export function makeCamera(wv) {
       }
       if (field.approaches) {
         const { x, y } = field.approaches.post;
-        points.push(new THREE.Vector3(wx(x), topY(x, y) + 0.9, wz(y)));
+        points.push(new THREE.Vector3(wx(x), topY(x, y) + 1.6, wz(y)));
       }
       if (wv.plankMark) {
         const [x, y] = wv.plankMark;
@@ -163,7 +165,10 @@ export function makeCamera(wv) {
       if (angle !== undefined) return angle;
     }
     const mine = field.alive.filter((u) => u.side === 'att'); if (!mine.length) return YAWS[0];
-    const c = new THREE.Vector3(); for (const u of mine) c.add(corner.set(wx(u.x), 0, wz(u.y))); c.divideScalar(mine.length);
+    const commander = localOpening && mine.find(u => u.commander);
+    const c = new THREE.Vector3();
+    if (commander) c.set(wx(commander.x), 0, wz(commander.y));
+    else { for (const u of mine) c.add(corner.set(wx(u.x), 0, wz(u.y))); c.divideScalar(mine.length); }
     const p = new THREE.Vector3();
     let best = YAWS[0], bestScore = Infinity;
     for (const yaw of YAWS) { poseOn(scratch, { yaw, pitch: view.pitch, dist: 31, target: view.target }); p.copy(c).project(scratch); if (p.x + p.y < bestScore) { bestScore = p.x + p.y; best = yaw; } }
@@ -258,7 +263,25 @@ export function makeCamera(wv) {
   // With the cards taking over half the height (a small window) the free band is narrow: centre on him then too.
   const leanK = () => (view.zoom !== 'far' ? 1 : (innerHeight - inset.top - inset.bottom) / innerHeight < 0.6 ? 0.95 : camera.aspect >= 1.5 ? 0.6 : camera.aspect >= 1.1 ? 0.8 : 0.95);
   // 全景 already shows every general: picking one or following a march leaves it be.
-  function focusOn(u) { if (view.tactical || view.zoom === 'whole') return; if (enemyTurn()) return watch(u.x, u.y); const k = leanK(); view.panned = false; view.atFit = false; view.fit = false; view.moved = false; view.targetGoal.set(wx(u.x) * k, 0, wz(u.y) * k + 1); }
+  const controlledCommander = () => {
+    const ours = field.alive.filter(u => field.controls(u));
+    return ours.find(u => u.commander) ?? ours[0];
+  };
+  function aimAt(u) { view.targetGoal.set(wx(u.x), topY(u.x, u.y) + 0.45, wz(u.y)); }
+  function focusOn(u) {
+    if (view.tactical || view.zoom === 'whole') return;
+    if (enemyTurn()) return watch(u.x, u.y);
+    view.panned = false; view.atFit = false; view.fit = false; view.moved = false;
+    if (localOpening) aimAt(u);
+    else { const k = leanK(); view.targetGoal.set(wx(u.x) * k, 0, wz(u.y) * k + 1); }
+  }
+  function focusOpening() {
+    const u = localOpening && controlledCommander();
+    if (!u || flat) return;
+    view.zoom = 'mid'; view.fit = false; view.atFit = false;
+    aimAt(u); view.target.copy(view.targetGoal);
+    view.dist = stepDist('mid');
+  }
   function followPoint(p) { if (view.tactical || view.zoom === 'whole') return; if (enemyTurn()) return watch(p.x + W / 2 - 0.5, p.z + H / 2 - 0.5); const k = leanK(); view.panned = false; view.atFit = false; view.fit = false; view.moved = false; view.targetGoal.set(p.x * k, 0, p.z * k + 1); }
   // Screen space the HUD covers (px): the camera frames the target in the free band between them by
   // shifting the projection centre, so a selected unit never sits behind the unit panel or the dock.
@@ -298,8 +321,11 @@ export function makeCamera(wv) {
     } else {
       // In from 全景 with no one selected: the board's middle, as 远 has always been, and still untouched, so a general picked next is framed.
       const fresh = !sel && step === 'far' && view.atFit;
-      if (sel && (view.atFit || !view.moved)) view.targetGoal.set(wx(sel.x), 0, wz(sel.y) + 1);
-      else if (fresh) view.targetGoal.copy(CENTRE);
+      const unit = sel || (fresh && localOpening && controlledCommander());
+      if (unit && (view.atFit || !view.moved)) {
+        if (localOpening) aimAt(unit);
+        else view.targetGoal.set(wx(unit.x), 0, wz(unit.y) + 1);
+      } else if (fresh) view.targetGoal.copy(CENTRE);
       view.atFit = false; view.moved = !fresh;
     }
     if (step !== 'whole') keepOnBoard();
@@ -365,13 +391,19 @@ export function makeCamera(wv) {
     setInsets(top, bottom, left = inset.left) { const moved = Math.abs(top - inset.top) + Math.abs(bottom - inset.bottom) + Math.abs(left - inset.left) > 12; inset.top = top; inset.bottom = bottom; inset.left = left;
       // (the bands are measured after the frame's update and before its draw, app.js frameWar: the new shift goes onto the real camera now, as it did when the fit posed it)
       if (moved && view.atFit && view.zoom === 'whole' && !view.tactical) { view.targetGoal.copy(wholeView().target); view.distGoal = stepDist('whole'); placeCamera(); camera.updateMatrixWorld(); return; } // 全景 eases out round a card that came, with or without a general picked
+      if (moved && localOpening && !view.moved && !view.tactical && !view.closeup && !castView) { view.distGoal = stepDist(view.zoom); placeCamera(); camera.updateMatrixWorld(); return; }
       if (moved && view.atFit && (!wv.st.sel || view.moved)) view.fit = true; else if (moved && wv.st.sel && !wv.st.sel.gone && !wv.st.busy && !view.moved) focusOn(wv.st.sel); }, // never over a view the player moved; atFit with the view moved is the overview stepped back to with a general selected
     // 镜头复位: default tilt and distance (pulled back on narrow windows), the selected unit centred.
     resetView() {
       castMoved(); cam.tactical(false);
       view.compact = advancedBattle(field.g);
-      view.moved = false; view.pitch = pitchDefault; view.pitchGoal = null; view.zoom = wv.st.sel && !wv.st.sel.gone ? 'mid' : 'whole'; view.zoomAcc = 0;
-      if (wv.st.sel && !wv.st.sel.gone) { focusOn(wv.st.sel); view.distGoal = stepDist('mid'); } else view.fit = true;
+      const unit = wv.st.sel && !wv.st.sel.gone ? wv.st.sel : localOpening && controlledCommander();
+      view.moved = false; view.pitch = pitchDefault; view.pitchGoal = null; view.zoom = unit ? 'mid' : 'whole'; view.zoomAcc = 0;
+      if (unit) {
+        if (localOpening) { view.panned = false; view.atFit = false; view.fit = false; aimAt(unit); }
+        else focusOn(unit);
+        view.distGoal = stepDist('mid');
+      } else view.fit = true;
     },
     // Centre a cell exactly at a given distance (close-ups, review captures).
     frame(x, y, dist = 10) { cam.tactical(false); view.panned = false; view.fit = false; view.atFit = false; view.moved = true; view.targetGoal.set(wx(x), topY(x, y), wz(y)); view.dist = dist; view.distGoal = null; },
@@ -379,12 +411,19 @@ export function makeCamera(wv) {
     overview() { castMoved(); cam.tactical(false); wv.st.sel = null; wv.showOptions(); view.moved = false; view.pitch = pitchDefault; view.pitchGoal = null; view.zoom = 'whole'; view.fit = true; view.compact = advancedBattle(field.g); },
     // The board is read from one fixed angle (A2): a drag slides the map instead of turning or tilting it.
     orbit(dx, dy) { const k = view.dist * 0.0021; this.pan(-dx * k, -dy * k / Math.sin(view.pitch)); },
-    // The wheel steps 全景 → far → mid → near: every 100 of wheel turned (wheel down pulls back) is one step, and the ends stop.
+    // 滚轮累积到阈值才换档，反向滚动时重新累积，避免小幅反向操作被吞掉。
     zoom(d, at = null) { // at: where the pointer is (the wheel's own event); the pad and the keys give none
-      if (view.tactical) return;
-      const now = performance.now(); if (now - view.zoomAt > 600) view.zoomAcc = 0; view.zoomAt = now;
+      if (view.closeup || !Number.isFinite(d) || !d) return;
+      if (view.tactical && (!localOpening || d > 0)) return;
+      const now = performance.now();
+      if (now - view.zoomAt > 600 || Math.sign(d) !== Math.sign(view.zoomAcc)) view.zoomAcc = 0;
+      view.zoomAt = now;
       view.zoomAcc += d;
-      if (Math.abs(view.zoomAcc) < 100) return;
+      if (Math.abs(view.zoomAcc) < (localOpening ? 60 : 100)) return;
+      if (view.tactical) {
+        cam.tactical(false);
+        view.zoom = 'whole'; view.atFit = true; view.fit = false;
+      }
       castMoved();
       const out = view.zoomAcc > 0, to = Math.min(STEPS.length - 1, Math.max(0, STEPS.indexOf(view.zoom) + (out ? -1 : 1))); view.zoomAcc = 0;
       // Pulling back at 全景 with the camera moved off it goes back to the overview.
@@ -490,7 +529,7 @@ export function makeCamera(wv) {
       return () => { view.closeup = false; view.dist = s.dist; view.targetGoal.copy(s.target); }; // straight back to its distance, the centre eased
     },
   };
-  return { view, inset, LENS, STEPS, YAWS, CENTRE, fitBox, footprint, fitInside, wholeView, farDist, stepDist, seenClear, pickYaw, placeCamera,
+  return { view, inset, LENS, STEPS, YAWS, CENTRE, fitBox, footprint, fitInside, wholeView, farDist, stepDist, seenClear, pickYaw, placeCamera, focusOpening,
     keepOnBoard, fitBoard, setStep, focusOn, followPoint, frameCast, keepInView, locate, unframeCast, castMoved, updateCamera, seenClearAt: (x, y) => seenClear({ x, y }),
     focusAt, focusWant, focusPick, snapshot, restore, ...cam };
 }

@@ -297,7 +297,7 @@ export function makeBoard(wv) {
     const el = document.createElement('div'); el.className = 'vtag'; el.textContent = { post: '哨', camp: '营', harbor: '港', landing: '滩', plank: '栈' }[kind];
     el.title = label ?? field.ground(x, y);
     const lab = new CSS2DObject(el), cell = new THREE.Vector3(wx(x), topY(x, y), wz(y));
-    lab.position.copy(cell).add(new THREE.Vector3(0, 0.65, 0)); scene.add(lab);
+    lab.position.copy(cell).add(new THREE.Vector3(kind === 'camp' ? -0.82 : 0, kind === 'post' ? 1.58 : 0.65, kind === 'camp' ? -0.76 : 0)); scene.add(lab);
     vsigns.push({ el, lab, cell, w: 0, h: 0 });
   }
   // dispose()'s walk of the scene (the entry's, after the units' and before release()): the labels' elements and the lights' shadow maps, and the sky.

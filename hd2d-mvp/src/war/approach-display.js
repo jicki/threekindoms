@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export const APPROACH_COLORS = { main: '#d5ac72', flank: '#b5aa86', bridge: '#8d6342', post: '#f2c064' };
+export const APPROACH_COLORS = { main: '#d5ac72', flank: '#b5aa86', bridge: '#8d6342' };
 const ROAD_WIDTH = { main: 0.48, flank: 0.3 };
 const CROSSING_COLORS = { bridge: '#9b7350', ford: '#bdac8a', plank: '#79543b' };
 const SITE_COLORS = { house: '#573c2c', camp: '#c99052', harbor: '#ac8260', landing: '#f6dca6' };
@@ -68,7 +68,13 @@ export function paintApproaches(ctx, approaches, cell, { routes = true } = {}) {
       else ctx.fillRect(x + (1 - width) / 2, y + p, width, 0.22);
     }
   }
-  for (const { x, y, kind } of approaches.sites ?? []) {
+  for (const { x, y, kind, clearing } of approaches.sites ?? []) {
+    if (clearing) {
+      ctx.fillStyle = '#a88b62';
+      ctx.fillRect(x - 0.77, y - 0.62, 2.54, 2.24);
+      ctx.strokeStyle = '#6b4f30'; ctx.lineWidth = 0.09;
+      ctx.strokeRect(x - 0.71, y - 0.56, 2.42, 2.12);
+    }
     ctx.fillStyle = SITE_COLORS[kind];
     ctx.fillRect(x + 0.15, y + 0.2, 0.7, 0.57);
     ctx.beginPath(); ctx.moveTo(x + 0.08, y + 0.48); ctx.lineTo(x + 0.5, y + 0.11); ctx.lineTo(x + 0.92, y + 0.48); ctx.fill();
@@ -76,9 +82,11 @@ export function paintApproaches(ctx, approaches, cell, { routes = true } = {}) {
   }
   const { x, y } = approaches.post;
   ctx.translate(x + 0.5, y + 0.5);
-  ctx.rotate(Math.PI / 4);
-  ctx.fillStyle = '#423120'; ctx.fillRect(-0.36, -0.36, 0.72, 0.72);
-  ctx.fillStyle = APPROACH_COLORS.post; ctx.fillRect(-0.26, -0.26, 0.52, 0.52);
+  ctx.fillStyle = '#8d826b'; ctx.fillRect(-0.41, -0.34, 0.82, 0.68);
+  ctx.fillStyle = '#583c28'; ctx.fillRect(-0.31, -0.27, 0.62, 0.5);
+  ctx.fillStyle = '#34352f'; ctx.fillRect(-0.38, -0.32, 0.76, 0.42);
+  ctx.fillStyle = '#827968'; ctx.fillRect(-0.35, -0.2, 0.7, 0.09);
+  ctx.fillStyle = '#a74432'; ctx.fillRect(0.27, -0.43, 0.22, 0.16);
   ctx.restore();
 }
 
@@ -171,7 +179,7 @@ export function addApproachScenery(scene, approaches, { wx, wz, topY, jiange, co
         bz + (eastWest ? side * span / 2 : 0), 0.045, 0.07, 1, angle);
     }
   }
-  for (const { x, y, kind } of approaches.sites ?? []) {
+  for (const { x, y, kind, clearing } of approaches.sites ?? []) {
     if (court && kind === 'house') continue;
     const bx = wx(x), bz = wz(y), floor = topY(x,y);
     if (kind === 'landing') {
@@ -180,6 +188,21 @@ export function addApproachScenery(scene, approaches, { wx, wz, topY, jiange, co
       continue;
     }
     if (kind === 'camp') {
+      if (clearing) {
+        part('#8d7652', bx, floor + 0.012, bz, 2.72, 0.025, 2.38);
+        for (const side of [-1, 1]) for (let i = -4; i <= 4; i++) {
+          if (side > 0 && Math.abs(i) < 2) continue;
+          part('#745738', bx + i * 0.27, floor + 0.15, bz + side * 1.05, 0.055, 0.30, 0.055);
+        }
+        for (const [u, v] of [[-0.79, 0.64], [0.82, 0.63], [0.85, -0.64]]) {
+          for (const side of [-1, 1]) part('#cfad78', bx + u, floor + 0.30, bz + v + side * 0.20,
+            0.75, 0.035, 0.6, 0, side * 0.84);
+          part('#67482a', bx + u, floor + 0.26, bz + v, 0.60, 0.034, 0.036);
+        }
+        part('#59412a', bx - 0.83, floor + 0.5, bz - 0.75, 0.045, 1, 0.045);
+        part('#963e31', bx - 0.67, floor + 0.86, bz - 0.75, 0.28, 0.17, 0.026);
+        continue;
+      }
       part('#8d7652', bx, floor + 0.012, bz, 0.94, 0.027, 0.92);
       for (const [ox, oz, scale] of [[-0.27, 0.24, 0.58], [0.25, -0.23, 0.77], [-0.25, -0.26, 0.54]]) {
         const xx = bx + ox, zz = bz + oz;
@@ -223,17 +246,31 @@ export function addApproachScenery(scene, approaches, { wx, wz, topY, jiange, co
     for (const sign of [-1, 1]) part(SITE_COLORS[kind], bx, floor + y0, bz + sign * 0.18,
       width + 0.10, 0.07, 0.42, 0, sign * 0.44);
   }
-  if (!batches.size) boxGeometry.dispose();
+  // 哨楼的底座、四根木柱和瓦顶沿用地物的材质批次。
+  const { x, y } = approaches.post, bx = wx(x), bz = wz(y), floor = topY(x, y);
+  const stone = '#817661', timber = '#60432d', roof = '#35352e', edge = '#8f8270';
+  part(stone, bx, floor + 0.065, bz, 0.88, 0.13, 0.78);
+  part(edge, bx, floor + 0.14, bz, 0.76, 0.055, 0.66);
+  part(timber, bx, floor + 0.51, bz - 0.04, 0.68, 0.12, 0.58);
+  for (const a of [-1, 1]) for (const b of [-1, 1]) {
+    part(timber, bx + a * 0.25, floor + 0.53, bz + b * 0.24 - 0.04, 0.073, 0.79, 0.073);
+    part(edge, bx + a * 0.25, floor + 0.22, bz + b * 0.24 - 0.04, 0.12, 0.15, 0.12);
+  }
+  for (const side of [-1, 1]) {
+    part(timber, bx + side * 0.27, floor + 0.66, bz - 0.04, 0.043, 0.055, 0.54);
+    part(roof, bx, floor + 1.01, bz + side * 0.16 - 0.04, 0.82, 0.075, 0.43, 0, side * 0.36);
+    part(edge, bx, floor + 0.94, bz + side * 0.35 - 0.04, 0.84, 0.045, 0.05);
+    part(timber, bx + side * 0.10, floor + 0.27, bz + 0.29, 0.034, 0.43, 0.038, 0, -0.27);
+  }
+  for (let i = 0; i < 4; i++) part(edge, bx, floor + 0.16 + i * 0.077, bz + 0.34 - i * 0.022, 0.23, 0.035, 0.045);
+  part(roof, bx, floor + 1.105, bz - 0.04, 0.91, 0.056, 0.058);
+  part(timber, bx + 0.35, floor + 0.66, bz + 0.25, 0.044, 1.30, 0.044);
+  part('#a74432', bx + 0.23, floor + 1.19, bz + 0.25, 0.22, 0.16, 0.029);
+
   for (const [color, matrices] of batches) {
     const mesh = new THREE.InstancedMesh(boxGeometry, new THREE.MeshStandardMaterial({ color, roughness: 1 }), matrices.length);
     mesh.castShadow = mesh.receiveShadow = true;
     matrices.forEach((matrix, index) => mesh.setMatrixAt(index, matrix)); group.add(mesh);
   }
-  const { x, y } = approaches.post;
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.36, 0.26, 4),
-    new THREE.MeshStandardMaterial({ color: APPROACH_COLORS.post, roughness: 1 }));
-  post.position.set(wx(x), topY(x, y) + 0.13, wz(y));
-  post.castShadow = true;
-  group.add(post);
   scene.add(group);
 }

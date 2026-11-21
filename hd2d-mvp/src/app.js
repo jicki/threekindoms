@@ -29,6 +29,7 @@ import { createWarNav } from './warnav.js';
 import { loadWarGround } from './warplate.js';
 import { FLAT_INSET } from './warmap2d.js';
 import { PHONE, ANDROID_TABLET, hint } from './phone.js';
+import { REGIONAL_LAYOUT_REVISION } from './core/regional-battlefields.js';
 import { unitCard } from './warcard.js';
 import * as G from './core/game.js';
 import { NONE } from './core/game.js';
@@ -504,7 +505,8 @@ function startDrag(e, tag = null) {
 // Phone: two fingers on the map zoom it about the point between them. The drag under way ends with no click, and the
 // finger left on the glass afterwards neither drags nor clicks.
 const fingers = new Map(); let pinch = null, pinchFrame = 0;
-const onBoard = (e) => e.target === canvas || !!e.target.closest?.('.ctag');
+const onBoard = (e) => e.target === canvas || !!e.target.closest?.('.ctag')
+  || (document.body.dataset.screen === 'war' && !!e.target.closest?.('.tag, .vtag'));
 const span = () => { const [a, b] = [...fingers.values()]; return { d: Math.hypot(b.x - a.x, b.y - a.y) || 1, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
 addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'touch' || !onBoard(e)) return;
@@ -525,7 +527,7 @@ function applyPinch() {
       }
     } else mode?.zoom?.(-Math.log(n.d / pinch.d) * 1000, at);
   }
-  if (mode?.slide) mode.slide(n.x - pinch.x, n.y - pinch.y);
+  if (n.x !== pinch.x || n.y !== pinch.y) mode?.slide?.(n.x - pinch.x, n.y - pinch.y);
   n.zoomBase = pinch.zoomBase;
   pinch = n;
 }
@@ -630,7 +632,12 @@ document.addEventListener('dblclick', (e) => {
   const u = card.classList.contains('compare') ? war.st.peek : war.st.sel;
   if (u && !u.gone) war.centreOn?.(u.x, u.y);
 });
-canvas.addEventListener('wheel', (e) => { e.preventDefault(); mode?.zoom?.(e.deltaY, ndc(e)); }, { passive: false });
+addEventListener('wheel', (e) => {
+  if (!onBoard(e) || dialogOpen()) return;
+  e.preventDefault();
+  const scale = e.deltaMode === 1 ? 32 : e.deltaMode === 2 ? innerHeight : 1;
+  mode?.zoom?.(e.deltaY * scale, ndc(e));
+}, { passive: false });
 // WASD pans while held, scaled by frame time in the loop (key repeat stepped the view in jerks).
 const held = new Set();
 addEventListener('keyup', (e) => held.delete(keyName(e)));
@@ -718,6 +725,9 @@ addEventListener('keydown', (e) => {
   if (k === 'r' && g && document.body.dataset.screen === 'strategy' && !blocking()) roster();
   if (k === 'g' && mode === strategy && document.body.dataset.screen === 'strategy') toggleRoads();
   if (mode === war && k === 'z') war.undo();
+  if (mode === war && ['+', '=', '-'].includes(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey && !blocking()) {
+    e.preventDefault(); war.zoom(e.key === '-' ? 240 : -240);
+  }
   if (mode === war && (e.key === '[' || e.key === ']') && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) keyCycle(e.key === ']' ? 1 : -1);
   if (mode === war && k === 'm' && !e.repeat && !blocking()) warNav?.toggleMini();
   // F: the selected general's 计略 list; X: 再施, the 计略 he cast last; L: 定位目标 while a 计略's target is chosen. They press the
@@ -734,7 +744,7 @@ addEventListener('keydown', (e) => {
     else if (war.st?.strike) { e.preventDefault(); war.commitAttack(e); }
     else if (war.st?.cast != null || war.st?.menu || war.st?.atkList) { /* a 计略, its target or the one to strike is being chosen: Enter belongs to the panel's rows, never to the day */ }
     // Enter ends the day on a new press only: not one held through the 白兵's report or the enemy's turn (D32 §9.3, S09).
-    else if (freshInput(e)) war.endTurn();
+    else if (freshInput(e) && !e.target.closest?.('.warzoom')) war.endTurn();
   }
   if (mode === war && k === 'escape') war.cancel?.();
   // 1–5: a group of the city's commands. Not while a command is being carried out (its map pick and windows have no
@@ -1230,7 +1240,7 @@ function help() {
       : '战术点每场按智力给出（智力×13÷100，用掉不回复）。爆炎需12点，即智力93以上。己方战术生效期间不能再用其他战术，只有爆炎可以照常施放。'),
     h('p', {}, '第4回合起，敌将体力低于45／40／30（LEVEL 1／2／3）且有两队以上与他相邻时，每回合有机会将他擒获。忠诚100的君主不会被围捕，开启不战死后体力归零仍会被俘。'),
     h('p', {}, '两将相邻即进入单挑，我方武将单挑时可选择攻击、牵制、舍身、说得、骂倒或退却，也可查看资料；体力归零通常阵亡，开启不战死后被俘。在单挑中斩杀君主有50%得到龙牙刀，全局只此一把；曹操、董卓、马腾、刘备各有专属宝物与条件。宝物只在单挑中斩杀时得到，俘虏、白兵中击杀或对方退却都不会得到；宝物会替换胜者原有的装备。'),
-    h('p', {}, `${FLAT_RULE}：用左键拖动平移、滚轮缩放，H不起作用。${WAR_RULE}；平面战场不能旋转与远近缩放。`),
+    h('p', {}, `${FLAT_RULE}：用左键拖动平移、滚轮缩放，H不起作用。${WAR_RULE}。君主列传新版战场支持「＋ / −」和全图，平面战场支持拖动和缩放。`),
     // What the help used to leave out (feedback R11, 2026-11-02) is in the 操作 page's 键鼠 tabs (src/controls.js).
     h('p', {}, '节奏：电脑回合、AI之间的战争、计略与白兵默认按原版时长播放；「☰ 系统 → 游戏速度」可改为快速（2倍）或最快（4倍），演出中按 Enter／空格可跳过当前一段。')), { wide: true });
 }
@@ -1305,7 +1315,7 @@ function sysButtons() {
     item(warViewText, () => {
       warView.cycle(); syncQualityRows();
       if (inWar() && nextWarLabel() !== warViewLabel()) toast(`本场仍为${warViewLabel()}战场，下一场战争起为${nextWarLabel()}战场`, 4500);
-    }, '战场用平面画面还是3D画面　随画质：画质「低」时平面，中、高时3D　平面：始终平面，不能旋转与远近缩放，适合核显　3D：始终为可旋转、缩放的3D战场。开战时决定：战争中更改，从下一场战争起生效'),
+    }, '随画质：低画质用平面，中、高画质用3D。平面画面适合核显，君主列传新版支持缩放。3D可旋转与缩放。切换从下一场战争起生效。'),
     item(() => `帧率 ${frameCap.label}`, (b) => { frameCap.toggle(); b.textContent = `帧率 ${frameCap.label}`; },
       '60：每秒最多绘制60帧，在120Hz等高刷新率屏幕上更省电、风扇更安静　不限：按屏幕刷新率绘制。动作与计时快慢不受影响'),
     // Shown once a pad has been used here: which face button confirms (the other cancels).
@@ -3022,7 +3032,7 @@ async function expedition(cid) {
 // players upgraded, kept 低 from before, and took the flat map for the new version missing its 3D board).
 // Since 2026-11-13 the 系统 menu's 战场 row (quality.js warView) can hold the war map flat or 3D whatever the 画质 (晚风和远方丶@bilibili).
 let warFlat = false, flatToldThisRun = false;
-const FLAT_WHY = '本场为平面战场（画质「低」），不能旋转与远近缩放。「☰ 系统 → 战场」改为3D后，下一场战争起为3D战场';
+const FLAT_WHY = '本场为平面战场（画质「低」）。「☰ 系统 → 战场」改为3D后，下一场战争起为3D战场';
 const warViewLabel = () => (warFlat ? '平面' : '3D');
 const mapLabel = () => (mapKind() === 'flat' ? '平面' : '3D');
 const qualityText = () => `画质 ${quality.label}`;
@@ -3039,8 +3049,8 @@ function syncQualityRows() {
 function flatInfo() {
   const pinned = warView.value === 'flat', next3d = !nextWarFlat();
   return modal('平面战场', (close) => [
-    h('p', {}, pinned ? '「☰ 系统 → 战场」设为「平面」，战场使用平面画面；平面战场没有旋转（Q/E）与远近缩放。'
-      : '画质为「低」且「☰ 系统 → 战场」为「随画质」时，战场使用平面画面，适合核显与较旧的电脑；平面战场没有旋转（Q/E）与远近缩放。'),
+    h('p', {}, pinned ? '「☰ 系统 → 战场」设为「平面」，战场使用平面画面。' : '画质为「低」且「战场」为「随画质」时使用平面画面。'),
+    war?.field.siege?.revision >= REGIONAL_LAYOUT_REVISION ? h('p', {}, '可拖动地图，用滚轮、双指或「＋ / −」调整远近，也可点「全图」。') : null,
     h('p', { html: next3d ? '<b>下一场战争起</b>为3D战场；本场保持平面，进度不受影响。'
       : '「战场」改为「3D」后，<b>下一场战争起</b>为可旋转、缩放的3D战场，战略地图仍随画质；本场保持平面，进度不受影响。' }),
     h('div', { class: 'foot' },
@@ -3232,6 +3242,7 @@ function equipShop(id, stock, { gold, purse, block, title = '武器屋' }) {
 const TURN_ICON = (dir) => `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" style="display:block${dir > 0 ? ';transform:scaleX(-1)' : ''}"><path d="M5.5 9.5A7.5 7.5 0 1 1 6 16.8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M3 4.5 5.5 10l5.6-1.9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 function warUi(field) {
   const human = field.human;
+  const localOpening = field.siege?.revision >= REGIONAL_LAYOUT_REVISION;
   return {
     log: (x) => { const box = $('.logbox'); if (box) box.prepend(h('p', { html: x })); if (PHONE) toast(x, 2400); },
     warHud(s) {
@@ -3249,6 +3260,7 @@ function warUi(field) {
         warFlat ? h('button', { class: 'btn viewmode', title: '本场是平面战场，点此查看原因与如何换回3D战场', onclick: flatInfo }, '平面战场') : null));
       if (!$('.logbox')) root().append(h('div', { class: 'panel logbox' }), sysButtons());
       $('.wardock')?.remove();
+      $('.warzoom')?.remove();
       const act = s.myTurn && !s.deploying, canSelect = s.myTurn || s.deploying;
       const rosterButton = () => h('button', { class: 'btn war-rosterbtn', disabled: !canSelect, title: '从我军名单选择武将（也可用 [ 和 ] 切换）', onclick: chooseWarOfficer }, '选将');
       root().append(h('div', { class: 'panel wardock' },
@@ -3264,6 +3276,11 @@ function warUi(field) {
         PHONE ? h('button', { class: 'btn icon cyclebtn', disabled: !canSelect, 'aria-label': '上一名武将', onclick: () => keyCycle(-1) }, '‹') : null,
         PHONE ? h('button', { class: 'btn icon cyclebtn', disabled: !canSelect, 'aria-label': '下一名武将', onclick: () => keyCycle(1) }, '›') : null,
         h('button', { class: 'btn primary', disabled: !act, title: '我军全体待机，结束本日（Enter）', 'aria-label': '待机并结束本日', 'data-pad': 'y-hold', onclick: () => endDay() }, h('span', { class: 'day-full' }, '待机·结束本日'), h('span', { class: 'day-short' }, '结束本日'), h('kbd', {}, '⏎'))));
+      if (localOpening) root().append(h('div', { class: 'panel warzoom', role: 'group', 'aria-label': '战场缩放' },
+        h('button', { class: 'btn icon', 'aria-label': '缩小战场', title: '缩小战场（−）', onclick: () => war?.zoom(260) }, '−'),
+        h('button', { class: 'btn icon', 'aria-label': '放大战场', title: '放大战场（＋）', onclick: () => war?.zoom(-260) }, '＋'),
+        h('button', { class: 'btn', 'aria-label': '战场全图', title: '查看全图，按 C 返回默认视角',
+          onclick: () => war?.tactical ? war.tactical(true) : war?.overview() }, '全图')));
     },
     // two of these make a 计略 when the picture is off: each takes half the original's 3.48 s less the wrap-up
     stratBanner: (n) => banner(n, '#c070ff', paced(ORIGINAL.strategyCast)),
@@ -3597,7 +3614,7 @@ function besideUnit(u, acts, label = `${name(u.id)}的命令`, dock = null) {
     const busy = [...(fs?.marks ?? []).map((m) => (m.kind === 'move' || m.kind === 'path' ? { ...tile(war.screenOf(m.x, m.y), 0.7), w: plain } : { ...tile(war.screenOf(m.x, m.y)), w: 1 })),
       ...(fs?.units ?? []).filter((x) => x.visible && x.u !== u).flatMap((x) => stand(war.screenOf(Math.round(x.x), Math.round(x.y))).map((b) => ({ ...b, w: 1 })))];
     const mine = stand(c);
-    const hud = $$('.warbar, .war-zones, .unitpanel, .wardock, .turnpair, .logbox, .sysbtns, .deploybtn, .unitacts').filter((e) => e !== el && e.getClientRects().length).map((e) => { const b = e.getBoundingClientRect(); return { x0: b.left, x1: b.right, y0: b.top, y1: b.bottom }; });
+    const hud = $$('.warbar, .war-zones, .unitpanel, .wardock, .turnpair, .warzoom, .logbox, .sysbtns, .deploybtn, .unitacts').filter((e) => e !== el && e.getClientRects().length).map((e) => { const b = e.getBoundingClientRect(); return { x0: b.left, x1: b.right, y0: b.top, y1: b.bottom }; });
     const top = three ? ($('.warbar')?.getBoundingClientRect().bottom ?? 0) + 6 : FLAT_INSET.top + 6, bottom = three ? innerHeight - 8 : innerHeight - FLAT_INSET.bottom - 6;
     const at = (sd, k) => {
       const x = sd === 'r' ? c.x + c.cw * k : sd === 'l' ? c.x - c.cw * k - r.width : c.x - r.width / 2;

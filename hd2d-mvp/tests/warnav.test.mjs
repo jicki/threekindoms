@@ -34,9 +34,19 @@ test('wheel, lens, minimap, double click and the enemy\'s turn on the 3D war map
   const p = await openWar({ width: 1440, height: 900 });
   try {
     // C01: the cell under the pointer stays under it as the wheel pulls in (within half a cell on screen).
-    await p.evaluate(() => { const w = window.__game.war; w.cancel(); w.zoom(-100); }); await warRest(p); // 远
+    await p.evaluate(() => window.__game.war.overview());
+    await warRest(p);
+    await p.evaluate(() => window.__game.war.zoom(-100));
+    await warRest(p); // 远
     for (const step of ['mid', 'near']) {
-      const before = await p.evaluate(() => { const w = window.__game.war, f = w.field, me = f.side(f.human)[0], c = { x: Math.min(29, me.x + 3), y: Math.max(2, me.y - 2) }; window.__c = c; const s = w.screenOf(c.x, c.y); w.zoom(-100, { x: s.x / innerWidth * 2 - 1, y: 1 - s.y / innerHeight * 2 }); return { x: s.x, y: s.y }; }); // as the wheel calls it, with the pointer's place
+      const before = await p.evaluate(() => {
+        const w = window.__game.war, f = w.field, me = f.side(f.human)[0];
+        const c = { x: me.x + (me.x < f.width / 2 ? 2 : -2), y: me.y + (me.y < f.height / 2 ? 1 : -1) };
+        window.__c = c;
+        const s = w.screenOf(c.x, c.y);
+        w.zoom(-100, { x: s.x / innerWidth * 2 - 1, y: 1 - s.y / innerHeight * 2 });
+        return { x: s.x, y: s.y };
+      });
       await warRest(p);
       const after = await p.evaluate(() => { const w = window.__game.war, s = w.screenOf(window.__c.x, window.__c.y); return { x: s.x, y: s.y, half: Math.max(s.cw, s.ch) / 2, zoom: w.viewState().zoom }; });
       assert.equal(after.zoom, step);
@@ -45,7 +55,7 @@ test('wheel, lens, minimap, double click and the enemy\'s turn on the 3D war map
     // C02: at 中 and 近 every cell of a selected general's reach is sharp; put away, the tilt-shift is back.
     for (const step of ['near', 'mid']) {
       if (step === 'mid') { await p.evaluate(() => window.__game.war.zoom(100)); await warRest(p); }
-      const blur = async () => { await warRest(p); await p.waitForTimeout(700); return p.evaluate(() => { const w = window.__game.war, top = w.probe().top; return Math.max(...window.__reach.map(([x, y]) => w.blurAt(x - 16 + 0.5, top(x, y), y - 9.5 + 0.5))); }); };
+      const blur = async () => { await warRest(p); await p.waitForTimeout(700); return p.evaluate(() => { const w = window.__game.war, f = w.field, top = w.probe().top; return Math.max(...window.__reach.map(([x, y]) => w.blurAt(x - (f.width - 1) / 2, top(x, y), y - (f.height - 1) / 2))); }); };
       await p.evaluate(() => { const w = window.__game.war, f = w.field, me = f.side(f.human)[0]; w.hoverCell(null); f.pool[f.human] = 20; w.clickCell(me.x, me.y); window.__reach = [...w.st.reach.dist.keys()].map((k) => k.split(',').map(Number)); });
       const sharp = await blur();
       assert.ok(sharp <= 0.05, `${step}: the blurriest cell of his reach weighs ${sharp.toFixed(3)}`);
@@ -54,22 +64,23 @@ test('wheel, lens, minimap, double click and the enemy\'s turn on the 3D war map
       assert.ok(soft > 0.3, `${step}: with no one picked the same cells blur again (${soft.toFixed(3)})`);
     }
     // C03: the minimap's dots are the generals on the field; a press on it brings that cell to the middle; its frame follows the camera.
-    const nav = await p.evaluate(() => { const w = window.__game.war, n = window.__game.warNav.probe(); return { ...n, alive: w.field.units.filter((u) => !u.gone).map((u) => ({ id: u.id, x: u.x, y: u.y })) }; });
+    const nav = await p.evaluate(() => { const f = window.__game.war.field, n = window.__game.warNav.probe(); return { ...n, width: f.width, height: f.height, alive: f.alive.map(({ id, x, y }) => ({ id, x, y })) }; });
     assert.equal(nav.open, true);
     assert.deepEqual(nav.dots.map(({ id, x, y }) => ({ id, x, y })), nav.alive);
-    const q0 = nav.quad, cell = { x: 14, y: 9 };
-    await p.mouse.click(nav.rect.x + (cell.x + 0.5) / 32 * nav.rect.w, nav.rect.y + (cell.y + 0.5) / 19 * nav.rect.h);
+    const q0 = nav.quad, cell = { x: Math.floor(nav.width / 2) - 2, y: Math.floor(nav.height / 2) };
+    await p.mouse.click(nav.rect.x + (cell.x + 0.5) / nav.width * nav.rect.w, nav.rect.y + (cell.y + 0.5) / nav.height * nav.rect.h);
     await warRest(p);
     const v1 = await view(p);
-    assert.ok(Math.abs(v1.target[0] - (cell.x - 15.5)) < 0.6 && Math.abs(v1.target[2] - (cell.y - 9 + 1)) < 0.6, `the view's middle is on the pressed cell: ${JSON.stringify(v1.target)}`);
+    assert.ok(Math.abs(v1.target[0] - (cell.x - (nav.width - 1) / 2)) < 0.6
+      && Math.abs(v1.target[2] - (cell.y - (nav.height - 1) / 2 + 1)) < 0.6, `the view's middle is on the pressed cell: ${JSON.stringify(v1.target)}`);
     assert.notDeepEqual((await p.evaluate(() => window.__game.warNav.probe())).quad, q0, 'the frame on the minimap moved with it');
     // A double click on a general's card centres him and keeps the step (not on the map: see src/app.js).
-    const dbl = await p.evaluate(() => { const w = window.__game.war, f = w.field, me = f.side(f.human)[0]; w.clickCell(me.x, me.y); w.centreOn(me.x > 16 ? me.x - 6 : me.x + 6, me.y); return { x: me.x, y: me.y }; });
+    const dbl = await p.evaluate(() => { const w = window.__game.war, f = w.field, me = f.side(f.human)[0]; w.clickCell(me.x, me.y); w.centreOn(me.x > f.width / 2 ? me.x - 6 : me.x + 6, me.y); return { x: me.x, y: me.y }; });
     await warRest(p); const z0 = (await view(p)).zoom;
     await p.locator('.unitpanel:not(.compare) img').first().dblclick(); await warRest(p);
     const v2 = await view(p);
     assert.equal(v2.zoom, z0, 'the step is kept');
-    assert.ok(Math.abs(v2.target[0] - (dbl.x - 15.5)) < 0.6, `a double click on his card brought him to the middle: ${JSON.stringify(v2.target)} for ${JSON.stringify(dbl)}`);
+    assert.ok(Math.abs(v2.target[0] - (dbl.x - (nav.width - 1) / 2)) < 0.6, `a double click on his card brought him to the middle: ${JSON.stringify(v2.target)} for ${JSON.stringify(dbl)}`);
     await p.evaluate(() => window.__game.war.cancel());
     // C04: on the enemy's turn what he does inside the picture leaves the camera still; outside it, the camera slides to it at
     // the step it has; and once the player has moved the camera that turn, it stays his.
@@ -83,7 +94,7 @@ test('wheel, lens, minimap, double click and the enemy\'s turn on the 3D war map
       await p.evaluate(() => { const w = window.__game.war, me = w.field.side(w.field.human)[0]; w.centreOn(me.x, me.y); }); await warRest(p);
       const inside = await cast();
       assert.ok(inside.moved < 0.01, `a 计略 on a general in the picture moved the camera by ${inside.moved.toFixed(2)}`);
-      await p.evaluate(() => { const w = window.__game.war, me = w.field.side(w.field.human)[0]; w.centreOn(me.x > 16 ? me.x - 14 : me.x + 14, me.y); }); await warRest(p);
+      await p.evaluate(() => { const w = window.__game.war, f = w.field, me = f.side(f.human)[0]; w.centreOn(me.x > f.width / 2 ? me.x - 14 : me.x + 14, me.y); }); await warRest(p);
       // the pan above was the player's, on his own turn: the enemy's next turn starts with the camera free to follow
       const outside = await cast(); await warRest(p);
       assert.ok(outside.moved > 1, `one outside the picture brings the camera over (it moved ${outside.moved.toFixed(2)})`);
@@ -91,7 +102,7 @@ test('wheel, lens, minimap, double click and the enemy\'s turn on the 3D war map
       assert.equal(await p.evaluate(() => { const w = window.__game.war, me = w.field.side(w.field.human)[0], s = w.screenOf(me.x, me.y); return s.x > 0 && s.x < innerWidth && s.y > 0 && s.y < innerHeight; }), true, 'and he is in the picture');
       const hands = await p.evaluate(async () => {
         const w = window.__game.war, f = w.field, foe = f.units.find((u) => !u.gone && u.side !== f.human), me = f.side(f.human)[0], turn = f.turn; f.turn = foe.side;
-        try { w.centreOn(me.x > 16 ? me.x - 14 : me.x + 14, me.y); const t0 = w.probe().view.target; const run = w.playStrategy(foe, me, 2, { ok: true, hit: true, name: '虚兵', lines: ['测试'], hits: [] }); const t1 = w.probe().view.target; await run; return Math.hypot(t1[0] - t0[0], t1[2] - t0[2]); } finally { f.turn = turn; }
+        try { w.centreOn(me.x > f.width / 2 ? me.x - 14 : me.x + 14, me.y); const t0 = w.probe().view.target; const run = w.playStrategy(foe, me, 2, { ok: true, hit: true, name: '虚兵', lines: ['测试'], hits: [] }); const t1 = w.probe().view.target; await run; return Math.hypot(t1[0] - t0[0], t1[2] - t0[2]); } finally { f.turn = turn; }
       });
       assert.ok(hands < 0.01, `after the player moved the camera on the enemy's turn it is left alone (moved ${hands.toFixed(2)})`);
     } finally { stop(); }
@@ -105,7 +116,7 @@ for (const [w, h] of [[1440, 900], [1024, 600], [1920, 1080]]) test(`the minimap
   try {
     const read = () => p.evaluate(() => {
       const r = (e) => { const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom }; }, mini = r(document.querySelector('.warmini'));
-      const hit = [...document.querySelectorAll('.warbar, .logbox, .unitpanel, .wardock, .turnpair, .actpanel, .sysbtns, .sysmenu-btn, .deploybtn')].filter((e) => e.offsetParent && e.getBoundingClientRect().width).map((e) => [e.className, r(e)])
+      const hit = [...document.querySelectorAll('.warbar, .logbox, .unitpanel, .wardock, .turnpair, .warzoom, .actpanel, .sysbtns, .sysmenu-btn, .deploybtn')].filter((e) => e.offsetParent && e.getBoundingClientRect().width).map((e) => [e.className, r(e)])
         .filter(([, b]) => b.l < mini.r && b.r > mini.l && b.t < mini.b && b.b > mini.t).map(([c]) => c);
       return { open: window.__game.warNav.open, mini, hit, vw: innerWidth, vh: innerHeight };
     });

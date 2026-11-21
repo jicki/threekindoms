@@ -5,8 +5,10 @@ export const FIRST_REGIONAL_BATTLE_REVISION = 13;
 export const FIRST_REGIONAL_LAYOUT_REVISION = 6;
 export const EXPANDED_WARDS_BATTLE_REVISION = 14;
 export const EXPANDED_WARDS_LAYOUT_REVISION = 7;
-export const REGIONAL_BATTLE_REVISION = 15;
-export const REGIONAL_LAYOUT_REVISION = 8;
+export const ALIGNED_APPROACH_BATTLE_REVISION = 15;
+export const ALIGNED_APPROACH_LAYOUT_REVISION = 8;
+export const REGIONAL_BATTLE_REVISION = 16;
+export const REGIONAL_LAYOUT_REVISION = 9;
 
 const FOREST = 0, SAND = 1, PLAIN = 2, RIVER = 3, MOUNT = 4, CASTLE = 5;
 const SIDES = { n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0] };
@@ -18,6 +20,7 @@ const PASS_SHAPE = { 33: [4, 9, 5], 34: [3, 8, 6], 35: [3, 6, 7], 36: [2, 6, 7],
 const MAJOR_WARDS = new Set([1, 4, 10, 11, 14, 15, 16, 18, 20, 21, 23, 25, 26, 30, 31, 32]);
 const INNER_WARDS = new Set([1, 4, 10, 11, 14, 15, 18, 20, 21, 25, 26, 30, 31, 32]);
 const CELL_KEY = ([x, y]) => x + ',' + y;
+const CORNERS = [[-1, -1, '西北'], [1, -1, '东北'], [1, 1, '东南'], [-1, 1, '西南']];
 const dist = ([x, y], [a, b]) => Math.abs(x - a) + Math.abs(y - b);
 const add = ([x, y], [a, b], n = 1) => [x + a * n, y + b * n];
 const point = ({ x, y }) => [x, y];
@@ -73,13 +76,15 @@ function roadSearch(map, barriers, roads, excluded, start, area = null) {
 
 export function regionalBattlefield(id, requestedSide, villages, seaEntry = false, revision = REGIONAL_LAYOUT_REVISION) {
   const expanded = revision >= EXPANDED_WARDS_LAYOUT_REVISION;
-  const alignedWestBridge = id === 2 && revision >= REGIONAL_LAYOUT_REVISION;
+  const outerCamps = revision >= REGIONAL_LAYOUT_REVISION;
+  const alignedWestBridge = id === 2 && revision >= ALIGNED_APPROACH_LAYOUT_REVISION;
   const [label, type, axis, geography] = BATTLE_REGIONS[id];
   const [w, h] = CITY_SIZE[type] ?? [44, 30], side = requestedSide ?? axis;
   const [nx, ny] = SIDES[axis], normal = [nx, ny], tangent = [-ny, nx];
   const river = ['river', 'capital', 'field'].includes(type), coast = type === 'coast' || type === 'island';
   const cx = Math.floor(w / 2) + (type === 'island' ? 9 : type === 'field' ? 10 : type === 'pass' ? 0 : id % 5 - 2);
-  const cy = Math.floor(h / 2) + (type === 'field' ? -6 : id % 3 - 1) - (expanded && (river || coast) ? 2 * ny : 0);
+  const cy = Math.floor(h / 2) + (type === 'field' ? (outerCamps ? -1 : -6) : id % 3 - 1)
+    - (expanded && (river || coast) ? 2 * ny : 0);
   const center = [cx, cy];
   const world = (u, v) => add(add(center, normal, u), tangent, v);
   const inBounds = ([x, y]) => x >= 1 && x < w - 1 && y >= 1 && y < h - 1;
@@ -87,8 +92,10 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
   const cityPlan = fortressPlan(id), major = MAJOR_WARDS.has(id);
   const [legacyX, legacyY] = type === 'capital' ? (id === 12 ? [8, 6] : [7, 7])
     : [Math.min(6, cityPlan.outer[0] + 1), Math.min(5, cityPlan.outer[1])];
-  const rx = legacyX + (expanded ? type === 'capital' || major ? 3 : 2 : 0);
-  const ry = legacyY + (expanded ? 2 : 0);
+  // 街区沿平行于水岸的一轴扩大，保留临水城门与岸边的空间。
+  const addWard = outerCamps && type !== 'capital' && type !== 'pass' ? (major || type === 'island' ? 1 : 2) : 0;
+  const rx = legacyX + (expanded ? type === 'capital' || major ? 3 : 2 : 0) + (ny ? addWard : 0);
+  const ry = legacyY + (expanded ? 2 : 0) + (nx ? addWard : 0);
   const wallRadius = nx ? rx : ry, edge = nx ? (nx > 0 ? w - 1 - cx : cx) : (ny > 0 ? h - 1 - cy : cy);
   const bank = expanded ? Math.max(12, wallRadius + 5) : 10;
   const band = v => {
@@ -264,7 +271,18 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
     }
     if (type === 'field') {
       camp = { x: cx - (expanded ? rx + 3 : 10), y: cy + 5, kind: 'camp', label: '守军前阵' };
-      if (expanded) {
+      if (outerCamps) {
+        const preferred = [cx - rx - 6, Math.min(h - 5, cy + ry + 2)];
+        const dry = q => inBounds(q) && !hard(q) && !districts.has(CELL_KEY(q)) && !roads.has(CELL_KEY(q))
+          && map[q[1]][q[0]] !== MOUNT;
+        const clearArea = p => [-1, 0, 1].every(dx => [-1, 0, 1].every(dy => dry(add(p, [dx, dy]))))
+          && DIRS.every(dir => dry(add(p, dir, 2)));
+        const candidates = map.flatMap((row, y) => row.flatMap((_, x) =>
+          Math.max(Math.abs(x - cx) - rx, Math.abs(y - cy) - ry) >= 4 && clearArea([x, y]) ? [[x, y]] : []));
+        [camp.x, camp.y] = candidates.sort((a, b) => dist(a, preferred) - dist(b, preferred))[0];
+        camp.clearing = 1;
+        for (let y = camp.y - 1; y <= camp.y + 1; y++) for (let x = camp.x - 1; x <= camp.x + 1; x++) map[y][x] = PLAIN;
+      } else if (expanded) {
         // 营帐与临河的渡路留出间隔，营地周边的林木留在外围。
         const dry = [0, 1, 2, -1, -2].map(offset => [camp.x + offset, camp.y]).find(p => !hard(p));
         if (dry) camp.x = dry[0];
@@ -337,6 +355,9 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
   const [ax, ay] = SIDES[approachSide];
   const exteriorGate = outerGates.find(g => g.face === approachSide);
   const toward = (p) => (p[0] - cx) * ax + (p[1] - cy) * ay;
+  const blockedRoutes = new Set([...districts, ...outline]);
+  const outsideGap = ([x, y]) => Math.max(Math.abs(x - cx) - rx, Math.abs(y - cy) - ry);
+  const nearSite = (p, radius) => sites.some(s => s.kind !== 'house' && dist(p, point(s)) <= radius);
 
   const naval = type === 'island' || (type === 'coast' && seaEntry);
   if (coast || id === 30 || id === 31) {
@@ -379,6 +400,39 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
       ax ? [2, 3] : [3, 2], staging));
     const base = bases.find(z => z.cells.length >= 17);
     deploy = base ? [base] : bases.sort((a, b) => b.cells.length - a.cells.length).slice(0, 1);
+    if (outerCamps && type !== 'pass') {
+      const access = roadSearch(map, barriers, roads, blockedRoutes, deploy[0].anchor);
+      const selected = new Set();
+      const ordered = [...CORNERS].sort((a, b) => (b[0] - a[0]) * ax + (b[1] - a[1]) * ay
+        || dist([cx + a[0] * rx, cy + a[1] * ry], start) - dist([cx + b[0] * rx, cy + b[1] * ry], start));
+      const corners = [];
+      for (const [dx, dy, name] of ordered) {
+        // 角区取可通行岸地，布阵格之间留出缓冲，也避开城门、渡点和前营。
+        const allowed = p => outside(p) && Number.isFinite(access.cost(p)) && outsideGap(p) >= 5
+          && (p[0] - cx) * dx > 1 && (p[1] - cy) * dy > 1 && !selected.has(CELL_KEY(p))
+          && !roads.has(CELL_KEY(p)) && !nearSite(p, 3)
+          && (map[p[1]][p[0]] === PLAIN || map[p[1]][p[0]] === SAND || map[p[1]][p[0]] === FOREST);
+        const target = [clamp(cx + dx * (rx + 6), 3, w - 4), clamp(cy + dy * (ry + 6), 3, h - 4)];
+        if (bridgeApproach && dx < 0) target[1] = clamp(start[1] + dy * 3, 3, h - 4);
+        const seeds = map.flatMap((row, y) => row.flatMap((_, x) => allowed([x, y]) ? [[x, y]] : []))
+          .sort((a, b) => dist(a, target) - dist(b, target));
+        for (const seed of seeds) {
+          const area = zone(name + '集结地', seed, [2, 2], allowed);
+          if (area.cells.length < 9) continue;
+          const pending = new Set(area.cells.map(CELL_KEY)), connected = [seed];
+          pending.delete(CELL_KEY(seed));
+          for (const p of connected) for (const dir of DIRS) {
+            const q = add(p, dir);
+            if (pending.delete(CELL_KEY(q))) connected.push(q);
+          }
+          if (connected.length < 9) continue;
+          connected.forEach(p => selected.add(CELL_KEY(p)));
+          corners.push({ ...area, cells: connected, rect: rectOf(connected), corner: name });
+          break;
+        }
+      }
+      if (corners.length >= 2) deploy = corners;
+    }
   }
 
   const starts = deploy.flatMap(z => z.cells);
@@ -418,7 +472,6 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
   const attacker = [];
   for (let i = 0; attacker.length < 17; i++) for (const z of deploy) if (z.cells[i] && attacker.length < 17) attacker.push(z.cells[i]);
 
-  const blockedRoutes = new Set([...districts, ...outline]);
   const routes = [], routeGateKeys = new Set();
   for (const z of deploy) {
     const search = roadSearch(map, barriers, roads, blockedRoutes, z.anchor);
@@ -448,11 +501,18 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
 
   // 两路都保留实际可达的连接。前哨的收益仍是原有两点，场面增大不额外给资源。
   const primary = routes[0].cells, midway = primary[Math.floor(primary.length * 0.52)];
-  const freePost = p => outside(p) && map[p[1]][p[0]] !== RIVER && !used.has(CELL_KEY(p));
-  const post = DIRS.map(d => add(midway, d)).find(p => freePost(p) && !roads.has(CELL_KEY(p)))
-    ?? primary.find(freePost) ?? deploy[0].anchor;
+  const freePost = p => outside(p) && map[p[1]][p[0]] !== RIVER && !used.has(CELL_KEY(p))
+    && (!outerCamps || (map[p[1]][p[0]] !== MOUNT && !nearSite(p, 3)
+      && (type === 'pass' || outsideGap(p) >= 3)));
+  const beside = path => path.flatMap(p => DIRS.map(d => add(p, d))).find(p => freePost(p) && !roads.has(CELL_KEY(p)));
+  const post = outerCamps
+    ? beside([...primary].sort((a, b) => dist(a, midway) - dist(b, midway))) ?? beside(routes.slice(1).flatMap(r => r.cells))
+      ?? routes.flatMap(r => r.cells).find(freePost)
+    : beside([midway]) ?? primary.find(freePost) ?? deploy[0].anchor;
+  if (!post) throw new Error('前哨周围无可用地格 ' + id + '/' + side);
   const [px, py] = post;
   used.add(CELL_KEY(post));
+  if (outerCamps && map[py][px] === FOREST) map[py][px] = PLAIN;
 
   for (const gate of gates) {
     const [dx, dy] = SIDES[gate.face];
@@ -473,6 +533,8 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
     米店: sample(primary, 0.26), 武器店: sample(gateRoute, 0.85), 病院: sample(sideRoute, 0.48),
   };
   const shopTiles = [];
+  const sectorOf = ([x, y]) => CORNERS.findIndex(([dx, dy]) => (x < cx ? -1 : 1) === dx && (y < cy ? -1 : 1) === dy);
+  const shopSectors = new Set();
   if (expanded && villages.length) {
     const routesCells = routes.flatMap(r => r.cells);
     const access = roadSearch(map, barriers, roads, blockedRoutes, deploy[0].anchor);
@@ -480,7 +542,7 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
     for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
       const p = [x,y], k = CELL_KEY(p), tile = map[y][x];
       if (!outside(p) || used.has(k) || roads.has(k) || tile === RIVER || tile === MOUNT || !Number.isFinite(access.cost(p))) continue;
-      if (landmarks.some(site => dist(p,site) < 2) || DIRS.some(dir => outline.has(CELL_KEY(add(p,dir))))) continue;
+      if (landmarks.some(site => dist(p,site) < (outerCamps ? 4 : 2)) || DIRS.some(dir => outline.has(CELL_KEY(add(p,dir))))) continue;
       const roadside = Math.min(...routesCells.map(cell => dist(cell,p)));
       shopTiles.push({ p, roadside });
     }
@@ -491,7 +553,15 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
       const seed = shopAnchors[v.kind] ?? sample(primary, 0.5);
       const score = ({ p, roadside }) => dist(p, seed) + roadside * 2.2;
       const choices = shopTiles.filter(({ p }) => placedShops.every(other => dist(p,other) >= 4));
-      p = choices.sort((a, b) => score(a) - score(b))[0]?.p;
+      if (outerCamps) {
+        const rank = e => {
+          const sector = sectorOf(e.p), [dx, dy] = CORNERS[sector];
+          const corner = [clamp(cx + dx * (rx + 4), 2, w - 3), clamp(cy + dy * (ry + 4), 2, h - 3)];
+          return (shopSectors.has(sector) ? 1000 : 0) + dist(e.p, corner) * 2 + e.roadside * 2
+            + dist(e.p, seed) * (i === 0 ? 0.75 : 0.35);
+        };
+        p = choices.sort((a, b) => rank(a) - rank(b))[0]?.p;
+      } else p = choices.sort((a, b) => score(a) - score(b))[0]?.p;
     } else {
       const seed = add(deploy[0].anchor, tangent, i % 2 ? -5 : 5);
       p = (i === 0 ? [...primary].reverse() : primary).flatMap(p => DIRS.map(dir => add(p, dir)))
@@ -499,6 +569,7 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
         .sort((a, b) => dist(a, seed) - dist(b, seed))[0];
     }
     if (!p) return null;
+    if (outerCamps) shopSectors.add(sectorOf(p));
     placedShops.push(p);
     used.add(CELL_KEY(p)); map[p[1]][p[0]] = PLAIN;
     return { ...v, x: p[0], y: p[1] };

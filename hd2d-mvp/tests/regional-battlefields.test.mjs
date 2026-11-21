@@ -9,6 +9,7 @@ import { SOVEREIGN_SCENARIO_ID } from '../src/core/visuals.js';
 import { EXPANDED_MAP_ID, expandMap } from '../src/core/expanded-map.js';
 import {
   FIRST_REGIONAL_BATTLE_REVISION, FIRST_REGIONAL_LAYOUT_REVISION, EXPANDED_WARDS_BATTLE_REVISION, EXPANDED_WARDS_LAYOUT_REVISION,
+  ALIGNED_APPROACH_BATTLE_REVISION, ALIGNED_APPROACH_LAYOUT_REVISION,
   REGIONAL_BATTLE_REVISION, REGIONAL_LAYOUT_REVISION,
 } from '../src/core/regional-battlefields.js';
 import { skirmishMap } from '../src/core/skirmish-maps.js';
@@ -39,7 +40,7 @@ test('水色连续过渡，外海呈深蓝，内陆河道呈灰绿', () => {
 
 test('39 处地图、146 条来路的布阵和官道均遵守实际通行，设施和关轴不会随来路旋转', () => {
   const g = fresh(), layouts = new Set();
-  let entries = 0, beaches = 0;
+  let entries = 0, beaches = 0, layoutsWithCorners = 0;
   assert.equal(g.campaignRevision, REGIONAL_BATTLE_REVISION);
   for (const city of D.cities) {
     let layout;
@@ -58,7 +59,20 @@ test('39 处地图、146 条来路的布阵和官道均遵守实际通行，设�
         assert.ok(f.side(side).every(u => keys.has(keyOf(u))), title);
       }
       const z = f.deploymentZones('att'), u = f.side('att')[0];
-      if (z.length > 1) {
+      assert.ok(!z.some(zone => zone.cells.some(p => key(...p) === keyOf(approaches.post))), title);
+      assert.ok([PLAIN, SAND].includes(f.terr(approaches.post.x, approaches.post.y)), title);
+      if (z[0].corner) {
+        layoutsWithCorners++;
+        assert.equal(z.length, 4, title);
+        assert.equal(new Set(z.map(zone => zone.corner)).size, 4, title);
+        const outer = siege.gates.filter(g => g.ring === siege.outer);
+        const extents = [Math.min(...siege.walls.map(w => w.x)), Math.max(...siege.walls.map(w => w.x)),
+          Math.min(...siege.walls.map(w => w.y)), Math.max(...siege.walls.map(w => w.y))];
+        assert.ok(z.every(zone => zone.cells.length >= 9 && zone.cells.every(([x,y]) =>
+          Math.max(extents[0] - x, x - extents[1], extents[2] - y, y - extents[3]) >= 5
+          && outer.every(g => step([x,y],[g.x,g.y]) >= 5))), title);
+        assert.equal(f.side('att').slice(0, 4).filter((o, i) => z[i].cells.some(p => key(...p) === keyOf(o))).length, 4, title);
+      } else if (z.length > 1) {
         beaches++;
         assert.equal(z.length, 2, title);
         assert.ok(step(z[0].anchor, z[1].anchor) >= 14, title);
@@ -83,12 +97,16 @@ test('39 处地图、146 条来路的布阵和官道均遵守实际通行，设�
       assert.ok(reach.dist.has(key(...f.castle())), title);
       const shops = f.reach(u, Infinity, (x,y) => !siege.districts.has(key(x,y)));
       assert.deepEqual(f.villages.map(v => v.kind), (D.villages[city.id] ?? []).map(v => v.kind), title);
+      const center = { x: (Math.min(...siege.walls.map(w => w.x)) + Math.max(...siege.walls.map(w => w.x))) / 2,
+        y: (Math.min(...siege.walls.map(w => w.y)) + Math.max(...siege.walls.map(w => w.y))) / 2 };
+      if (z[0].corner) assert.equal(new Set(f.villages.map(v => `${v.x < center.x},${v.y < center.y}`)).size, f.villages.length, title);
       for (const shop of f.villages) {
         assert.ok(shops.dist.has(keyOf(shop)), `${title} ${shop.kind}城外可达`);
         assert.equal(f.terr(shop.x,shop.y), PLAIN, title);
         assert.ok(!approaches.roads.has(keyOf(shop)), title);
         assert.ok(!z.some(zone => zone.cells.some(p => key(...p) === keyOf(shop))), title);
         assert.ok(f.villages.every(other => shop === other || step([shop.x,shop.y],[other.x,other.y]) >= 4), title);
+        assert.ok(step([shop.x,shop.y],[approaches.post.x,approaches.post.y]) >= 4, title);
       }
       const outerGates = siege.gates.filter(gate => gate.ring === siege.outer);
       for (const gate of outerGates) {
@@ -111,6 +129,7 @@ test('39 处地图、146 条来路的布阵和官道均遵守实际通行，设�
   assert.equal(layouts.size, 39);
   assert.equal(entries, 146);
   assert.equal(beaches, 2, '建安和夷洲的双向海路均可分两处登陆');
+  assert.equal(layoutsWithCorners, 134, '有四角旱地的陆路城战均可分角布阵');
 });
 
 test('兖州在城外三个新址可行军到达并使用米店、武器店和医馆', () => {
@@ -203,6 +222,8 @@ test('宛城前阵阻挡破门，电脑先攻前阵，中断继续后保留解�
   assert.deepEqual([commander.x, commander.y], f.castle());
   assert.deepEqual([soldier.x, soldier.y], [camp.x, camp.y]);
   assert.notDeepEqual([camp.x, camp.y], f.castle());
+  assert.ok([-1,0,1].every(dx => [-1,0,1].every(dy => f.terr(camp.x + dx,camp.y + dy) === PLAIN)));
+  assert.ok(f.siege.walls.every(wall => step([wall.x,wall.y],[camp.x,camp.y]) >= 4));
   assert.equal(f.cost(a, gate.x, gate.y), Infinity);
   assert.ok(Number.isFinite(f.cost(soldier, gate.x, gate.y)));
   assert.equal(f.over, null);
@@ -293,7 +314,7 @@ test('战役升级后，修订 6 的宛城可按原前阵和站位续玩', () =>
 test('西安阳和长安攻并州时，西岸可布阵并沿同一条引道过桥直达西门', () => {
   const g = fresh();
   for (const from of [5,8]) {
-    const w = war(2,from,1), f = new Field(g,w,'att'), [u] = f.side('att');
+    const w = war(2,from,1), f = new Field({ ...g, campaignRevision: ALIGNED_APPROACH_BATTLE_REVISION },w,'att'), [u] = f.side('att');
     Object.assign(f.O(u.id), { soldiers:700, army:'平' });
     f.weather = 'clear';
     const gate = f.siege.gates.find(g => g.face === 'w' && g.ring === f.siege.outer);
@@ -306,6 +327,15 @@ test('西安阳和长安攻并州时，西岸可布阵并沿同一条引道过�
     const firstWater = path.find(([x,y]) => f.terr(x,y) === RIVER);
     assert.ok(firstWater);
     assert.ok(f.deploymentZones('att')[0].cells.every(([x,y]) => x < firstWater[0] && f.terr(x,y) !== RIVER));
+    const next = new Field(g,w,'att'), first = next.side('att')[0];
+    next.weather = 'clear';
+    assert.equal(next.siege.revision, REGIONAL_LAYOUT_REVISION);
+    assert.ok(next.deploymentZones('att')[0].cells.every(([x,y]) => x < firstWater[0] && next.terr(x,y) !== RIVER));
+    assert.ok(next.reach(first,Infinity).dist.get(keyOf(gate)) < 24, '新角区靠木桥同一侧，保留西门近路');
+    const nextRestored = Field.restore(g,w,f.snapshot());
+    assert.equal(nextRestored.siege.revision,ALIGNED_APPROACH_LAYOUT_REVISION);
+    assert.deepEqual(nextRestored.approaches,f.approaches);
+    assert.deepEqual(nextRestored.units,f.units);
     const old = new Field({ ...g, campaignRevision:EXPANDED_WARDS_BATTLE_REVISION },w,'att');
     assert.equal(old.siege.revision,EXPANDED_WARDS_LAYOUT_REVISION);
     assert.ok(old.reach(old.side('att')[0],Infinity).dist.get(keyOf(gate)) > reach.dist.get(keyOf(gate)));

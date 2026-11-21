@@ -45,10 +45,12 @@ test('出阵地图与洛阳实战外门一致，援军信息随侦察开放，�
     await selectLuoyang();
     const panel = page.getByRole('region', { name: '出阵预览' });
     assert.match(await panel.innerText(), /洛阳.*外门.*内门/s);
+    assert.match(await panel.innerText(), /城外四角布阵/);
     assert.match(await panel.innerText(), /尚未侦察目标/);
     assert.doesNotMatch(await panel.innerText(), /守军 \d|冀州|援军 \d/);
     await panel.getByRole('button', { name: '查看战场布阵' }).tap();
     assert.match(await panel.innerText(), /土黄色主道.*浅灰色侧道.*前哨/s);
+    for (const corner of ['西北', '东北', '东南', '西南']) assert.ok((await panel.innerText()).includes(corner + '集结地'));
     const canvas = panel.getByRole('img');
     const scheme = await canvas.evaluate(async el => {
       const { g, G } = window.__game;

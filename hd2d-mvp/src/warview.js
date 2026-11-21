@@ -39,7 +39,8 @@ export function createWarView(ctx, field) {
     if (foe && !foe.gone) v.heading.set(foe.x - u.x, 0, foe.y - u.y).normalize();
   }
   for (const [u, v] of wv.views) faceEnemy(v, u);
-  wv.view.yaw = wv.view.yawGoal = wv.view.yawFrom = Number.isFinite(ctx.yaw) ? ctx.yaw : wv.pickYaw(); wv.placeCamera(); wv.hud(); // ctx.yaw: a resumed war faces as it was left
+  wv.view.yaw = wv.view.yawGoal = wv.view.yawFrom = Number.isFinite(ctx.yaw) ? ctx.yaw : wv.pickYaw(); // ctx.yaw: a resumed war faces as it was left
+  wv.focusOpening(); wv.placeCamera(); wv.hud();
   setTimeout(wv.loop, 400);
 
   let time = 0;
