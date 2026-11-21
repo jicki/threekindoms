@@ -7,6 +7,7 @@ import { loadScenario } from '../src/core/scenario-store.js';
 import { EXPANDED_MAP_ID, expandMap } from '../src/core/expanded-map.js';
 import { SOVEREIGN_SCENARIO_ID } from '../src/core/visuals.js';
 import { CASTLE, Field, FOREST, PLAIN, RIVER } from '../src/core/field.js';
+import { REGIONAL_BATTLE_REVISION } from '../src/core/regional-battlefields.js';
 import { legacyRoster } from './legacy-roster.mjs';
 
 const base = JSON.parse(readFileSync(new URL('../data/game-data.json', import.meta.url)));
@@ -117,7 +118,7 @@ test('修订 2 的既有记录和中断按原天气恢复，升级后才生效',
   assert.equal(prior.hitChance(prior.side('att')[0], prior.side('def')[0], 1), f.hitChance(u, target, 1));
   const g = structuredClone(before);
   assert.ok(G.upgradeCampaign(g));
-  assert.equal(g.campaignRevision, 13);
+  assert.equal(g.campaignRevision, REGIONAL_BATTLE_REVISION);
   assert.deepEqual(legacyRoster(structuredClone(g), 2), before);
   assert.equal(impact(5, 'rain', { revision: 2 }), impact(5, 'clear', { revision: 2 }));
 });

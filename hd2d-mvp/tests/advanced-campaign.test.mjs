@@ -8,6 +8,7 @@ import { EXPANDED_MAP_ID, expandMap } from '../src/core/expanded-map.js';
 import { SOVEREIGN_SCENARIO_ID } from '../src/core/visuals.js';
 import { Field, FOREST, PLAIN } from '../src/core/field.js';
 import { gateNormal } from '../src/core/siege.js';
+import { REGIONAL_LAYOUT_REVISION } from '../src/core/regional-battlefields.js';
 import { Tactical } from '../src/core/tactical.js';
 import { Duel } from '../src/core/skirmish.js';
 import { battleWeather, officerPassive } from '../src/core/battle-rules.js';
@@ -350,7 +351,7 @@ test('扩展地图的 39 处据点和所有相邻入口均有场景、独立站�
     const f = new Field(g, war([40], [42], city.id, from), 'att');
     assert.ok(f.sceneProfile?.label);
     assert.ok(['n','s','w','e'].includes(f.entryDirection), label);
-    assert.equal(f.siege.revision, 6);
+    assert.equal(f.siege.revision, REGIONAL_LAYOUT_REVISION);
     assert.ok(f.height >= 30 && f.map.every(row => row.length === f.width && row.length >= 44));
     assert.equal(f.siege.gates.filter(gate => gate.ring === f.siege.outer).length, city.kind === 'pass' ? 2 : 4);
     const attacker = f.side('att')[0], defender = f.side('def')[0];

@@ -2,12 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as G from '../src/core/game.js';
-import { Field, PLAIN, RIVER } from '../src/core/field.js';
+import { Field, PLAIN, RIVER, SAND } from '../src/core/field.js';
 import { applyScenario } from '../src/core/scenario.js';
 import { loadScenario } from '../src/core/scenario-store.js';
 import { SOVEREIGN_SCENARIO_ID } from '../src/core/visuals.js';
 import { EXPANDED_MAP_ID, expandMap } from '../src/core/expanded-map.js';
-import { REGIONAL_BATTLE_REVISION } from '../src/core/regional-battlefields.js';
+import {
+  FIRST_REGIONAL_BATTLE_REVISION, FIRST_REGIONAL_LAYOUT_REVISION, EXPANDED_WARDS_BATTLE_REVISION, EXPANDED_WARDS_LAYOUT_REVISION,
+  REGIONAL_BATTLE_REVISION, REGIONAL_LAYOUT_REVISION,
+} from '../src/core/regional-battlefields.js';
 import { skirmishMap } from '../src/core/skirmish-maps.js';
 import { waterColor, waterDepth } from '../src/war/surface.js';
 import { blockedTerrain, gateNormal, siegeRing } from '../src/core/siege.js';
@@ -78,14 +81,63 @@ test('39 处地图、146 条来路的布阵和官道均遵守实际通行，设�
       const reach = f.reach(u, Infinity);
       assert.ok(z.every(zone => zone.cells.every(p => reach.dist.has(key(...p)))), title);
       assert.ok(reach.dist.has(key(...f.castle())), title);
+      const shops = f.reach(u, Infinity, (x,y) => !siege.districts.has(key(x,y)));
+      assert.deepEqual(f.villages.map(v => v.kind), (D.villages[city.id] ?? []).map(v => v.kind), title);
+      for (const shop of f.villages) {
+        assert.ok(shops.dist.has(keyOf(shop)), `${title} ${shop.kind}城外可达`);
+        assert.equal(f.terr(shop.x,shop.y), PLAIN, title);
+        assert.ok(!approaches.roads.has(keyOf(shop)), title);
+        assert.ok(!z.some(zone => zone.cells.some(p => key(...p) === keyOf(shop))), title);
+        assert.ok(f.villages.every(other => shop === other || step([shop.x,shop.y],[other.x,other.y]) >= 4), title);
+      }
+      const outerGates = siege.gates.filter(gate => gate.ring === siege.outer);
+      for (const gate of outerGates) {
+        const wardReach = f.reach({ ...u, x: gate.x, y: gate.y }, Infinity, (x,y) => siege.districts.has(key(x,y)));
+        assert.ok(wardReach.dist.has(key(...f.castle())), `${title} ${gate.face}门的城内通路`);
+      }
       entries++;
     }
     const f = new Field(g, war(city.id, city.roads[0]), 'att');
     layouts.add(JSON.stringify(f.map));
+    const old = new Field({ ...g, campaignRevision: FIRST_REGIONAL_BATTLE_REVISION }, f.war, 'att');
+    assert.equal(old.siege.revision, FIRST_REGIONAL_LAYOUT_REVISION);
+    assert.equal(f.siege.revision, REGIONAL_LAYOUT_REVISION);
+    assert.ok(f.siege.districts.size > old.siege.districts.size, city.name);
+    if (f.siege.type !== 'pass') {
+      assert.ok(f.siege.streets.size >= 2 * f.siege.gates.length, city.name);
+      assert.ok([...f.siege.streets].every(cell => f.deployable(...cell.split(',').map(Number))), city.name);
+    }
   }
   assert.equal(layouts.size, 39);
   assert.equal(entries, 146);
   assert.equal(beaches, 2, '建安和夷洲的双向海路均可分两处登陆');
+});
+
+test('兖州在城外三个新址可行军到达并使用米店、武器店和医馆', () => {
+  const f = new Field(fresh(), war(11,14,1), 'att'), [u] = f.side('att');
+  const chest = f.chest('att'), officer = f.O(u.id);
+  Object.assign(chest, { gold:3000, rice:900 });
+  Object.assign(officer, { hp:10, war:99, virtue:99 });
+  for (const enemy of f.side('def')) enemy.gone = true;
+  const go = kind => {
+    const shop = f.villages.find(v => v.kind === kind), { x, y } = shop;
+    const reachable = f.reach(u, Infinity), cost = reachable.dist.get(keyOf(shop));
+    assert.ok(Number.isFinite(cost), kind);
+    f.pool.att = cost;
+    f.move(u, x, y, cost, f.path(reachable,x,y));
+    assert.equal(f.village(u), shop);
+  };
+  go('米店');
+  assert.equal(f.buyRice(u,10), '买米 10');
+  assert.equal(chest.rice, 910);
+  go('武器店');
+  const bought = f.shopStock().find(e => f.buyEquip(u,e.id).ok);
+  assert.ok(bought);
+  go('病院');
+  const gold = chest.gold;
+  assert.match(f.hospital(u), /体力 \+/);
+  assert.ok(officer.hp > 10);
+  assert.equal(chest.gold, gold - 50);
 });
 
 test('襄阳桥面和浅滩区分通行、天气和白兵地形，剑阁栈道绕开外关并通往内关', () => {
@@ -148,11 +200,15 @@ test('宛城前阵阻挡破门，电脑先攻前阵，中断继续后保留解�
   const a = f.side('att')[0], [commander, soldier, reserve] = f.side('def'), camp = f.siege.camp;
   const gate = f.siege.gates.find(g => g.ring === f.siege.outer);
   const [dx, dy] = gateNormal(f.siege, gate);
-  assert.deepEqual([commander.x, commander.y], [camp.x, camp.y]);
+  assert.deepEqual([commander.x, commander.y], f.castle());
+  assert.deepEqual([soldier.x, soldier.y], [camp.x, camp.y]);
   assert.notDeepEqual([camp.x, camp.y], f.castle());
   assert.equal(f.cost(a, gate.x, gate.y), Infinity);
   assert.ok(Number.isFinite(f.cost(soldier, gate.x, gate.y)));
   assert.equal(f.over, null);
+  f.captureUnit(soldier, a, true);
+  f.checkCommanders();
+  assert.equal(f.over, null, '外营部将被俘时攻城照常继续');
   Object.assign(commander, { x: gate.x - dx, y: gate.y - dy });
   Object.assign(a, { x: camp.x - 2, y: camp.y });
   Object.assign(f.O(a.id), { soldiers: 700 });
@@ -188,5 +244,74 @@ test('宛城前阵阻挡破门，电脑先攻前阵，中断继续后保留解�
   } finally {
     if (descriptor) Object.defineProperty(globalThis, 'localStorage', descriptor);
     else delete globalThis.localStorage;
+  }
+});
+
+test('有天然河道的城池四向连通，桥头能平接两岸', () => {
+  const g = fresh();
+  for (const city of D.cities) {
+    const f = new Field(g, war(city.id, city.roads[0], 1), 'att');
+    if (!['capital', 'river', 'field'].includes(f.siege.type)) continue;
+    const moats = new Set(f.siege.moatCells.filter(v => v.wet).map(keyOf));
+    const cells = f.map.flatMap((row, y) => row.flatMap((t, x) => t === RIVER && !moats.has(key(x,y)) ? [[x,y]] : []));
+    const unseen = new Set(cells.map(p => key(...p))), queue = [cells[0]];
+    assert.ok(unseen.delete(key(...cells[0])), city.name);
+    for (const [x, y] of queue) for (const [dx, dy] of [[0, 1], [1, 0], [0, -1], [-1, 0]]) {
+      if (unseen.delete(key(x + dx, y + dy))) queue.push([x + dx, y + dy]);
+    }
+    assert.equal(unseen.size, 0, city.name);
+    const roads = f.approaches.roads;
+    for (const { x, y, kind, face } of roads.values()) {
+      if (kind !== 'bridge') continue;
+      if (f.terr(x,y) !== RIVER) {
+        assert.ok([PLAIN, SAND].includes(f.terr(x,y)), city.name);
+        assert.equal(f.unitTerrain(x,y), PLAIN, city.name);
+      }
+      if (moats.has(key(x,y))) continue;
+      const horizontal = face === 'e' || face === 'w';
+      for (const dir of [-1, 1]) {
+        const bx = x + (horizontal ? dir : 0), by = y + (horizontal ? 0 : dir);
+        if (roads.get(key(bx,by))?.kind === 'bridge') continue;
+        const ashore = f.terr(x,y) !== RIVER || (f.deployable(bx,by) && f.terr(bx,by) !== RIVER);
+        assert.ok(ashore, `${city.name}桥头 ${x},${y}`);
+      }
+    }
+  }
+});
+
+test('战役升级后，修订 6 的宛城可按原前阵和站位续玩', () => {
+  const g = fresh(), w = war(32, 12, 3);
+  const legacy = new Field({ ...g, campaignRevision: FIRST_REGIONAL_BATTLE_REVISION }, w, 'att');
+  const [commander] = legacy.side('def');
+  assert.deepEqual([commander.x, commander.y], [legacy.siege.camp.x, legacy.siege.camp.y]);
+  const resumed = Field.restore(g,w,legacy.snapshot());
+  assert.deepEqual(resumed.map, legacy.map);
+  assert.deepEqual(resumed.siege, legacy.siege);
+  assert.deepEqual(resumed.units, legacy.units);
+});
+
+test('西安阳和长安攻并州时，西岸可布阵并沿同一条引道过桥直达西门', () => {
+  const g = fresh();
+  for (const from of [5,8]) {
+    const w = war(2,from,1), f = new Field(g,w,'att'), [u] = f.side('att');
+    Object.assign(f.O(u.id), { soldiers:700, army:'平' });
+    f.weather = 'clear';
+    const gate = f.siege.gates.find(g => g.face === 'w' && g.ring === f.siege.outer);
+    const route = f.approaches.routes[0];
+    const reach = f.reach(u,Infinity,(x,y) => !f.siege.districts.has(key(x,y)) || key(x,y) === keyOf(gate));
+    const path = f.path(reach,gate.x,gate.y);
+    assert.deepEqual(route.goal,{ x:gate.x, y:gate.y, label:'西门' });
+    assert.ok(path.length <= 13 && path.every(([,y]) => y === gate.y));
+    assert.ok(reach.dist.get(keyOf(gate)) <= 17, '晴天大部队应可在约十五点机动力下走到西门');
+    const firstWater = path.find(([x,y]) => f.terr(x,y) === RIVER);
+    assert.ok(firstWater);
+    assert.ok(f.deploymentZones('att')[0].cells.every(([x,y]) => x < firstWater[0] && f.terr(x,y) !== RIVER));
+    const old = new Field({ ...g, campaignRevision:EXPANDED_WARDS_BATTLE_REVISION },w,'att');
+    assert.equal(old.siege.revision,EXPANDED_WARDS_LAYOUT_REVISION);
+    assert.ok(old.reach(old.side('att')[0],Infinity).dist.get(keyOf(gate)) > reach.dist.get(keyOf(gate)));
+    const restored = Field.restore(g,w,old.snapshot());
+    assert.deepEqual(restored.map,old.map);
+    assert.deepEqual(restored.approaches,old.approaches);
+    assert.deepEqual(restored.units,old.units);
   }
 });

@@ -43,6 +43,6 @@ export function townSurface(field, court) {
   return (x, y) => {
     if (court?.paving(x,y)) return true;
     const k = `${x},${y}`;
-    return stones.has(k) || (siege.districts.has(k) && Math.abs(x - siege.cx) + Math.abs(y - siege.cy) <= 2);
+    return stones.has(k) || siege.streets?.has(k) || (siege.districts.has(k) && Math.abs(x - siege.cx) + Math.abs(y - siege.cy) <= 2);
   };
 }

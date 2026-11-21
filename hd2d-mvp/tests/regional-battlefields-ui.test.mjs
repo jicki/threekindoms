@@ -3,14 +3,15 @@ import assert from 'node:assert/strict';
 import { startGame, newCampaign, closeMessages } from './game.mjs';
 
 const scenario = 'builtin-sovereigns-expanded-map';
-async function deploy(page, city, from) {
+async function deploy(page, city, from, human = 'att', revision = null) {
   await newCampaign(page, '刘备');
-  await page.evaluate(({ city, from }) => {
+  await page.evaluate(({ city, from, human, revision }) => {
     const { g, debug } = window.__game, w = { city, from, attacker: 4, defender: 0, day: 1,
       att: { ids: [40, 41, 42], gold: 200, rice: 900 }, def: { ids: [43, 44, 45], gold: 200, rice: 900 } };
     for (const id of [...w.att.ids, ...w.def.ids]) g.officers[id].soldiers = 700;
-    debug.fieldWar(w, 'att').catch(error => { window.__battleError = String(error.stack || error); });
-  }, { city, from });
+    if (revision != null) g.campaignRevision = revision;
+    debug.fieldWar(w, human).catch(error => { window.__battleError = String(error.stack || error); });
+  }, { city, from, human, revision });
   const stop = closeMessages(page);
   try {
     await page.waitForFunction(() => {
@@ -67,6 +68,144 @@ test('手机触控可切换两个登陆区并跨区布阵，深海不可放置�
       return !f.reach(u, Infinity).dist.has(`${x},${y}`);
     }, points), true);
     assert.deepEqual(page.errors, []);
+  } finally { await game.close(); }
+});
+
+test('手机宛城可定位宽城内与外营，选中的部将在城内路面上换位', { timeout: 120000 }, async () => {
+  const game = await startGame({ scenario, width: 844, height: 390, touch: true });
+  try {
+    const page = await game.open('&phone&flat');
+    await deploy(page, 32, 13, 'def');
+    const zones = page.getByRole('group', { name: '布阵区' });
+    const position = () => page.evaluate(() => {
+      const w = window.__game.war, f = w.field, [commander] = f.side('def');
+      return { x: commander.x, y: commander.y, flat: w.flat };
+    });
+    const start = await position();
+    assert.equal(start.flat, true);
+    await zones.getByRole('button', { name: '外营驻地' }).tap();
+    await zones.getByRole('button', { name: '城内守备' }).tap();
+    const target = await page.evaluate(({ x, y }) => {
+      const w = window.__game.war, f = w.field;
+      return [[1,0],[-1,0],[0,1],[0,-1]].map(([dx,dy]) => [x+dx,y+dy]).find(([cx,cy]) =>
+        f.siege.streets.has(`${cx},${cy}`) && !f.unitAt(cx,cy));
+    },start);
+    assert.ok(target);
+    for (const cell of [[start.x,start.y], target]) {
+      const at = await page.evaluate(([x,y]) => window.__game.war.screenOf(x,y),cell);
+      assert.ok(at.x > 0 && at.x < 844 && at.y > 0 && at.y < 390);
+      await page.touchscreen.tap(at.x,at.y);
+    }
+    await page.waitForFunction(([x,y]) => {
+      const [u] = window.__game.war.field.side('def');
+      return u.x === x && u.y === y;
+    }, target, {timeout:5000});
+    assert.deepEqual(page.errors, []);
+  } finally { await game.close(); }
+});
+
+test('兖州新店址显示各自的牌子并打开对应的战场命令', { timeout: 120000 }, async () => {
+  const game = await startGame({ scenario, width: 1366, height: 850 });
+  try {
+    const page = await game.open();
+    await deploy(page, 11, 14);
+    for (const label of ['米', '武', '医']) await page.locator('.vtag').filter({ hasText:new RegExp(`^${label}$`) }).waitFor({state:'attached'});
+    await page.getByRole('button', { name: '布阵完成' }).click();
+    await page.waitForFunction(() => !window.__game.war.st.deploying);
+    for (const [kind, command] of [['米店', '买米'], ['武器店', '武器店'], ['病院', '治疗 50金']]) {
+      await page.evaluate(kind => {
+        const w = window.__game.war, f = w.field, [u] = f.side('att');
+        const shop = f.villages.find(v => v.kind === kind), reach = f.reach(u, Infinity);
+        const cost = reach.dist.get(`${shop.x},${shop.y}`);
+        if (!Number.isFinite(cost)) throw new Error(`未能到达${kind}`);
+        w.clickCell(-1,-1);
+        f.pool.att = cost;
+        f.move(u,shop.x,shop.y,cost,f.path(reach,shop.x,shop.y));
+        f.O(u.id).hp = 10;
+        w.clickCell(u.x,u.y);
+      }, kind);
+      await page.locator('.unitacts button, .unitpanel:not(.compare) button', { hasText:command }).first().waitFor();
+    }
+    assert.deepEqual(page.errors, []);
+  } finally { await game.close(); }
+});
+
+test('手机并州进城后放大街区，切回城外恢复倍率，手动缩放优先', { timeout:120000 }, async () => {
+  const game = await startGame({ scenario, width:844, height:390, touch:true });
+  try {
+    const page = await game.open('&phone&flat');
+    await deploy(page,2,5);
+    await page.getByRole('button',{ name:'布阵完成' }).tap();
+    await page.waitForFunction(() => !window.__game.war.st.deploying && !window.__game.war.st.busy);
+    const setup = await page.evaluate(() => {
+      const w = window.__game.war, f = w.field, [u, ally] = f.side('att');
+      const gate = f.siege.gates.find(p => p.face === 'w' && p.ring === f.siege.outer);
+      // 从门前开始操作，让回归专注于两次触控、进城动画与取景的衔接。
+      Object.assign(u,{x:gate.x-1,y:gate.y});
+      f.pool.att = 24;
+      w.centreOn(gate.x,gate.y);
+      w.clickCell(u.x,u.y);
+      const target = w.screenOf(gate.x,gate.y);
+      return { insideId:u.id,outsideId:ally.id,base:target.cw,x:target.x,y:target.y };
+    });
+    await page.touchscreen.tap(setup.x,setup.y);
+    await page.waitForFunction(() => !!window.__game.war.st.moveAsk);
+    const previewScale = await page.evaluate(() => window.__game.war.screenAxes().x[0]);
+    assert.equal(previewScale, setup.base);
+    await page.touchscreen.tap(setup.x,setup.y);
+    await page.waitForFunction(base => {
+      const w = window.__game.war, f = w.field, u = w.st.sel;
+      return !w.st.busy && u && f.siege.gates.some(g => g.open && g.x === u.x && g.y === u.y) && w.screenAxes().x[0] > base * 1.35;
+    },setup.base,{timeout:7000});
+    const select = id => page.evaluate(id => {
+      const w = window.__game.war, u = w.field.side('att').find(u => u.id === id);
+      w.clickCell(u.x,u.y);
+    },id);
+    await select(setup.outsideId);
+    await page.waitForFunction(base => Math.abs(window.__game.war.screenAxes().x[0]-base)<0.1,setup.base,{timeout:5000});
+    await select(setup.insideId);
+    await page.waitForFunction(base => window.__game.war.screenAxes().x[0]>base*1.35,setup.base,{timeout:5000});
+    const manual = await page.evaluate(() => {
+      const w = window.__game.war;
+      w.zoom(400, { x:0, y:0 });
+      w.slide(15,0);
+      return w.screenAxes().x[0];
+    });
+    await select(setup.outsideId);
+    await select(setup.insideId);
+    await page.evaluate(() => new Promise(resolve => {
+      const count = window.__game.war.flatDebug().frames;
+      const frame = () => window.__game.war.flatDebug().frames >= count+12 ? resolve() : requestAnimationFrame(frame);
+      requestAnimationFrame(frame);
+    }));
+    assert.equal(await page.evaluate(() => window.__game.war.screenAxes().x[0]),manual);
+    await page.evaluate(() => window.__game.war.resetView());
+    await page.waitForFunction(base => window.__game.war.screenAxes().x[0]>base*1.35,setup.base,{timeout:5000});
+    assert.deepEqual(page.errors,[]);
+  } finally { await game.close(); }
+});
+
+test('手机读取旧版并州布局时继续使用旧取景倍率', { timeout:120000 }, async () => {
+  const game = await startGame({ scenario, width:844, height:390, touch:true });
+  try {
+    const page = await game.open('&phone&flat');
+    await deploy(page,2,8,'att',14);
+    await page.getByRole('button',{ name:'布阵完成' }).tap();
+    await page.waitForFunction(() => !window.__game.war.st.deploying && !window.__game.war.st.busy);
+    const result = await page.evaluate(async () => {
+      const w = window.__game.war, f = w.field, [u] = f.side('att');
+      const gate = f.siege.gates.find(p => p.face === 'w' && p.ring === f.siege.outer);
+      Object.assign(u,{x:gate.x,y:gate.y});
+      const before = w.screenAxes().x[0], start = w.flatDebug().frames;
+      w.clickCell(u.x,u.y);
+      await new Promise(resolve => {
+        const frame = () => w.flatDebug().frames >= start+12 ? resolve() : requestAnimationFrame(frame);
+        requestAnimationFrame(frame);
+      });
+      return { revision:f.siege.revision, selected:w.st.sel === u, stable:w.screenAxes().x[0] === before };
+    });
+    assert.deepEqual(result,{revision:7,selected:true,stable:true});
+    assert.deepEqual(page.errors,[]);
   } finally { await game.close(); }
 });
 

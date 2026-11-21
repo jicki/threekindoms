@@ -14,6 +14,7 @@ import { FOREST, SAND, PLAIN, RIVER, MOUNT, CASTLE } from '../core/field.js';
 import { FACTION_COLORS } from '../core/game.js';
 import { WATER_Y, PITCH, KIND, PLATE_M, PLATE_PX, DIRS, woodsOf, keySun, phase, WAR_RAIN } from './shared.js';
 import { buildFortification } from '../fortification.js';
+import { EXPANDED_WARDS_LAYOUT_REVISION } from '../core/regional-battlefields.js';
 import { addApproachScenery, paintRoadSurface } from './approach-display.js';
 import { luoyangCourt } from './scenery-plan.js';
 import { isCoastalBattle, townSurface } from './surface.js';
@@ -90,7 +91,8 @@ export function makeBoard(wv) {
     if (crossing === 'bridge') return PLAIN_Y;
     if (jiange && crossing === 'plank') {
       const fromGate = Math.min(...outer.map(g => Math.abs(y - g.y)));
-      return PLAIN_Y + Math.max(0.06, 1.03 - fromGate * 0.16);
+      const slope = field.siege.revision >= EXPANDED_WARDS_LAYOUT_REVISION ? 0.23 : 0.16;
+      return PLAIN_Y + Math.max(0.06, 1.03 - fromGate * slope);
     }
     const t = terr(x, y);
     return t === MOUNT ? mountH(x, y) : [PLAIN_Y, PLAIN_Y, PLAIN_Y, WATER_Y, 0, CASTLE_Y][t];

@@ -9,6 +9,7 @@ import { SOVEREIGN_SCENARIO_ID } from '../src/core/visuals.js';
 import { officerPassive } from '../src/core/battle-rules.js';
 import { famousLabel } from '../src/core/famous-skills.js';
 import { Field, FOREST, MOUNT } from '../src/core/field.js';
+import { REGIONAL_BATTLE_REVISION } from '../src/core/regional-battlefields.js';
 import { Duel } from '../src/core/skirmish.js';
 import { Tactical } from '../src/core/tactical.js';
 import { legacyRoster } from './legacy-roster.mjs';
@@ -45,7 +46,7 @@ test('修订7旧档保留旧被动，手动升级保留个人和城市数据', (
   assert.equal(officerPassive(D, loaded, 38).name, '骁勇');
   assert.ok(G.upgradeCampaign(loaded));
   assert.equal(officerPassive(D, loaded, 38).name, '武圣');
-  assert.equal(loaded.campaignRevision, 13);
+  assert.equal(loaded.campaignRevision, REGIONAL_BATTLE_REVISION);
   assert.deepEqual(legacyRoster(structuredClone(loaded), 7), g);
   G.setData(base);
   assert.equal(officerPassive(base, G.newGame(4, 1, 31), 38), null);

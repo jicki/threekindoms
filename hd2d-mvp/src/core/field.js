@@ -10,6 +10,7 @@ import { passiveRiceUse } from './ruler-passives.js';
 import { resolveBattlefield } from './battlefields.js';
 import { POST_MOBILITY } from './battle-approaches.js';
 import { siegeRing, wallAt, gateAt, gateDefense, blockedStrategy, blockedTerrain, restoreGates } from './siege.js';
+import { EXPANDED_WARDS_LAYOUT_REVISION } from './regional-battlefields.js';
 import { abilityStrategy, abilityStrategyIds, strategySpecs } from './famous-skills.js';
 import { advancedBattle, aiBattleBonus, battleWeather, fullStrategyWeather, officerPassive, tacticWeather, WEATHER_NAMES, weatherPenalty } from './battle-rules.js';
 import { strategyBonus, strategyWard } from './officer-passives.js';
@@ -112,9 +113,10 @@ export class Field {
       const used = new Set();
       const take = (i) => { while (i < block.length && used.has(block[i] + '')) i++; if (i < block.length) { used.add(block[i] + ''); return block[i]; } return block.find((p) => !used.has(p + '') && used.add(p + '')); };
       const next = [...SUBLIST[side]];
+      const distributed = side === 'def' && siege?.revision >= EXPANDED_WARDS_LAYOUT_REVISION;
       ids.forEach((id, k) => {
         const role = roles[k];
-        const pos = k === 0 ? take(0) : take(next[role - 1]++);
+        const pos = k === 0 || distributed ? take(k) : take(next[role - 1]++);
         this.units.push({ id, side, x: pos[0], y: pos[1], role, home: role, commander: k === 0, gone: false });
       });
     }

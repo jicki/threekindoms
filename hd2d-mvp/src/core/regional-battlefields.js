@@ -1,8 +1,12 @@
 import { BATTLE_REGIONS } from './battlefield-regions.js';
 import { fortressPlan } from './fortress-plans.js';
 
-export const REGIONAL_BATTLE_REVISION = 13;
-export const REGIONAL_LAYOUT_REVISION = 6;
+export const FIRST_REGIONAL_BATTLE_REVISION = 13;
+export const FIRST_REGIONAL_LAYOUT_REVISION = 6;
+export const EXPANDED_WARDS_BATTLE_REVISION = 14;
+export const EXPANDED_WARDS_LAYOUT_REVISION = 7;
+export const REGIONAL_BATTLE_REVISION = 15;
+export const REGIONAL_LAYOUT_REVISION = 8;
 
 const FOREST = 0, SAND = 1, PLAIN = 2, RIVER = 3, MOUNT = 4, CASTLE = 5;
 const SIDES = { n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0] };
@@ -11,6 +15,8 @@ const SIDENAMES = { n: '北', e: '东', s: '南', w: '西' };
 const CITY_SIZE = { capital: [52, 34], river: [48, 32], coast: [48, 32], island: [50, 34], field: [50, 32] };
 // 各关分别配置谷底窄口、谷外展开速度和外关到中心的距离。
 const PASS_SHAPE = { 33: [4, 9, 5], 34: [3, 8, 6], 35: [3, 6, 7], 36: [2, 6, 7], 37: [3, 5, 5] };
+const MAJOR_WARDS = new Set([1, 4, 10, 11, 14, 15, 16, 18, 20, 21, 23, 25, 26, 30, 31, 32]);
+const INNER_WARDS = new Set([1, 4, 10, 11, 14, 15, 18, 20, 21, 25, 26, 30, 31, 32]);
 const CELL_KEY = ([x, y]) => x + ',' + y;
 const dist = ([x, y], [a, b]) => Math.abs(x - a) + Math.abs(y - b);
 const add = ([x, y], [a, b], n = 1) => [x + a * n, y + b * n];
@@ -34,7 +40,7 @@ function trace(points) {
   return out;
 }
 
-function roadSearch(map, barriers, roads, excluded, start) {
+function roadSearch(map, barriers, roads, excluded, start, area = null) {
   const width = map[0].length, total = width * map.length, previous = new Int32Array(total).fill(-1), best = new Float64Array(total).fill(Infinity);
   const root = start[1] * width + start[0], open = [{ i: root, d: 0 }];
   best[root] = 0;
@@ -45,7 +51,7 @@ function roadSearch(map, barriers, roads, excluded, start) {
     const here = [i % width, Math.floor(i / width)];
     for (const dir of DIRS) {
       const [x, y] = add(here, dir), tile = map[y]?.[x], k = CELL_KEY([x, y]);
-      if (tile === undefined || barriers.has(k) || excluded.has(k)) continue;
+      if (tile === undefined || barriers.has(k) || excluded.has(k) || (area && !area.has(k))) continue;
       const cost = roads.has(k) ? 1 : [2.3, 1.5, 1.15, Infinity, 3.3, 1.15][tile];
       const next = y * width + x, sum = d + cost;
       if (sum >= best[next]) continue;
@@ -65,21 +71,37 @@ function roadSearch(map, barriers, roads, excluded, start) {
   };
 }
 
-export function regionalBattlefield(id, requestedSide, villages, seaEntry = false) {
+export function regionalBattlefield(id, requestedSide, villages, seaEntry = false, revision = REGIONAL_LAYOUT_REVISION) {
+  const expanded = revision >= EXPANDED_WARDS_LAYOUT_REVISION;
+  const alignedWestBridge = id === 2 && revision >= REGIONAL_LAYOUT_REVISION;
   const [label, type, axis, geography] = BATTLE_REGIONS[id];
   const [w, h] = CITY_SIZE[type] ?? [44, 30], side = requestedSide ?? axis;
+  const [nx, ny] = SIDES[axis], normal = [nx, ny], tangent = [-ny, nx];
+  const river = ['river', 'capital', 'field'].includes(type), coast = type === 'coast' || type === 'island';
   const cx = Math.floor(w / 2) + (type === 'island' ? 9 : type === 'field' ? 10 : type === 'pass' ? 0 : id % 5 - 2);
-  const cy = Math.floor(h / 2) + (type === 'field' ? -6 : id % 3 - 1);
-  const center = [cx, cy], [nx, ny] = SIDES[axis], normal = [nx, ny], tangent = [-ny, nx];
+  const cy = Math.floor(h / 2) + (type === 'field' ? -6 : id % 3 - 1) - (expanded && (river || coast) ? 2 * ny : 0);
+  const center = [cx, cy];
   const world = (u, v) => add(add(center, normal, u), tangent, v);
   const inBounds = ([x, y]) => x >= 1 && x < w - 1 && y >= 1 && y < h - 1;
   const uv = (x, y) => [(x - cx) * nx + (y - cy) * ny, -(x - cx) * ny + (y - cy) * nx];
-  const band = v => 10 + Math.round(Math.sin((v + id * 1.6) / 5) * 2 + Math.sin((v - id) / 9) * 1.5);
-  const shore = v => (type === 'island' ? 12 : 11) + Math.round(2.6 * Math.sin((v + id % 5) / 4.5)
+  const cityPlan = fortressPlan(id), major = MAJOR_WARDS.has(id);
+  const [legacyX, legacyY] = type === 'capital' ? (id === 12 ? [8, 6] : [7, 7])
+    : [Math.min(6, cityPlan.outer[0] + 1), Math.min(5, cityPlan.outer[1])];
+  const rx = legacyX + (expanded ? type === 'capital' || major ? 3 : 2 : 0);
+  const ry = legacyY + (expanded ? 2 : 0);
+  const wallRadius = nx ? rx : ry, edge = nx ? (nx > 0 ? w - 1 - cx : cx) : (ny > 0 ? h - 1 - cy : cy);
+  const bank = expanded ? Math.max(12, wallRadius + 5) : 10;
+  const band = v => {
+    const u = bank + Math.round(Math.sin((v + id * 1.6) / 5) * 2 + Math.sin((v - id) / 9) * 1.5);
+    // 天然河道与城壕之间至少留一排岸地，供桥头接岸和转向。
+    return expanded ? clamp(u, wallRadius + (type === 'river' ? 5 : 3), edge - 5) : u;
+  };
+  const shoreBase = type === 'island' ? 12 : expanded ? Math.max(13, (nx ? rx : ry) + 5) : 11;
+  const shore = v => shoreBase + Math.round(2.6 * Math.sin((v + id % 5) / 4.5)
     + 1.5 * Math.cos(v / 8)) - (type === 'island' ? Math.max(0, 3 - Math.abs(v)) : 0);
-  const [pinch, opening, outerCut] = PASS_SHAPE[id] ?? [3, 7, 6];
+  const [pinch, opening, oldCut] = PASS_SHAPE[id] ?? [3, 7, 6];
+  const outerCut = oldCut + (expanded ? 2 : 0);
   const valleyWidth = u => pinch + Math.floor(Math.min(2, Math.abs(u) / opening));
-  const river = ['river', 'capital', 'field'].includes(type), coast = type === 'coast' || type === 'island';
   const barriers = new Map(), roads = new Map(), sites = [];
   const map = Array.from({ length: h }, (_, y) => Array.from({ length: w }, (_, x) => {
     const [u, v] = uv(x, y), k = CELL_KEY([x, y]);
@@ -92,7 +114,7 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
       || Math.abs(v) > 14 + Math.round(Math.sin(u / 4)));
     const tributary = id === 31 && u >= band(v) && Math.abs(v - (18 - Math.floor(u / 2))) < 2;
     const water = coast ? u >= shore(v) || islandBack
-      : river && (tributary || Math.abs(u - band(v)) <= (type === 'field' ? 0 : type === 'capital' ? 1 : 2));
+      : river && (tributary || Math.abs(u - band(v)) <= (type === 'field' ? Number(expanded) : type === 'capital' ? 1 : 2));
     if (water) { barriers.set(k, coast ? '深海' : '深水'); return RIVER; }
     if (coast && u >= shore(v) - 2) return SAND;
     if (type === 'pass') return cover > 1.3 && Math.abs(u) > 9 && Math.abs(v) >= 2 ? FOREST : PLAIN;
@@ -116,13 +138,20 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
 
   if (river) {
     const vLimit = nx ? h : w;
-    const face = nx ? 'e' : 's', span = type === 'field' ? 1 : type === 'capital' ? 2 : 3;
+    const face = nx ? 'e' : 's', span = type === 'field' ? 1 + Number(expanded) : type === 'capital' ? 2 : 3;
     const vMid = id === 30 ? -4 : 3 + id % 5;
-    const places = [[vMid, 'bridge'], [vMid - Math.floor(vLimit * 0.32), 'ford']];
+    const places = [[alignedWestBridge ? 0 : vMid, 'bridge'], [vMid - Math.floor(vLimit * 0.32), 'ford']];
     for (const [v, kind] of places) for (const along of [v, v + 1]) {
       for (let across = band(along) - span; across <= band(along) + span; across++) {
         const p = world(across, along);
-        if (inBounds(p)) setRoad(p, kind, face);
+        if (inBounds(p)) {
+          setRoad(p, kind, face);
+          if (expanded && map[p[1]][p[0]] !== RIVER) map[p[1]][p[0]] = PLAIN;
+        }
+      }
+      if (expanded) for (const end of [-1, 1]) {
+        const p = world(band(along) + end * (span + 1), along);
+        if (inBounds(p) && !hard(p)) setRoad(p, 'road', face);
       }
     }
   }
@@ -154,7 +183,7 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
         for (let v = -width; v <= width; v++) if (v !== 0) beWall(world(along, v), ring, face, Math.abs(v) === width);
       }
       const v = sign * (valleyWidth(outerCut) + 1);
-      const plank = trace([[sign * (outerCut + 6), sign * 2], [sign * (outerCut + 3), v],
+      const plank = trace([[sign * (outerCut + (expanded ? 3 : 6)), sign * 2], [sign * (outerCut + (expanded ? 2 : 3)), v],
         [sign * (outerCut - 1), v], [sign * (outerCut - 2), sign * 2]])
         .map(([a,b]) => world(a,b));
       const exit = trace([world(sign * (outerCut - 2), sign * 2), world(sign * (outerCut - 2), 0), world(sign * 2, 0)]);
@@ -206,9 +235,6 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
         else beWall(mark.p, ring, mark.face, mark.corner);
       }
     }
-    const cityPlan = fortressPlan(id);
-    const rx = type === 'capital' ? (id === 12 ? 8 : 7) : Math.min(6, cityPlan.outer[0] + 1);
-    const ry = type === 'capital' ? (id === 12 ? 6 : 7) : Math.min(5, cityPlan.outer[1]);
     const notches = id === 12 ? [2, 1, 1, 2] : id === 8 ? [1, 1, 2, 1] : [1 + id % 2, id % 3 === 0 ? 0 : 1, 1, (id + 1) % 2];
     ward(center, rx, ry, outer, ['n', 'e', 's', 'w'], notches);
     // 都城留两段旱壕，沿河和滨海城镇在临水一侧留水壕。城门的引道在壕中留出桥面或过道。
@@ -227,13 +253,26 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
         else if (waterside) { roads.delete(k); barriers.set(k, '水壕'); }
       }
     }
-    if (type === 'capital' || [15, 21, 26, 30].includes(id)) {
-      // 宫城或后寨靠一侧高地，四条街道中的两条可接入内院。
-      keep = add(center, type === 'river' ? [1, 0] : [0, -1], type === 'capital' ? 2 : 1);
-      ward(keep, type === 'capital' ? 3 : 2, 2, inner, ['s', 'e'], [0, 0, 0, 0]);
+    if (type === 'capital' || (expanded ? INNER_WARDS.has(id) : [15, 21, 26, 30].includes(id))) {
+      // 错开的内城与外墙之间至少留一格街巷，避免外门正对内墙封死。
+      const innerX = (type === 'capital' ? 3 : 2) + Number(expanded), innerY = type === 'capital' && expanded ? 3 : 2;
+      const shift = type === 'capital' ? 2 + Number(expanded) : 1 + Number(expanded);
+      const clear = type === 'river' ? rx - innerX - 2 : ry - innerY - 2;
+      keep = add(center, type === 'river' ? [1, 0] : [0, -1], expanded ? Math.min(shift, clear) : shift);
+      const insideFaces = expanded ? ['s', 'e', 'w'] : ['s', 'e'];
+      ward(keep, innerX, innerY, inner, insideFaces, [0, 0, 0, 0]);
     }
     if (type === 'field') {
-      camp = { x: cx - 10, y: cy + 5, kind: 'camp', label: '守军前阵' };
+      camp = { x: cx - (expanded ? rx + 3 : 10), y: cy + 5, kind: 'camp', label: '守军前阵' };
+      if (expanded) {
+        // 营帐与临河的渡路留出间隔，营地周边的林木留在外围。
+        const dry = [0, 1, 2, -1, -2].map(offset => [camp.x + offset, camp.y]).find(p => !hard(p));
+        if (dry) camp.x = dry[0];
+        for (const [dx, dy] of [[0, 0], ...DIRS]) {
+          const p = add(point(camp), [dx, dy]);
+          if (!hard(p)) map[p[1]][p[0]] = PLAIN;
+        }
+      }
       barriers.delete(CELL_KEY(point(camp))); map[camp.y][camp.x] = PLAIN;
       for (const gate of gates) gate.requiresCamp = true;
       sites.push(camp);
@@ -256,10 +295,32 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
     }
   }
 
-  // 城内建筑跟随据点固定，布阵随后避开房舍。门内外保留可以会车的短街。
+  // 主街至少两格宽，横巷和绕内墙的街道留给两军换防。
+  const streets = new Set();
+  if (expanded && type !== 'pass') for (const k of districts) {
+    if (outline.has(k)) continue;
+    const [x, y] = k.split(',').map(Number), dx = x - cx, dy = y - cy;
+    const road = Math.abs(dx) <= 1 || dy === 0 || dy === 1 || dx % 4 === 0 || dy % 3 === 0;
+    const approach = gates.some(g => {
+      const [nx, ny] = SIDES[g.face], forward = (g.x - x) * nx + (g.y - y) * ny;
+      return forward > 0 && forward <= 3 && Math.abs((g.y - y) * nx - (g.x - x) * ny) <= 1;
+    });
+    if (road || approach || dist([x, y], keep) <= 2) streets.add(k);
+  }
+  if (streets.size) {
+    const blocked = new Set(walls.map(wall => CELL_KEY(point(wall))));
+    const streetsToKeep = roadSearch(map, barriers, roads, blocked, keep, districts);
+    for (const gate of gates) for (const p of streetsToKeep.path(point(gate))) {
+      const k = CELL_KEY(p);
+      if (!outline.has(k)) streets.add(k);
+    }
+  }
+  // 城内建筑跟随据点固定，布阵随后避开房舍。
   if (type !== 'pass') for (const k of districts) {
     const [x, y] = k.split(',').map(Number), p = [x, y];
-    if (outline.has(k) || innerDistrict.has(k) || x % 3 !== id % 3 || y % 3 !== (id + 1) % 3
+    const block = expanded ? !streets.has(k) && (x + 2 * y + id) % 4 !== 0
+      : x % 3 === id % 3 && y % 3 === (id + 1) % 3;
+    if (outline.has(k) || innerDistrict.has(k) || !block
       || dist(p, keep) <= 1 || gates.some(g => dist(p, point(g)) <= 2)) continue;
     barriers.set(k, '街区建筑'); sites.push({ x, y, kind: 'house' });
   }
@@ -301,12 +362,21 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
   } else {
     const normal = [ax, ay];
     const at = point(exteriorGate);
-    const distance = type === 'pass' ? 8 : type === 'field' ? 15 : 9;
-    const start = add(at, normal, distance);
-    const pool = map.flatMap((row, y) => row.flatMap((_, x) => outside([x, y]) ? [[x, y]] : []))
+    const distance = type === 'pass' ? 8 - 2 * Number(expanded)
+      : type === 'field' ? 15 - 3 * Number(expanded) : 9 - 2 * Number(expanded);
+    const bridgeApproach = alignedWestBridge && approachSide === 'w';
+    // 并州西门正对两格宽木桥。攻军留在外岸，从桥头的旱地上集结。
+    const start = bridgeApproach ? world(band(1) + 5, 1) : add(at, normal, distance);
+    const staging = p => {
+      if (!outside(p)) return false;
+      if (!bridgeApproach) return true;
+      const [u,v] = uv(...p);
+      return u > band(v) + 2;
+    };
+    const pool = map.flatMap((row, y) => row.flatMap((_, x) => staging([x, y]) ? [[x, y]] : []))
       .sort((a, b) => dist(a, start) - dist(b, start) || toward(b) - toward(a));
     const bases = pool.slice(0, 55).map(p => zone(type === 'field' ? '城外集结地' : (SIDENAMES[approachSide] + '侧集结地'), p,
-      ax ? [2, 3] : [3, 2], outside));
+      ax ? [2, 3] : [3, 2], staging));
     const base = bases.find(z => z.cells.length >= 17);
     deploy = base ? [base] : bases.sort((a, b) => b.cells.length - a.cells.length).slice(0, 1);
   }
@@ -329,8 +399,19 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
     .sort((a, b) => dist(a, closeGate) - dist(b, closeGate));
   const centerFirst = defenseCells.sort((a, b) => dist(a, keep) - dist(b, keep));
   const fieldLine = camp ? zone('城外守军营地', point(camp), [2, 2], p => outside(p) && !used.has(CELL_KEY(p)))?.cells ?? [] : [];
-  const stationed = camp ? [point(camp), fieldLine[1], front[0], ...fieldLine.slice(2, 5), ...front.slice(1, 5), ...fieldLine.slice(5, 7)]
+  let stationed = camp ? [point(camp), fieldLine[1], front[0], ...fieldLine.slice(2, 5), ...front.slice(1, 5), ...fieldLine.slice(5, 7)]
     : [keep, ...front.slice(0, 5)];
+  if (expanded) {
+    stationed = [keep];
+    if (camp) stationed.push(point(camp));
+    for (const gate of [exteriorGate, ...outerGates.filter(g => g !== exteriorGate)]) {
+      const post = [...defenseCells].filter(p => stationed.every(q => dist(p, q) >= 3))
+        .sort((a, b) => dist(a, point(gate)) - dist(b, point(gate)))[0];
+      if (post) stationed.push(post);
+    }
+    if (camp) stationed.push(...fieldLine.filter(p => dist(p, point(camp)) >= 2).slice(0, 2));
+    for (const p of centerFirst) if (stationed.every(q => dist(p, q) >= 3)) stationed.push(p);
+  }
   const defender = [...stationed.filter(Boolean), ...centerFirst]
     .filter((p, i, all) => all.findIndex(other => dist(other, p) === 0) === i).slice(0, 16);
   defender.forEach(p => used.add(CELL_KEY(p)));
@@ -382,12 +463,43 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
     }
   }
 
+  const placedShops = [];
+  const leadsTo = (route, gate) => gate.x === route.goal.x && gate.y === route.goal.y;
+  const gateRoute = routes.find(r => leadsTo(r, exteriorGate))?.cells
+    ?? routes.find(r => outerGates.some(g => leadsTo(r, g)))?.cells ?? primary;
+  const sideRoute = routes.find(r => r.kind === 'flank' && r.cells !== gateRoute)?.cells ?? primary;
+  const sample = (path, part) => path[Math.round((path.length - 1) * part)];
+  const shopAnchors = {
+    米店: sample(primary, 0.26), 武器店: sample(gateRoute, 0.85), 病院: sample(sideRoute, 0.48),
+  };
+  const shopTiles = [];
+  if (expanded && villages.length) {
+    const routesCells = routes.flatMap(r => r.cells);
+    const access = roadSearch(map, barriers, roads, blockedRoutes, deploy[0].anchor);
+    const landmarks = [post, ...sites.map(point), ...gates.map(point)];
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+      const p = [x,y], k = CELL_KEY(p), tile = map[y][x];
+      if (!outside(p) || used.has(k) || roads.has(k) || tile === RIVER || tile === MOUNT || !Number.isFinite(access.cost(p))) continue;
+      if (landmarks.some(site => dist(p,site) < 2) || DIRS.some(dir => outline.has(CELL_KEY(add(p,dir))))) continue;
+      const roadside = Math.min(...routesCells.map(cell => dist(cell,p)));
+      shopTiles.push({ p, roadside });
+    }
+  }
   villages = villages.map((v, i) => {
-    const seed = add(deploy[0].anchor, tangent, i % 2 ? -5 : 5);
-    const p = (i === 0 ? [...primary].reverse() : primary).flatMap(p => DIRS.map(dir => add(p, dir)))
-      .filter(p => outside(p) && !used.has(CELL_KEY(p)) && !roads.has(CELL_KEY(p)))
-      .sort((a, b) => dist(a, seed) - dist(b, seed))[0];
+    let p;
+    if (expanded) {
+      const seed = shopAnchors[v.kind] ?? sample(primary, 0.5);
+      const score = ({ p, roadside }) => dist(p, seed) + roadside * 2.2;
+      const choices = shopTiles.filter(({ p }) => placedShops.every(other => dist(p,other) >= 4));
+      p = choices.sort((a, b) => score(a) - score(b))[0]?.p;
+    } else {
+      const seed = add(deploy[0].anchor, tangent, i % 2 ? -5 : 5);
+      p = (i === 0 ? [...primary].reverse() : primary).flatMap(p => DIRS.map(dir => add(p, dir)))
+        .filter(p => outside(p) && !used.has(CELL_KEY(p)) && !roads.has(CELL_KEY(p)))
+        .sort((a, b) => dist(a, seed) - dist(b, seed))[0];
+    }
     if (!p) return null;
+    placedShops.push(p);
     used.add(CELL_KEY(p)); map[p[1]][p[0]] = PLAIN;
     return { ...v, x: p[0], y: p[1] };
   }).filter(Boolean);
@@ -396,8 +508,9 @@ export function regionalBattlefield(id, requestedSide, villages, seaEntry = fals
   const [left, right, top, bottom] = rectOf([...districts].map(k => k.split(',').map(Number)));
   const extents = [Math.max(keep[0] - left, right - keep[0]), Math.max(keep[1] - top, bottom - keep[1])];
   const siege = { cx: keep[0], cy: keep[1], inner, outer, bounds: { inner: [2, 2], outer: extents, moat: extents.map(n => n + 1) },
-    type, style: fortressPlan(id).style, revision: REGIONAL_LAYOUT_REVISION, direction: approachSide, districts, innerDistrict,
-    walls, gates, paving: [...paving.values()], crossings: [], moatCells: moat, camp };
+    type, style: cityPlan.style, revision, direction: approachSide, districts, innerDistrict,
+    walls, gates, paving: [...paving.values()], crossings: [], moatCells: moat, camp,
+    ...(expanded && streets.size ? { streets } : {}) };
   const defenderZones = camp ? [
     { name: '外营驻地', cells: fieldLine, rect: rectOf(fieldLine), anchor: point(camp) },
     { name: '城内守备', cells: defenseCells, rect: rectOf(defenseCells), anchor: keep },

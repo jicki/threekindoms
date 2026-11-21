@@ -1,7 +1,10 @@
 import { advancedBattle } from './battle-rules.js';
 import { siegeLayout } from './siege.js';
 import { APPROACH_CAMPAIGN_REVISION, APPROACH_SIEGE_REVISION, extendBattleApproaches } from './battle-approaches.js';
-import { REGIONAL_BATTLE_REVISION, REGIONAL_LAYOUT_REVISION, regionalBattlefield } from './regional-battlefields.js';
+import {
+  FIRST_REGIONAL_BATTLE_REVISION, FIRST_REGIONAL_LAYOUT_REVISION, EXPANDED_WARDS_BATTLE_REVISION, EXPANDED_WARDS_LAYOUT_REVISION,
+  REGIONAL_BATTLE_REVISION, REGIONAL_LAYOUT_REVISION, regionalBattlefield,
+} from './regional-battlefields.js';
 
 // 君主列传新开局的战场配置。原版和没有 battlefields 标记的旧记录仍使用导出数据。
 // battlefields=1 的布局需要保持稳定；后续调整应新增版本，不能改写已中断战斗的布局。
@@ -118,10 +121,13 @@ export function battlefieldLayout(data, g, city, from) {
 
 // 战场、中断校验和电脑自动结算共用同一个场地入口。
 export function resolveBattlefield(data, g, city, from, revision) {
-  const modern = g.battlefields === 2 && g.campaignRevision >= REGIONAL_BATTLE_REVISION;
-  if (modern && (revision == null || revision === REGIONAL_LAYOUT_REVISION)) {
+  const regional = g.battlefields === 2 && g.campaignRevision >= FIRST_REGIONAL_BATTLE_REVISION;
+  const regionalRevision = g.campaignRevision >= REGIONAL_BATTLE_REVISION ? REGIONAL_LAYOUT_REVISION
+    : g.campaignRevision >= EXPANDED_WARDS_BATTLE_REVISION ? EXPANDED_WARDS_LAYOUT_REVISION : FIRST_REGIONAL_LAYOUT_REVISION;
+  const selectedRegional = revision ?? regionalRevision;
+  if (regional && Number.isInteger(selectedRegional) && selectedRegional >= FIRST_REGIONAL_LAYOUT_REVISION && selectedRegional <= regionalRevision) {
     const entry = DIRECTIONS[city]?.[from] ?? battleEntryDirection(data, city, from);
-    const battle = regionalBattlefield(city, entry, data.villages[city] ?? [], city === 17 && from === 38);
+    const battle = regionalBattlefield(city, entry, data.villages[city] ?? [], city === 17 && from === 38, selectedRegional);
     return { ...battle, profile: { ...battlefieldProfile(g, city), label: battle.label } };
   }
   const layout = battlefieldLayout(data, g, city, from), profile = battlefieldProfile(g, city);
@@ -129,11 +135,10 @@ export function resolveBattlefield(data, g, city, from, revision) {
   const dep = layout?.dep ?? (data.deploy[city]?.[from] || Object.values(data.deploy[city] ?? {})[0]);
   const map = layout?.map ?? data.maps[city], villages = layout?.villages ?? data.villages[city] ?? [];
   if (g.battlefields !== 2 || !dep) return { map, dep, villages, profile, entry, siege: null };
-  const current = g.campaignRevision >= REGIONAL_BATTLE_REVISION ? REGIONAL_LAYOUT_REVISION
-    : g.campaignRevision >= APPROACH_CAMPAIGN_REVISION ? APPROACH_SIEGE_REVISION
+  const current = g.campaignRevision >= APPROACH_CAMPAIGN_REVISION ? APPROACH_SIEGE_REVISION
       : g.campaignRevision >= 9 ? 4 : advancedBattle(g) ? 3 : 2;
   const selected = revision ?? current;
-  if (![1, 2, 3, 4, APPROACH_SIEGE_REVISION, REGIONAL_LAYOUT_REVISION].includes(selected) || selected > current) throw new Error('当前战役不支持该城防布局');
+  if (![1, 2, 3, 4, APPROACH_SIEGE_REVISION].includes(selected) || selected > current) throw new Error('当前战役不支持该城防布局');
   const fortress = siegeLayout(map, dep, villages, layout?.direction, city === 30 || city === 31, Math.min(selected, 4), profile);
   const battle = selected === APPROACH_SIEGE_REVISION ? extendBattleApproaches(fortress, profile) : fortress;
   return { ...battle, profile, entry };

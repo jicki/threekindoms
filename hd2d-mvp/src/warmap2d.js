@@ -13,6 +13,7 @@ import { rng } from './pixel.js';
 import { PHONE, TOUCH_BATTLE, margins } from './phone.js';
 import { forestCluster, siegeFrame } from './war/shared.js';
 import { fortressStyle, hasGateWings, rampartProfile } from './fortress-style.js';
+import { REGIONAL_LAYOUT_REVISION } from './core/regional-battlefields.js';
 import { paintApproaches, paintRoadSurface } from './war/approach-display.js';
 import { luoyangCourt } from './war/scenery-plan.js';
 import { isCoastalBattle, townSurface } from './war/surface.js';
@@ -281,18 +282,25 @@ export function flatten(war, G, blankScene) {
   let autoFrame = PHONE && field.siege?.revision >= 2;
   const splitLanding = field.dep.attackerZones?.length > 1;
   const minZoom = splitLanding ? 0.78 : 1;
-  const slide = (dx, dy) => { autoFrame = false; goal = null; view.x += dx; view.y += dy; place(); };
-  const zoomAt = (deltaY, ndc) => {
-    const z = Math.max(minZoom, Math.min(2.4, view.z * Math.exp(-deltaY * 0.001))); if (z === view.z) return;
-    autoFrame = false; goal = null;
-    const px = (ndc.x + 1) / 2 * innerWidth, py = (1 - ndc.y) / 2 * innerHeight, fx = (px - box.x) / (box.cw * W), fy = (py - box.y) / (box.ch * H);
+  const ward = PHONE && field.siege?.revision >= REGIONAL_LAYOUT_REVISION && field.siege.type !== 'pass' ? field.siege.districts : null;
+  let manualView = false, outsideZoom = null, zoomGoal = null;
+  function useManualView() { autoFrame = false; goal = null; manualView = true; outsideZoom = zoomGoal = null; }
+  const slide = (dx, dy) => { useManualView(); view.x += dx; view.y += dy; place(); };
+  function zoomAbout(z, px, py) {
+    const fx = (px - box.x) / (box.cw * W), fy = (py - box.y) / (box.ch * H);
     view.z = z; place();
     view.x += px - (box.x + fx * box.cw * W); view.y += py - (box.y + fy * box.ch * H); place();
+  }
+  const zoomAt = (deltaY, ndc = { x: 0, y: 0 }) => {
+    const z = Math.max(minZoom, Math.min(2.4, view.z * Math.exp(-deltaY * 0.001)));
+    if (z !== view.z || ward) useManualView();
+    if (z !== view.z) zoomAbout(z, (ndc.x + 1) / 2 * innerWidth, (1 - ndc.y) / 2 * innerHeight);
   };
   // Bring a cell to where the HUD leaves the board clear (the middle of the screen, a little above centre).
   const centreOn = (x, y) => { autoFrame = false; goal = null; view.x += innerWidth / 2 - (box.x + (x + 0.5) * box.cw); view.y += innerHeight * 0.45 - (box.y + (y + 0.5) * box.ch); place(); };
   function resetView() {
-    view.z = 1; view.x = view.y = 0; goal = null; place();
+    view.z = 1; view.x = view.y = 0; goal = null;
+    outsideZoom = zoomGoal = null; manualView = false; place();
     if (!autoFrame) return;
     const { x0, x1, y0, y1 } = siegeFrame(field, { deployment: !field.resumed && field.day === 1 }), g = margins();
     const top = g.t + (splitLanding ? 62 : 40), bottom = innerHeight - g.b - (splitLanding ? 60 : 44);
@@ -307,12 +315,35 @@ export function flatten(war, G, blankScene) {
   // general just selected, the enemy asked about, a unit that has just moved in the enemy's turn. A cell already in the clear
   // middle of the screen moves nothing; otherwise the board eases until it stands there. A drag of the player's ends the ease.
   let goal = null, lastSel = null, lastAsk = null, opened = false; const stood = new Map();
-  const ensure = (x, y) => {
+  const ensure = (x, y, center = false) => {
     const px = box.x + (x + 0.5) * box.cw, py = box.y + (y + 0.5) * box.ch, vw = innerWidth, vh = innerHeight;
-    if (px > vw * 0.24 && px < vw * 0.76 && py > 52 && py < vh - 112) return;
+    if (!center && px > vw * 0.24 && px < vw * 0.76 && py > 52 && py < vh - 112) return;
     autoFrame = false;
     goal = { x: view.x + vw / 2 - px, y: view.y + vh * 0.45 - py };
   };
+  function followWard(dt, st) {
+    const u = st.sel;
+    if (!ward || manualView || field.over || st.deploying || field.turn !== field.human || !u || u.gone || !field.controls(u)) return;
+    // 预览路线时保持地格的位置，行军演出结束才切换取景。
+    if (st.moveAsk) goal = null;
+    if (st.busy || st.moveAsk || st.confirm || st.strike || st.cast != null) return;
+    const inside = ward.has(`${u.x},${u.y}`);
+    if (inside && outsideZoom == null) {
+      outsideZoom = zoomGoal ?? view.z;
+      const safe = margins();
+      const cell = Math.min((innerWidth - safe.l - safe.r) / 11, (innerHeight - safe.t - safe.b - 96) / 8);
+      zoomGoal = Math.max(view.z, Math.min(2.1, cell / (box.ch / view.z)));
+      ensure(u.x, u.y, true);
+    } else if (!inside && outsideZoom != null) {
+      zoomGoal = outsideZoom; outsideZoom = null;
+      ensure(u.x, u.y, true);
+    }
+    if (zoomGoal == null) return;
+    const delta = zoomGoal - view.z, z = Math.abs(delta) < 0.01 ? zoomGoal : view.z + delta * (1 - Math.exp(-dt * 10));
+    if (z !== view.z) zoomAbout(z, box.x + (u.x + 0.5) * box.cw, box.y + (u.y + 0.5) * box.ch);
+    ensure(u.x, u.y, true);
+    if (z === zoomGoal) zoomGoal = null;
+  }
   function follow(dt) {
     const st = war.st, f = field, mine = f.alive.filter((u) => f.controls(u));
     if (!opened && mine.length) {
@@ -327,6 +358,7 @@ export function flatten(war, G, blankScene) {
     const ask = st.confirm?.t ?? st.strike?.t ?? st.ask ?? null;
     if (ask !== lastAsk) { lastAsk = ask; if (ask && !ask.gone) ensure(ask.x, ask.y); }
     for (const u of f.units) { const k = `${u.x},${u.y}`, was = stood.get(u); stood.set(u, k); if (was && was !== k && !u.gone && (f.turn !== f.human || !f.controls(u))) ensure(u.x, u.y); }
+    followWard(dt, st);
     if (goal) { const k = 1 - Math.exp(-dt * 7); view.x += (goal.x - view.x) * k; view.y += (goal.y - view.y) * k; if (Math.abs(goal.x - view.x) + Math.abs(goal.y - view.y) < 1) goal = null; place(); }
   }
   const resize = () => { layout(); if (autoFrame) resetView(); };
